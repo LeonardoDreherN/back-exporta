@@ -1,7 +1,7 @@
 const express = require('express')
 const dotenv = require('dotenv')
 const db = require('./models/index.js')
-const { registrarCliente, verClientes } = require('./controller/ClientesController.js')
+const { registrarCliente, verClientes, loginCliente } = require('./controller/ClientesController.js')
 // const cors = require('cors')
 
 dotenv.config()
@@ -19,8 +19,9 @@ const app = express()
 
 app.use(express.json())
 
-app.post('/clientes', registrarCliente);
-app.get('/clientes', verClientes);
+app.post('/registrarClientes', registrarCliente);
+app.post('/login', loginCliente);
+app.get('/verClientes', verClientes);
 
 db.sequelize.sync()
     .then(() => {
