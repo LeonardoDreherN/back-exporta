@@ -8,6 +8,7 @@ const app = express()
 module.exports = (sequelize) => {
 
     return sequelize.define('Cliente', {
+      id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
       // 📌 Dados Gerais
       razaoSocial: { type: DataTypes.STRING, allowNull: false },
       nomeFantasia: { type: DataTypes.STRING, allowNull: false },
@@ -69,5 +70,3 @@ module.exports = (sequelize) => {
       chavePix: { type: DataTypes.STRING, allowNull: false }
     });
 }
-
-// module.exports = Empresa;
