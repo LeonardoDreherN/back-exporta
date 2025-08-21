@@ -2,21 +2,86 @@ const db = require("../models/index.js");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
+async function gerarCodigoUnico() {
+    // ajuste seu prefixo/regra
+    let tentativas = 0;
+    while (tentativas < 5) {
+        const codigo = "CLI-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+        const jaExiste = await db.Cliente.findOne({ where: { codigo } });
+        if (!jaExiste) return codigo;
+        tentativas++;
+    }
+    throw new Error("Não foi possível gerar código único");
+}
+
 const registrarCliente = async (req, res) => {
+    const t = await db.sequelize.transaction(); // <<< transação
     try {
-        // pega todos os campos do body
-        const dadosCliente = req.body;
+        const b = req.body;
 
-        // gera hash da senha antes de salvar
-        const senhaHash = await bcrypt.hash(dadosCliente.senha, 10);
+        // 1) Validação mínima de campos obrigatórios
+        const required = [
+            "emailPrincipal", "senha", "tipoConta", "emailAssociado", "razaoSocial",
+            "enderecoPais", "enderecoCEP", "enderecoRua", "enderecoNumero",
+            "enderecoCidade", "enderecoEstado", "cnpj", "cnaePrincipal", "telefoneCelular"
+        ];
+        const missing = required.filter(k => !b[k] && b[k] !== 0);
+        if (missing.length) {
+            await t.rollback();
+            return res.status(400).json({ erro: `Campos obrigatórios ausentes: ${missing.join(", ")}` });
+        }
 
-        // substitui a senha original pela criptografada
-        dadosCliente.senha = senhaHash;
+        if (!["empresa", "parceiro"].includes(b.tipoConta)) {
+            await t.rollback();
+            return res.status(400).json({ erro: "tipoConta inválido. Use 'empresa' ou 'parceiro'." });
+        }
 
-        // cria cliente no banco
-        const novoCliente = await db.Cliente.create(dadosCliente);
+        // 2) Checagens de unicidade ANTES de criar
+        const [emailJa, cnpjJa, codigoJa] = await Promise.all([
+            db.Cliente.findOne({ where: { emailPrincipal: b.emailPrincipal }, transaction: t }),
+            db.Cliente.findOne({ where: { cnpj: b.cnpj }, transaction: t }),
+            b.codigo ? db.Cliente.findOne({ where: { codigo: b.codigo }, transaction: t }) : Promise.resolve(null),
+        ]);
 
-        res.status(201).json({
+        if (emailJa) { await t.rollback(); return res.status(409).json({ erro: "E-mail já cadastrado." }); }
+        if (cnpjJa) { await t.rollback(); return res.status(409).json({ erro: "CNPJ já cadastrado." }); }
+
+        // 3) Gera/valida 'codigo' no backend para evitar colisões
+        let codigoFinal = b.codigo;
+        if (!codigoFinal || codigoJa) {
+            codigoFinal = await gerarCodigoUnico();
+        }
+
+        // 4) Hash da senha
+        const senhaHash = await bcrypt.hash(b.senha, 10);
+
+        // 5) Whitelist: apenas os campos do model
+        const dadosCliente = {
+            emailPrincipal: b.emailPrincipal,
+            senha: senhaHash,
+            tipoConta: b.tipoConta,
+            emailAssociado: b.emailAssociado,
+            codigo: codigoFinal,
+            razaoSocial: b.razaoSocial,
+            enderecoPais: b.enderecoPais,
+            enderecoCEP: b.enderecoCEP,
+            enderecoRua: b.enderecoRua,
+            enderecoNumero: b.enderecoNumero,
+            enderecoComplemento: b.enderecoComplemento || null,
+            enderecoCidade: b.enderecoCidade,
+            enderecoEstado: b.enderecoEstado,
+            cnpj: b.cnpj,
+            cnaePrincipal: b.cnaePrincipal,
+            telefoneCelular: b.telefoneCelular,
+        };
+
+        // 6) Cria dentro da transação
+        const novoCliente = await db.Cliente.create(dadosCliente, { transaction: t });
+
+        // 7) Commit só após tudo OK
+        await t.commit();
+
+        return res.status(201).json({
             mensagem: "Cliente registrado com sucesso",
             cliente: {
                 id: novoCliente.id,
@@ -25,10 +90,18 @@ const registrarCliente = async (req, res) => {
             }
         });
     } catch (err) {
-        res.status(500).json({
-            erro: "Erro ao registrar cliente",
-            detalhes: err.message,
-        });
+        // Rollback garante que nada fique salvo se deu erro depois do create
+        try { await t.rollback(); } catch { }
+        console.error("❌ Erro ao registrar cliente:", err);
+
+        if (err instanceof UniqueConstraintError) {
+            const campos = Object.keys(err.fields || {});
+            return res.status(409).json({ erro: `Violação de unicidade${campos.length ? " em: " + campos.join(", ") : ""}` });
+        }
+        if (err instanceof ValidationError) {
+            return res.status(400).json({ erro: err.message });
+        }
+        return res.status(500).json({ erro: "Erro interno ao registrar cliente", detalhes: err.message });
     }
 };
 
