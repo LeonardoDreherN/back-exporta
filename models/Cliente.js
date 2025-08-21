@@ -1,8 +1,4 @@
-const express = require('express')
-const { Sequelize, DataTypes } = require('sequelize')
-const sequelize = require('../config/db.js')
-
-const app = express()
+const { DataTypes } = require('sequelize')
 
 // Model Empresa
 module.exports = (sequelize) => {
