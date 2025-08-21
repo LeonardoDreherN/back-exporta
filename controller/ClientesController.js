@@ -20,7 +20,6 @@ const registrarCliente = async (req, res) => {
             mensagem: "Cliente registrado com sucesso",
             cliente: {
                 id: novoCliente.id,
-                nomeFantasia: novoCliente.nomeFantasia,
                 cnpj: novoCliente.cnpj,
                 emailPrincipal: novoCliente.emailPrincipal,
             }
@@ -36,7 +35,7 @@ const registrarCliente = async (req, res) => {
 const verClientes = async (req, res) => {
     try {
         const clientes = await db.Cliente.findAll({
-            attributes: ["id", "nomeFantasia", "cnpj", "emailPrincipal"] // 🚫 não retorna senha
+            attributes: ["id", "cnpj", "emailPrincipal"] // 🚫 não retorna senha
         });
 
         res.json(clientes);
@@ -72,7 +71,7 @@ const loginCliente = async (req, res) => {
 
         res.json({
             mensagem: "Login bem-sucedido",
-            usuario: {
+            cliente: {
                 id: cliente.id,
                 emailPrincipal: cliente.emailPrincipal
             },

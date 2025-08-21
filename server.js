@@ -2,7 +2,7 @@ const express = require('express')
 const dotenv = require('dotenv')
 const db = require('./models/index.js')
 const { registrarCliente, verClientes, loginCliente } = require('./controller/ClientesController.js')
-// const cors = require('cors')
+const cors = require('cors')
 
 dotenv.config()
 
@@ -10,12 +10,12 @@ const PORT = process.env.PORT || 3001
 
 const app = express()
 
-// app.use(cors({
-//     origin: 'http://localhost:5173',
-//     methods: ['GET', 'POST'],
-//     allowedHeaders: ['Content-Type'],
-//     credentials: true
-// }))
+app.use(cors({
+    origin: 'http://localhost:3000',
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type'],
+    credentials: true
+}))
 
 app.use(express.json())
 
