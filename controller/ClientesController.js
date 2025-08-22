@@ -3,6 +3,7 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { validateCNPJ, onlyDigits } = require("../utils/cnpj.js");
 const { UniqueConstraintError, ValidationError } = require("sequelize");
+const { validateCNAE } = require("../utils/cnae.js");
 
 async function gerarCodigoUnico() {
     // ajuste seu prefixo/regra
@@ -43,6 +44,24 @@ const registrarCliente = async (req, res) => {
         if (!cnpjRes.valid) {
             await t.rollback();
             return res.status(400).json({ erro: "CNPJ inválido (dígitos verificadores)." });
+        }
+
+        const cleanCnae = String(b.cnaePrincipal || "").replace(/\D/g, "");
+        if (!(cleanCnae.length === 5 || cleanCnae.length === 7)) {
+            await t.rollback();
+            return res.status(400).json({ erro: "CNAE deve ter 5 (classe) ou 7 dígitos (subclasse)." });
+        }
+
+        const cnaeRes = await validateCNAE(cleanCnae);
+        console.log("[DEBUG CNAE]", cnaeRes); // <-- log temporário para ver o que vem
+
+        if (cnaeRes.valid !== true) {
+            await t.rollback();
+            return res.status(400).json({ erro: "CNAE inválido (formato)." });
+        }
+        if (cnaeRes.exists === false) {
+            await t.rollback();
+            return res.status(400).json({ erro: "CNAE não encontrado no IBGE." });
         }
 
         // 2) Checagens de unicidade ANTES de criar

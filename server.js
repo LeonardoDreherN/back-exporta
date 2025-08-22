@@ -14,6 +14,7 @@ if (typeof fetch === "undefined") {
 }
 
 const { validateCNPJ } = require("./utils/cnpj");
+const { validateCNAE } = require('./utils/cnae.js')
 
 const app = express()
 
@@ -37,6 +38,17 @@ app.get('/validate/cnpj', async (req, res) => {
     return res.status(200).json(out)
   } catch (e) {
     console.error("[/validate/cnpj]", e);
+    res.status(500).json({ valid: false, reason: "server" });
+  }
+});
+
+app.get('/validate/cnae', async (req, res) => {
+  try {
+    const { cnae } = req.query;
+    const out = await validateCNAE(cnae);
+    return res.status(200).json(out)
+  } catch (e) {
+    console.error("[/validate/cnae]", e);
     res.status(500).json({ valid: false, reason: "server" });
   }
 });
