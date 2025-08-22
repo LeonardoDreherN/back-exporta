@@ -8,6 +8,13 @@ dotenv.config()
 
 const PORT = process.env.PORT || 3001
 
+if (typeof fetch === "undefined") {
+  global.fetch = (...args) =>
+    import("node-fetch").then(({ default: f }) => f(...args));
+}
+
+const { validateCNPJ } = require("./utils/cnpj");
+
 const app = express()
 
 app.use(cors({
@@ -22,6 +29,17 @@ app.use(express.json())
 app.post('/registrarClientes', registrarCliente);
 app.post('/login', loginCliente);
 app.get('/verClientes', verClientes);
+
+app.get('/validate/cnpj', async (req, res) => {
+  try {
+    const { cnpj, online } = req.query;
+    const out = await validateCNPJ(cnpj, { online }); // só DV aqui
+    return res.status(200).json(out)
+  } catch (e) {
+    console.error("[/validate/cnpj]", e);
+    res.status(500).json({ valid: false, reason: "server" });
+  }
+});
 
 db.sequelize.sync()
     .then(() => {

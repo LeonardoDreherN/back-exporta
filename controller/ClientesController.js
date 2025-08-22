@@ -1,6 +1,8 @@
 const db = require("../models/index.js");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const { validateCNPJ, onlyDigits } = require("../utils/cnpj.js");
+const { UniqueConstraintError, ValidationError } = require("sequelize");
 
 async function gerarCodigoUnico() {
     // ajuste seu prefixo/regra
@@ -17,7 +19,7 @@ async function gerarCodigoUnico() {
 const registrarCliente = async (req, res) => {
     const t = await db.sequelize.transaction(); // <<< transação
     try {
-        const b = req.body;
+        const b = req.body || {};
 
         // 1) Validação mínima de campos obrigatórios
         const required = [
@@ -34,6 +36,13 @@ const registrarCliente = async (req, res) => {
         if (!["empresa", "parceiro"].includes(b.tipoConta)) {
             await t.rollback();
             return res.status(400).json({ erro: "tipoConta inválido. Use 'empresa' ou 'parceiro'." });
+        }
+
+        const cleanCnpj = onlyDigits(b.cnpj);
+        const cnpjRes = await validateCNPJ(cleanCnpj, { online: undefined }); // <<< sem internet
+        if (!cnpjRes.valid) {
+            await t.rollback();
+            return res.status(400).json({ erro: "CNPJ inválido (dígitos verificadores)." });
         }
 
         // 2) Checagens de unicidade ANTES de criar
@@ -75,6 +84,7 @@ const registrarCliente = async (req, res) => {
             telefoneCelular: b.telefoneCelular,
         };
 
+
         // 6) Cria dentro da transação
         const novoCliente = await db.Cliente.create(dadosCliente, { transaction: t });
 
@@ -99,7 +109,7 @@ const registrarCliente = async (req, res) => {
             return res.status(409).json({ erro: `Violação de unicidade${campos.length ? " em: " + campos.join(", ") : ""}` });
         }
         if (err instanceof ValidationError) {
-            return res.status(400).json({ erro: err.message });
+            return res.status(400).json({ erro: err.message + "###########" });
         }
         return res.status(500).json({ erro: "Erro interno ao registrar cliente", detalhes: err.message });
     }
