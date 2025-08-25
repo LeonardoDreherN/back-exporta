@@ -4,6 +4,7 @@ const jwt = require("jsonwebtoken");
 const { validateCNPJ, onlyDigits } = require("../utils/cnpj.js");
 const { UniqueConstraintError, ValidationError } = require("sequelize");
 const { validateCNAE } = require("../utils/cnae.js");
+const { validateEmailFormat } = require("../utils/email.js");
 
 async function gerarCodigoUnico() {
     // ajuste seu prefixo/regra
@@ -33,6 +34,11 @@ const registrarCliente = async (req, res) => {
             await t.rollback();
             return res.status(400).json({ erro: `Campos obrigatórios ausentes: ${missing.join(", ")}` });
         }
+
+        const e1 = validateEmailFormat ? validateEmailFormat(b.emailPrincipal) : { valid: true };
+        const e2 = validateEmailFormat ? validateEmailFormat(b.emailAssociado) : { valid: true };
+        if (!e1.valid) { await t.rollback(); return res.status(400).json({ erro: "E-mail principal inválido (formato)." }); }
+        if (!e2.valid) { await t.rollback(); return res.status(400).json({ erro: "E-mail associado inválido (formato)." }); }
 
         if (!["empresa", "parceiro"].includes(b.tipoConta)) {
             await t.rollback();
