@@ -1,7 +1,7 @@
 const express = require('express')
 const dotenv = require('dotenv')
 const db = require('./models/index.js')
-const { registrarCaixa, verCaixas } = require('./controller/CaixaController.js')
+const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js')
 const { registrarCliente, verClientes, loginCliente } = require('./controller/ClientesController.js')
 const cors = require('cors')
 
@@ -21,9 +21,10 @@ const app = express()
 
 app.use(cors({
     origin: 'http://localhost:3000',
-    methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type'],
-    credentials: true
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'authorization'],
+    exposedHeaders: ['Authorization'], 
+    credentials: false
 }))
 
 app.use(express.json())
@@ -58,6 +59,8 @@ app.get('/validate/cnae', async (req, res) => {
 
 app.post('/registrarCaixa', registrarCaixa)
 app.get('/verCaixas', verCaixas)
+app.delete('/excluirCaixa/:id', excluirCaixa)
+app.put('/editarCaixa', editarCaixa)
 
 db.sequelize.sync()
     .then(() => {

@@ -65,4 +65,67 @@ const verCaixas = async (req, res) => {
     }
 };
 
-module.exports = { registrarCaixa, verCaixas };
+const excluirCaixa = async (req, res) => {
+    try{
+        const { id } = req.params;
+        const caixa = await db.Caixa.findByPk(id);
+        if (!caixa) {
+            return res.status(404).json({ erro: "Caixa não encontrada" });
+        }
+        await caixa.destroy();
+        res.status(204).json({
+            message: "Caixa excluída com sucesso",
+            id: caixa.id
+        });
+    } catch (err) {
+        res.status(500).json({
+            erro: "Erro ao excluir caixa",
+            detalhes: err.message,
+        });
+    }
+}
+
+const editarCaixa = async (req, res) => {
+    
+    try {
+
+        const { id, cod_identificacao, descricao, altura, largura, profundidade, peso } = req.body;
+        
+        const caixa = await db.Caixa.findByPk(id);
+        if (!caixa) {
+            return res.status(404).json({ erro: "Caixa não encontrada" });
+        }
+
+        // Atualiza os campos da caixa
+        caixa.cod_identificacao = cod_identificacao;
+        caixa.descricao = descricao;
+        caixa.altura = altura;
+        caixa.largura = largura;
+        caixa.profundidade = profundidade;
+        caixa.peso = peso;
+
+        const novaCaixa = await db.Caixa.update({
+            cod_identificacao: caixa.cod_identificacao,
+            descricao: caixa.descricao,
+            altura: caixa.altura,
+            largura: caixa.largura,
+            profundidade: caixa.profundidade,
+            peso: caixa.peso
+        }, {
+            where: { id: caixa.id },
+            returning: true
+        });
+
+        res.status(200).json({
+            mensagem: "Caixa editada com sucesso",
+            caixa: novaCaixa[1][0]
+        });
+    } catch (err) {
+        res.status(500).json({
+            erro: "Erro ao editar caixa",
+            detalhes: err.message,
+        });
+    }
+}
+
+module.exports = { registrarCaixa, verCaixas, excluirCaixa, editarCaixa };
