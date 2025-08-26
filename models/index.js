@@ -1,5 +1,6 @@
 const { Sequelize } = require('sequelize');
 const ClienteModel = require('./Cliente.js');
+const CaixaModel = require('./Caixas.js')
 require('dotenv/config');
 
 // Inicializa Sequelize
@@ -19,7 +20,8 @@ const sequelize = new Sequelize(
 const db = {
   Sequelize,
   sequelize,
-  Cliente: ClienteModel(sequelize)
+  Cliente: ClienteModel(sequelize),
+  Caixa: CaixaModel(sequelize)
 };
 
 module.exports = db;
