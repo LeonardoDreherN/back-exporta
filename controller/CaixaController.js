@@ -73,66 +73,65 @@ const verCaixas = async (req, res) => {
 };
 
 const excluirCaixa = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const caixa = await db.Caixa.findByPk(id);
-        if (!caixa) {
-            return res.status(404).json({ erro: "Caixa não encontrada" });
-        }
-        await caixa.destroy();
-        res.status(204).json({
-            message: "Caixa excluída com sucesso",
-            id: caixa.id
-        });
-    } catch (err) {
-        res.status(500).json({
-            erro: "Erro ao excluir caixa",
-            detalhes: err.message,
-        });
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ erro: "ID inválido" });
     }
-}
+
+    // garanta que a caixa pertence ao cliente autenticado
+    const caixa = await db.Caixa.findOne({
+      where: { id, id_cliente: req.clienteId },
+    });
+    if (!caixa) {
+      // pode retornar 404 para “não existe/ não pertence”
+      return res.status(404).json({ erro: "Caixa não encontrada" });
+    }
+
+    await caixa.destroy();
+
+    return res.status(200).json({ mensagem: "Caixa excluída com sucesso", id: caixa.id });
+  } catch (err) {
+    console.error("❌ excluirCaixa:", err);
+    return res.status(500).json({ erro: "Erro ao excluir caixa", detalhes: err.message });
+  }
+};
 
 const editarCaixa = async (req, res) => {
-
-    try {
-
-        const { id, cod_identificacao, descricao, altura, largura, profundidade, peso } = req.body;
-
-        const caixa = await db.Caixa.findByPk(id);
-        if (!caixa) {
-            return res.status(404).json({ erro: "Caixa não encontrada" });
-        }
-
-        // Atualiza os campos da caixa
-        caixa.cod_identificacao = cod_identificacao;
-        caixa.descricao = descricao;
-        caixa.altura = altura;
-        caixa.largura = largura;
-        caixa.profundidade = profundidade;
-        caixa.peso = peso;
-
-        const novaCaixa = await db.Caixa.update({
-            cod_identificacao: caixa.cod_identificacao,
-            descricao: caixa.descricao,
-            altura: caixa.altura,
-            largura: caixa.largura,
-            profundidade: caixa.profundidade,
-            peso: caixa.peso
-        }, {
-            where: { id: caixa.id },
-            returning: true
-        });
-
-        res.status(200).json({
-            mensagem: "Caixa editada com sucesso",
-            caixa: novaCaixa[1][0]
-        });
-    } catch (err) {
-        res.status(500).json({
-            erro: "Erro ao editar caixa",
-            detalhes: err.message,
-        });
+  try {
+    // Se usar PUT /caixas/:id, troque para Number(req.params.id)
+    const id = Number(req.body.id);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ erro: "ID inválido" });
     }
-}
+
+    const { cod_identificacao, descricao, altura, largura, profundidade, peso } = req.body;
+
+    const a = Number(altura), l = Number(largura), p = Number(profundidade), kg = Number(peso);
+    if ([a, l, p, kg].some(n => !Number.isFinite(n) || n <= 0)) {
+      return res.status(400).json({ erro: "Dimensões e peso devem ser positivos" });
+    }
+
+    // só edita se for do cliente autenticado
+    const caixa = await db.Caixa.findOne({ where: { id, id_cliente: req.clienteId } });
+    if (!caixa) {
+      return res.status(404).json({ erro: "Caixa não encontrada" });
+    }
+
+    await caixa.update({
+      cod_identificacao,
+      descricao,
+      altura: a,
+      largura: l,
+      profundidade: p,
+      peso: kg,
+    });
+
+    return res.status(200).json({ mensagem: "Caixa editada com sucesso", caixa });
+  } catch (err) {
+    console.error("❌ editarCaixa:", err);
+    return res.status(500).json({ erro: "Erro ao editar caixa", detalhes: err.message });
+  }
+};
 
 module.exports = { registrarCaixa, verCaixas, excluirCaixa, editarCaixa };

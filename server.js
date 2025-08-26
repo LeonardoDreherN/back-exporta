@@ -60,8 +60,8 @@ app.get('/validate/cnae', async (req, res) => {
 
 app.post('/registrarCaixa', autenticar, vincularCliente, registrarCaixa)
 app.get('/verCaixas', autenticar, vincularCliente, verCaixas)
-app.delete('/excluirCaixa/:id', excluirCaixa)
-app.put('/editarCaixa', editarCaixa)
+app.delete('/excluirCaixa/:id', autenticar, vincularCliente, excluirCaixa)
+app.put('/editarCaixa', autenticar, vincularCliente, editarCaixa)
 
 db.sequelize.sync()
     .then(() => {
