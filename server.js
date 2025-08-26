@@ -1,6 +1,7 @@
 const express = require('express')
 const dotenv = require('dotenv')
 const db = require('./models/index.js')
+const { autenticar, vincularCliente } = require('./middleware/auth.js')
 const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js')
 const { registrarCliente, verClientes, loginCliente } = require('./controller/ClientesController.js')
 const cors = require('cors')
@@ -57,8 +58,8 @@ app.get('/validate/cnae', async (req, res) => {
 
 //CAIXAS
 
-app.post('/registrarCaixa', registrarCaixa)
-app.get('/verCaixas', verCaixas)
+app.post('/registrarCaixa', autenticar, vincularCliente, registrarCaixa)
+app.get('/verCaixas', autenticar, vincularCliente, verCaixas)
 app.delete('/excluirCaixa/:id', excluirCaixa)
 app.put('/editarCaixa', editarCaixa)
 

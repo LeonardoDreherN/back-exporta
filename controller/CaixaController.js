@@ -5,14 +5,19 @@ const registrarCaixa = async (req, res) => {
     try {
         const b = req.body || {};
 
+        const altura = Number(b.altura);
+        const largura = Number(b.largura);
+        const profundidade = Number(b.profundidade);
+        const peso = Number(b.peso);
+
         const payload = {
             cod_identificacao: b.cod_identificacao,
             descricao: b.descricao,
-            altura: b.altura,
-            largura: b.largura,
-            profundidade: b.profundidade,
-            peso: b.peso,
-            id_cliente: req.clienteId,
+            altura,
+            largura,
+            profundidade,
+            peso,
+            id_cliente: req.clienteId, // <<< automático do middleware
         };
 
         const obrigatorios = ['cod_identificacao', 'descricao', 'altura', 'largura', 'profundidade', 'peso'];
@@ -21,7 +26,7 @@ const registrarCaixa = async (req, res) => {
             return res.status(400).json({ erro: 'Campos obrigatórios faltando', campos: faltando });
         }
 
-        if(payload.altura <= 0 || payload.largura <= 0 || payload.profundidade <= 0 || payload.peso <= 0) {
+        if (payload.altura <= 0 || payload.largura <= 0 || payload.profundidade <= 0 || payload.peso <= 0) {
             return res.status(400).json({ erro: 'Dimensões e peso devem ser positivos' });
         }
 
@@ -53,7 +58,9 @@ const registrarCaixa = async (req, res) => {
 const verCaixas = async (req, res) => {
     try {
         const caixas = await db.Caixa.findAll({
-            attributes: ["id", "cod_identificacao", "descricao", "altura", "largura", "profundidade", "peso", "id_cliente"]
+            where: { id_cliente: req.clienteId },
+            attributes: ["id", "cod_identificacao", "descricao", "altura", "largura", "profundidade", "peso", "id_cliente"],
+            order: [["id", "DESC"]],
         });
 
         res.json(caixas);
@@ -66,7 +73,7 @@ const verCaixas = async (req, res) => {
 };
 
 const excluirCaixa = async (req, res) => {
-    try{
+    try {
         const { id } = req.params;
         const caixa = await db.Caixa.findByPk(id);
         if (!caixa) {
@@ -86,11 +93,11 @@ const excluirCaixa = async (req, res) => {
 }
 
 const editarCaixa = async (req, res) => {
-    
+
     try {
 
         const { id, cod_identificacao, descricao, altura, largura, profundidade, peso } = req.body;
-        
+
         const caixa = await db.Caixa.findByPk(id);
         if (!caixa) {
             return res.status(404).json({ erro: "Caixa não encontrada" });
