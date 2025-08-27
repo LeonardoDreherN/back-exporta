@@ -1,75 +1,92 @@
 const db = require("../models");
 
+const MAX_DIM = 10000;          // cm (100 m)
+const MAX_PESO_NUMERIC = 9999999.999;
+
+function isPosNumber(x) {
+  return Number.isFinite(x) && x > 0;
+}
+
 const registrarCaixa = async (req, res) => {
-    const t = await db.sequelize.transaction(); // <<< transação
-    try {
-        const b = req.body || {};
+  if (!req.clienteId) {
+    return res.status(401).json({ erro: "Cliente não autenticado" });
+  }
 
-        const altura = Number(b.altura);
-        const largura = Number(b.largura);
-        const profundidade = Number(b.profundidade);
-        const peso = Number(b.peso);
+  // const t = await db.sequelize.transaction(); // <<< transação
+  try {
+    const b = req.body || {};
 
-        const payload = {
-            cod_identificacao: b.cod_identificacao,
-            descricao: b.descricao,
-            altura,
-            largura,
-            profundidade,
-            peso,
-            id_cliente: req.clienteId, // <<< automático do middleware
-        };
+    const altura = Number(b.altura);
+    const largura = Number(b.largura);
+    const profundidade = Number(b.profundidade);
+    const peso = Number(b.peso);
 
-        const obrigatorios = ['cod_identificacao', 'descricao', 'altura', 'largura', 'profundidade', 'peso'];
-        const faltando = obrigatorios.filter(k => payload[k] === undefined || payload[k] === null || payload[k] === '');
-        if (faltando.length) {
-            return res.status(400).json({ erro: 'Campos obrigatórios faltando', campos: faltando });
-        }
+    const payload = {
+      cod_identificacao: b.cod_identificacao,
+      descricao: b.descricao,
+      altura,
+      largura,
+      profundidade,
+      peso,
+      id_cliente: req.clienteId, // <<< automático do middleware
+    };
 
-        if (payload.altura <= 0 || payload.largura <= 0 || payload.profundidade <= 0 || payload.peso <= 0) {
-            return res.status(400).json({ erro: 'Dimensões e peso devem ser positivos' });
-        }
-
-        const novaCaixa = await db.sequelize.transaction(async (t) => {
-            return db.Caixa.create(payload, { transaction: t });
-        });
-
-        return res.status(201).json({
-            mensagem: "Caixa registrada com sucesso",
-            caixa: {
-                id: novaCaixa.id,
-                cod_identificacao: novaCaixa.cod_identificacao,
-                descricao: novaCaixa.descricao,
-                altura: novaCaixa.altura,
-                largura: novaCaixa.largura,
-                profundidade: novaCaixa.profundidade,
-                peso: novaCaixa.peso,
-                id_cliente: novaCaixa.id_cliente,
-            }
-        });
-    } catch (err) {
-        // Rollback garante que nada fique salvo se deu erro depois do create
-        try { await t.rollback(); } catch { }
-        console.error("❌ Erro ao registrar cliente:", err);
-        return res.status(500).json({ erro: "Erro interno ao registrar cliente", detalhes: err.message });
+    const obrigatorios = ['cod_identificacao', 'descricao', 'altura', 'largura', 'profundidade', 'peso'];
+    const faltando = obrigatorios.filter(k => payload[k] === undefined || payload[k] === null || payload[k] === '');
+    if (faltando.length) {
+      return res.status(400).json({ erro: 'Campos obrigatórios faltando', campos: faltando });
     }
+
+    if (![altura, largura, profundidade, peso].every(isPosNumber)) {
+      return res.status(400).json({ erro: "Dimensões e peso devem ser números positivos" });
+    }
+    if (altura > MAX_DIM || largura > MAX_DIM || profundidade > MAX_DIM) {
+      return res.status(400).json({ erro: `Dimensões inválidas (0 < valor ≤ ${MAX_DIM} cm)` });
+    }
+    if (peso >= MAX_PESO_NUMERIC) { // evita 22003 no NUMERIC(10,3)
+      return res.status(400).json({ erro: "Peso inválido (máx. 9.999.999,999 kg)" });
+    }
+
+    const novaCaixa = await db.sequelize.transaction(async (t) => {
+      return db.Caixa.create(payload, { transaction: t });
+    });
+
+    return res.status(201).json({
+      mensagem: "Caixa registrada com sucesso",
+      caixa: {
+        id: novaCaixa.id,
+        cod_identificacao: novaCaixa.cod_identificacao,
+        descricao: novaCaixa.descricao,
+        altura: novaCaixa.altura,
+        largura: novaCaixa.largura,
+        profundidade: novaCaixa.profundidade,
+        peso: novaCaixa.peso,
+        id_cliente: novaCaixa.id_cliente,
+      }
+    });
+  } catch (err) {
+    // Rollback garante que nada fique salvo se deu erro depois do create
+    try { await t.rollback(); } catch { }
+    console.error("❌ Erro ao registrar cliente:", err);
+    return res.status(500).json({ erro: "Erro interno ao registrar cliente", detalhes: err.message });
+  }
 };
 
 const verCaixas = async (req, res) => {
-    try {
-        const caixas = await db.Caixa.findAll({
-            where: { id_cliente: req.clienteId },
-            attributes: ["id", "cod_identificacao", "descricao", "altura", "largura", "profundidade", "peso", "id_cliente"],
-            order: [["id", "DESC"]],
-        });
+  try {
+    const caixas = await db.Caixa.findAll({
+      where: { id_cliente: req.clienteId },
+      attributes: ["id", "cod_identificacao", "descricao", "altura", "largura", "profundidade", "peso", "id_cliente"],
+      order: [["id", "DESC"]],
+    });
 
-        res.json(caixas);
-    } catch (err) {
-        res.status(500).json({
-            erro: "Erro ao ver caixas",
-            detalhes: err.message,
-        });
-    }
+    res.json(caixas);
+  } catch (err) {
+    res.status(500).json({
+      erro: "Erro ao ver caixas",
+      detalhes: err.message,
+    });
+  }
 };
 
 const excluirCaixa = async (req, res) => {
@@ -99,34 +116,72 @@ const excluirCaixa = async (req, res) => {
 
 const editarCaixa = async (req, res) => {
   try {
-    // Se usar PUT /caixas/:id, troque para Number(req.params.id)
-    const id = Number(req.body.id);
+    if (!req.clienteId) return res.status(401).json({ erro: "Não autenticado" });
+
+    // aceita id no params ou no body
+    const id = Number(req.params.id ?? req.body.id);
     if (!Number.isFinite(id)) {
       return res.status(400).json({ erro: "ID inválido" });
     }
 
-    const { cod_identificacao, descricao, altura, largura, profundidade, peso } = req.body;
-
-    const a = Number(altura), l = Number(largura), p = Number(profundidade), kg = Number(peso);
-    if ([a, l, p, kg].some(n => !Number.isFinite(n) || n <= 0)) {
-      return res.status(400).json({ erro: "Dimensões e peso devem ser positivos" });
-    }
-
-    // só edita se for do cliente autenticado
+    // busca garantindo propriedade
     const caixa = await db.Caixa.findOne({ where: { id, id_cliente: req.clienteId } });
-    if (!caixa) {
-      return res.status(404).json({ erro: "Caixa não encontrada" });
-    }
+    if (!caixa) return res.status(404).json({ erro: "Caixa não encontrada" });
 
-    await caixa.update({
+    // campos opcionais: só atualiza o que veio
+    const {
       cod_identificacao,
       descricao,
-      altura: a,
-      largura: l,
-      profundidade: p,
-      peso: kg,
-    });
+      altura,
+      largura,
+      profundidade,
+      peso,
+    } = req.body;
 
+    const updateData = {};
+
+    if (typeof cod_identificacao === "string" && cod_identificacao.trim()) {
+      updateData.cod_identificacao = cod_identificacao.trim();
+    }
+    if (typeof descricao === "string" && descricao.trim()) {
+      updateData.descricao = descricao.trim();
+    }
+
+    const a = altura !== undefined ? Number(altura) : undefined;
+    const l = largura !== undefined ? Number(largura) : undefined;
+    const p = profundidade !== undefined ? Number(profundidade) : undefined;
+    const kg = peso !== undefined ? Number(peso) : undefined;
+
+    if (altura !== undefined) {
+      const a = Number(altura);
+      if (!isPosNumber(a) || a > MAX_DIM) {
+        return res.status(400).json({ erro: `Altura inválida (0 < altura ≤ ${MAX_DIM} cm)` });
+      }
+      updateData.altura = a;
+    }
+    if (largura !== undefined) {
+      const l = Number(largura);
+      if (!isPosNumber(l) || l > MAX_DIM) {
+        return res.status(400).json({ erro: `Largura inválida (0 < largura ≤ ${MAX_DIM} cm)` });
+      }
+      updateData.largura = l;
+    }
+    if (profundidade !== undefined) {
+      const p = Number(profundidade);
+      if (!isPosNumber(p) || p > MAX_DIM) {
+        return res.status(400).json({ erro: `Profundidade inválida (0 < profundidade ≤ ${MAX_DIM} cm)` });
+      }
+      updateData.profundidade = p;
+    }
+    if (peso !== undefined) {
+      const kg = Number(peso);
+      if (!isPosNumber(kg) || kg >= 10000000) {
+        return res.status(400).json({ erro: "Peso inválido (máx. 9.999.999,999 kg)" });
+      }
+      updateData.peso = kg;
+    }
+
+    await caixa.update(updateData);
     return res.status(200).json({ mensagem: "Caixa editada com sucesso", caixa });
   } catch (err) {
     console.error("❌ editarCaixa:", err);
