@@ -3,7 +3,7 @@ const { DataTypes } = require('sequelize')
 // Model Empresa
 module.exports = (sequelize) => {
 
-  return sequelize.define('Caixa', {
+  const Caixa = sequelize.define('Caixa', {
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     cod_identificacao: { type: DataTypes.STRING, allowNull: false, unique: true },
     descricao: { type: DataTypes.STRING, allowNull: false },
@@ -13,4 +13,15 @@ module.exports = (sequelize) => {
     peso: { type: DataTypes.DECIMAL(10,3), allowNull: false },
     id_cliente: { type: DataTypes.INTEGER, references: { model: 'Clientes', key: 'id' } },
   });
+
+  Caixa.associate = (models) => {
+    // relação inversa por CÓDIGO
+    Caixa.hasMany(models.Produto, {
+      foreignKey: 'cod_identificacao',
+      sourceKey: 'cod_identificacao',
+      as: 'Produtos'
+    });
+  };
+
+  return Caixa;
 }

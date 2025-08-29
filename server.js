@@ -26,13 +26,14 @@ if (typeof fetch === "undefined") {
 
 const { validateCNPJ } = require("./utils/cnpj");
 const { validateCNAE } = require('./utils/cnae.js')
+const { verProdutos, registrarProduto } = require('./controller/ProdutoController.js')
 
 
 
 app.use(express.json())
 
-app.post('/registrarClientes', autenticar, registrarCliente);
-app.post('/login', autenticar, loginCliente);
+app.post('/registrarClientes', registrarCliente);
+app.post('/login', loginCliente);
 app.get('/verClientes', autenticar, verClientes);
 app.get('/verClienteAtual', autenticar, verClienteAtual);
 
@@ -65,8 +66,10 @@ app.get('/verCaixas', autenticar, vincularCliente, verCaixas)
 app.delete('/excluirCaixa/:id', autenticar, vincularCliente, excluirCaixa)
 app.put(`/editarCaixa/:id`, autenticar, vincularCliente, editarCaixa)
 
+//PRODUTOS
 
-// app.use('/shopify', require('./routes/shopify-auth'));
+app.get('/verProdutos', verProdutos)
+app.post('/registrarProduto', registrarProduto)
 
 db.sequelize.sync()
     .then(() => {
