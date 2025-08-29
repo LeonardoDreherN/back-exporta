@@ -1,3 +1,5 @@
+
+const Cliente = require("../models/Cliente.js");
 const db = require("../models/index.js");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
@@ -171,7 +173,8 @@ const loginCliente = async (req, res) => {
         const token = jwt.sign(
             {
                 id: cliente.id,
-                emailPrincipal: cliente.emailPrincipal
+                emailPrincipal: cliente.emailPrincipal,
+                razaoSocial: cliente.razaoSocial
             },
             process.env.JWT_SECRET,
             { expiresIn: "1h" }
@@ -181,7 +184,8 @@ const loginCliente = async (req, res) => {
             mensagem: "Login bem-sucedido",
             cliente: {
                 id: cliente.id,
-                emailPrincipal: cliente.emailPrincipal
+                emailPrincipal: cliente.emailPrincipal,
+                razaoSocial: cliente.razaoSocial
             },
             token
         });
@@ -194,8 +198,27 @@ const loginCliente = async (req, res) => {
     }
 };
 
+const verClienteAtual = async(req, res) => {
+    try{
+        const cliente = await Cliente.findByPk(req.user.id,{
+            attributes: ["id", "cnpj", "emailPrincipal", "razaoSocial"]
+        })
+        if(!cliente){
+            return res.status(404).json({ erro: "Cliente não encontrado" });
+        }
+        res.json(cliente);
+    } catch (err) {
+        console.error("Erro ao ver cliente atual:", err);
+        res.status(500).json({
+            erro: "Erro interno do servidor",
+            detalhes: err.message
+        });
+    }
+}
+
 module.exports = {
     registrarCliente,
     verClientes,
     loginCliente,
+    verClienteAtual
 };

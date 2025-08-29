@@ -1,24 +1,15 @@
-const express = require('express')
 const dotenv = require('dotenv')
+const express = require('express')
 const db = require('./models/index.js')
 const { autenticar, vincularCliente } = require('./middleware/auth.js')
 const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js')
-const { registrarCliente, verClientes, loginCliente } = require('./controller/ClientesController.js')
+const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require('./controller/ClientesController.js')
 const cors = require('cors')
+const app = express()
 
 dotenv.config()
 
 const PORT = process.env.PORT || 3001
-
-if (typeof fetch === "undefined") {
-  global.fetch = (...args) =>
-    import("node-fetch").then(({ default: f }) => f(...args));
-}
-
-const { validateCNPJ } = require("./utils/cnpj");
-const { validateCNAE } = require('./utils/cnae.js')
-
-const app = express()
 
 app.use(cors({
     origin: 'http://localhost:3000',
@@ -28,11 +19,22 @@ app.use(cors({
     credentials: false
 }))
 
+if (typeof fetch === "undefined") {
+  global.fetch = (...args) =>
+    import("node-fetch").then(({ default: f }) => f(...args));
+}
+
+const { validateCNPJ } = require("./utils/cnpj");
+const { validateCNAE } = require('./utils/cnae.js')
+
+
+
 app.use(express.json())
 
-app.post('/registrarClientes', registrarCliente);
-app.post('/login', loginCliente);
-app.get('/verClientes', verClientes);
+app.post('/registrarClientes', autenticar, registrarCliente);
+app.post('/login', autenticar, loginCliente);
+app.get('/verClientes', autenticar, verClientes);
+app.get('/verClienteAtual', autenticar, verClienteAtual);
 
 app.get('/validate/cnpj', async (req, res) => {
   try {
@@ -62,6 +64,9 @@ app.post('/registrarCaixa', autenticar, vincularCliente, registrarCaixa)
 app.get('/verCaixas', autenticar, vincularCliente, verCaixas)
 app.delete('/excluirCaixa/:id', autenticar, vincularCliente, excluirCaixa)
 app.put(`/editarCaixa/:id`, autenticar, vincularCliente, editarCaixa)
+
+
+// app.use('/shopify', require('./routes/shopify-auth'));
 
 db.sequelize.sync()
     .then(() => {
