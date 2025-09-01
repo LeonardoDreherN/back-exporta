@@ -1,5 +1,11 @@
 const db = require("../models");
 
+const toNum = (v) => {
+    if (v === undefined || v === null || v === "") return undefined;
+    const n = Number(String(v).replace(",", "."));
+    return Number.isFinite(n) ? n : undefined;
+};
+
 const isPosNumber = (n) => Number.isFinite(n) && n > 0;
 // Se já tiver essas constantes, pode remover as defaults abaixo
 const MAX_DIM = global.MAX_DIM ?? 999999;
@@ -174,82 +180,97 @@ const excluirProduto = async (req, res) => {
 
 const editarProduto = async (req, res) => {
     try {
-        if (!req.clienteId) return res.status(401).json({ erro: "Não autenticado" });
+        const clienteId =
+            req.clienteId ?? req.userId ?? req.user?.id ?? req.usuario?.id ?? req.cliente?.id ?? null;
 
-        // aceita id no params ou no body
-        const id = Number(req.params.id ?? req.body.id);
-        if (!Number.isFinite(id)) {
+        if (!clienteId) return res.status(401).json({ erro: "Cliente não autenticado" });
+
+        const id = Number(req.params.id);
+        if (!Number.isInteger(id) || id <= 0) {
             return res.status(400).json({ erro: "ID inválido" });
         }
 
-        // busca garantindo propriedade
-        const produto = await db.Produto.findOne({ where: { id, id_cliente: req.clienteId } });
-        if (!produto) return res.status(404).json({ erro: "Produto não encontrado" });
+        const b = req.body || {};
+        const changes = {};
 
-        // campos opcionais: só atualiza o que veio
-        const {
-            sku,
-            nome,
-            descricao,
-            pais_origem,
-            categoria,
-            hscode,
-            altura,
-            largura,
-            profundidade,
-            peso,
-            cod_identificacao,
-        } = req.body;
+        // strings (apenas se vierem)
+        if (b.sku != null) changes.sku = String(b.sku).trim();
+        if (b.nome != null) changes.nome = String(b.nome).trim();
+        if (b.descricao != null) changes.descricao = String(b.descricao).trim();
+        if (b.pais_origem != null) changes.pais_origem = String(b.pais_origem).trim();
+        if (b.categoria != null) changes.categoria = String(b.categoria).trim();
+        if (b.hscode != null) changes.hscode = String(b.hscode).trim();
 
-        const updateData = {};
+        // números (apenas se vierem válidos)
+        const altura = toNum(b.altura);
+        const largura = toNum(b.largura);
+        const profundidade = toNum(b.profundidade);
+        const peso = toNum(b.peso);
+        if (altura !== undefined) changes.altura = altura;
+        if (largura !== undefined) changes.largura = largura;
+        if (profundidade !== undefined) changes.profundidade = profundidade;
+        if (peso !== undefined) changes.peso = peso;
 
-        if (typeof cod_identificacao === "string" && cod_identificacao.trim()) {
-            updateData.cod_identificacao = cod_identificacao.trim();
-        }
-        if (typeof descricao === "string" && descricao.trim()) {
-            updateData.descricao = descricao.trim();
-        }
+        // cod_identificacao (se vier, valida na Caixas do MESMO cliente)
+        if (b.cod_identificacao != null) {
+            const cod = String(b.cod_identificacao).trim();
+            if (!cod) return res.status(400).json({ erro: "cod_identificacao inválido" });
 
-        const a = altura !== undefined ? Number(altura) : undefined;
-        const l = largura !== undefined ? Number(largura) : undefined;
-        const p = profundidade !== undefined ? Number(profundidade) : undefined;
-        const kg = peso !== undefined ? Number(peso) : undefined;
-
-        if (altura !== undefined) {
-            const a = Number(altura);
-            if (!isPosNumber(a) || a > MAX_DIM) {
-                return res.status(400).json({ erro: `Altura inválida (0 < altura ≤ ${MAX_DIM} cm)` });
+            const caixa = await db.Caixa.findOne({
+                where: { id_cliente: clienteId, cod_identificacao: cod },
+            });
+            if (!caixa) {
+                return res.status(400).json({ erro: "cod_identificacao não encontrado para este cliente" });
             }
-            updateData.altura = a;
-        }
-        if (largura !== undefined) {
-            const l = Number(largura);
-            if (!isPosNumber(l) || l > MAX_DIM) {
-                return res.status(400).json({ erro: `Largura inválida (0 < largura ≤ ${MAX_DIM} cm)` });
-            }
-            updateData.largura = l;
-        }
-        if (profundidade !== undefined) {
-            const p = Number(profundidade);
-            if (!isPosNumber(p) || p > MAX_DIM) {
-                return res.status(400).json({ erro: `Profundidade inválida (0 < profundidade ≤ ${MAX_DIM} cm)` });
-            }
-            updateData.profundidade = p;
-        }
-        if (peso !== undefined) {
-            const kg = Number(peso);
-            if (!isPosNumber(kg) || kg >= 10000000) {
-                return res.status(400).json({ erro: "Peso inválido (máx. 9.999.999,999 kg)" });
-            }
-            updateData.peso = kg;
+            changes.cod_identificacao = cod;
         }
 
-        await produto.update(updateData);
-        return res.status(200).json({ mensagem: "Produto editado com sucesso", produto });
+        // nada para atualizar?
+        if (Object.keys(changes).length === 0) {
+            return res.status(400).json({ erro: "Nenhuma alteração informada" });
+        }
+
+        // checagens de duplicidade se sku/nome foram enviados
+        if (changes.sku) {
+            const exists = await db.Produto.count({
+                where: { id_cliente: clienteId, sku: changes.sku, id: { [db.Sequelize.Op.ne]: id } },
+            });
+            if (exists) return res.status(409).json({ erro: "SKU já em uso para este cliente." });
+        }
+        if (changes.nome) {
+            const exists = await db.Produto.count({
+                where: { id_cliente: clienteId, nome: changes.nome, id: { [db.Sequelize.Op.ne]: id } },
+            });
+            if (exists) return res.status(409).json({ erro: "Nome de produto já em uso para este cliente." });
+        }
+
+        // UPDATE com filtro por id e cliente
+        const [affected, rows] = await db.Produto.update(changes, {
+            where: { id, id_cliente: clienteId },
+            returning: true, // Postgres
+        });
+
+        if (affected === 0) {
+            return res.status(404).json({ erro: "Produto não encontrado" });
+        }
+
+        // devolve o registro atualizado
+        const produto = (rows?.[0] ? rows[0].toJSON?.() || rows[0] : null);
+        return res.json({ mensagem: "Produto editado com sucesso", produto });
+
     } catch (err) {
+        if (err?.original?.code === "23505") {
+            const c = err?.original?.constraint || "";
+            if (c.includes("produtos_cliente_sku_uq"))
+                return res.status(409).json({ erro: "SKU já em uso para este cliente." });
+            if (c.includes("produtos_cliente_nome_uq"))
+                return res.status(409).json({ erro: "Nome de produto já em uso para este cliente." });
+            return res.status(409).json({ erro: "Registro duplicado." });
+        }
         console.error("❌ editarProduto:", err);
-        return res.status(500).json({ erro: "Erro ao editar produto", detalhes: err.message });
+        return res.status(500).json({ erro: "Erro interno ao editar produto", detalhes: err.message });
     }
 };
+
 
 module.exports = { verProdutos, registrarProduto, excluirProduto, editarProduto };

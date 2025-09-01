@@ -70,8 +70,8 @@ app.put(`/editarCaixa/:id`, autenticar, vincularCliente, editarCaixa)
 
 app.get('/verProdutos', autenticar, verProdutos)
 app.post('/registrarProduto', autenticar, vincularCliente, registrarProduto)
-app.delete('/excluirProduto/:id', excluirProduto)
-app.put('/editarProduto/:id', editarProduto)
+app.delete('/excluirProduto/:id', autenticar, excluirProduto)
+app.put('/editarProduto/:id', autenticar, editarProduto)
 
 db.sequelize.sync()
     .then(() => {
