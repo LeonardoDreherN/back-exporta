@@ -19,6 +19,13 @@ const registrarProduto = async (req, res) => {
 
         const b = req.body || {};
 
+        const sku = (b.sku || '').trim();
+        const nome = (b.nome || '').trim();
+        const descricao = (b.descricao || '').trim();
+        const pais_origem = (b.pais_origem || '').trim();
+        const categoria = (b.categoria || '').trim();
+        const hscode = (b.hscode || '').trim();
+
         // normaliza números
         const altura = Number(b.altura);
         const largura = Number(b.largura);
@@ -35,21 +42,23 @@ const registrarProduto = async (req, res) => {
             null;
         const cod_identificacao = typeof rawCod === 'string' && rawCod.trim() !== '' ? rawCod.trim() : null;
 
-        const payload = {
-            sku: b.sku,
-            nome: b.nome,
-            descricao: b.descricao,
-            pais_origem: b.pais_origem,
-            categoria: b.categoria,
-            hscode: b.hscode,
-            altura, largura, profundidade, peso,
-            cod_identificacao, // <<< salva por CÓDIGO da caixa
-            clienteId: req.clienteId
+        const payloadPreview = {
+            sku,
+            nome,
+            descricao,
+            pais_origem,
+            categoria,
+            hscode,
+            altura,
+            largura,
+            profundidade,
+            peso,
+            cod_identificacao
         };
 
         // obrigatórios
-        const obrigatorios = ['sku', 'nome', 'descricao', 'pais_origem', 'categoria', 'hscode', 'altura', 'largura', 'profundidade', 'peso'];
-        const faltando = obrigatorios.filter(k => payload[k] === undefined || payload[k] === null || payload[k] === '');
+        const obrigatorios = ['sku', 'nome', 'descricao', 'pais_origem', 'categoria', 'hscode', 'altura', 'largura', 'profundidade', 'peso', 'cod_identificacao'];
+        const faltando = obrigatorios.filter(k => payloadPreview[k] === undefined || payloadPreview[k] === null || payloadPreview[k] === '');
         if (faltando.length) {
             return res.status(400).json({ erro: 'Campos obrigatórios faltando', campos: faltando });
         }
@@ -65,23 +74,30 @@ const registrarProduto = async (req, res) => {
             return res.status(400).json({ erro: 'Peso inválido (máx. 9.999.999,999 kg)' });
         }
 
-        // valida FK por código da produto (somente se enviado)
-        if (cod_identificacao != null) {           // nota: != null bloqueia null e undefined
-            const existeProduto = await db.Produto.count({
-                where: { cod_identificacao }          // nunca passa undefined aqui
+        // valida cliente (se vier)
+        const caixa = await db.Caixa.findOne({
+            where: { id_cliente: clienteId, cod_identificacao }
+        });
+        if (!caixa) {
+            return res.status(400).json({
+                erro: 'cod_identificacao inválido (não existe em Caixas para este cliente)'
             });
-            if (!existeProduto) {
-                return res.status(400).json({ erro: 'cod_identificacao inválido (não existe em Produtos.cod_identificacao)' });
-            }
         }
 
-        // valida cliente (se vier)
-        if (cod_identificacao) {
-            const ok = await db.Produto.count({
-                where: { cod_identificacao, clienteId: req.clienteId }
-            });
-            if (!ok) return res.status(400).json({ erro: 'cod_identificacao inválido para este cliente' });
-        }
+        const payload = {
+            sku,
+            nome,
+            descricao,
+            pais_origem,
+            categoria,
+            hscode,
+            altura,
+            largura,
+            profundidade,
+            peso,
+            cod_identificacao,
+            id_cliente: clienteId
+        };
 
         const novo = await db.Produto.create(payload);
 
