@@ -10,6 +10,7 @@ const autenticar = (req, res, next) => {
 
   try {
     req.usuario = jwt.verify(token, process.env.JWT_SECRET);
+    req.clienteId = req.usuario.id;
     next();
   } catch (e) {
     const msg = e?.name === "TokenExpiredError" ? "Token expirado" : "Token inválido";

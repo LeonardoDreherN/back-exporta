@@ -26,7 +26,7 @@ if (typeof fetch === "undefined") {
 
 const { validateCNPJ } = require("./utils/cnpj");
 const { validateCNAE } = require('./utils/cnae.js')
-const { verProdutos, registrarProduto } = require('./controller/ProdutoController.js')
+const { verProdutos, registrarProduto, editarProduto, excluirProduto } = require('./controller/ProdutoController.js')
 
 
 
@@ -69,7 +69,9 @@ app.put(`/editarCaixa/:id`, autenticar, vincularCliente, editarCaixa)
 //PRODUTOS
 
 app.get('/verProdutos', verProdutos)
-app.post('/registrarProduto', registrarProduto)
+app.post('/registrarProduto', autenticar, vincularCliente, registrarProduto)
+app.delete('/excluirProduto/:id', excluirProduto)
+app.put('/editarProduto/:id', editarProduto)
 
 db.sequelize.sync()
     .then(() => {

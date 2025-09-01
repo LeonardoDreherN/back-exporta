@@ -7,6 +7,16 @@ const MAX_PESO_NUMERIC = global.MAX_PESO_NUMERIC ?? 9999999.999;
 
 const registrarProduto = async (req, res) => {
     try {
+
+        const clienteId =
+            req.clienteId ??
+            req.userId ??
+            req.user?.id ??
+            req.usuario?.id ??
+            req.cliente?.id ??
+            null;
+        if (!clienteId) return res.status(401).json({ erro: 'Cliente não autenticado' });
+
         const b = req.body || {};
 
         // normaliza números
@@ -66,9 +76,11 @@ const registrarProduto = async (req, res) => {
         }
 
         // valida cliente (se vier)
-        if (payload.id_cliente != null) {
-            const existeCliente = await db.Cliente.count({ where: { id: payload.id_cliente } });
-            if (!existeCliente) return res.status(400).json({ erro: 'id_cliente inválido' });
+        if (cod_identificacao) {
+            const ok = await db.Caixa.count({
+                where: { cod_identificacao, id_cliente: req.clienteId }
+            });
+            if (!ok) return res.status(400).json({ erro: 'cod_identificacao inválido para este cliente' });
         }
 
         const novo = await db.Produto.create(payload);
@@ -102,32 +114,32 @@ const verProdutos = async (req, res) => {
     }
 };
 
-const excluirCaixa = async (req, res) => {
+const excluirProduto = async (req, res) => {
     try {
         const id = Number(req.params.id);
         if (!Number.isFinite(id)) {
             return res.status(400).json({ erro: "ID inválido" });
         }
 
-        // garanta que a caixa pertence ao cliente autenticado
-        const caixa = await db.Caixa.findOne({
-            where: { id, id_cliente: req.clienteId },
+        // garanta que o produto pertence ao cliente autenticado
+        const produto = await db.Produto.findOne({
+            where: { id },
         });
-        if (!caixa) {
+        if (!produto) {
             // pode retornar 404 para “não existe/ não pertence”
-            return res.status(404).json({ erro: "Caixa não encontrada" });
+            return res.status(404).json({ erro: "Produto não encontrado" });
         }
 
-        await caixa.destroy();
+        await produto.destroy();
 
-        return res.status(200).json({ mensagem: "Caixa excluída com sucesso", id: caixa.id });
+        return res.status(200).json({ mensagem: "Produto excluído com sucesso", id: produto.id });
     } catch (err) {
-        console.error("❌ excluirCaixa:", err);
-        return res.status(500).json({ erro: "Erro ao excluir caixa", detalhes: err.message });
+        console.error("❌ excluirProduto:", err);
+        return res.status(500).json({ erro: "Erro ao excluir produto", detalhes: err.message });
     }
 };
 
-const editarCaixa = async (req, res) => {
+const editarProduto = async (req, res) => {
     try {
         if (!req.clienteId) return res.status(401).json({ erro: "Não autenticado" });
 
@@ -138,17 +150,22 @@ const editarCaixa = async (req, res) => {
         }
 
         // busca garantindo propriedade
-        const caixa = await db.Caixa.findOne({ where: { id, id_cliente: req.clienteId } });
-        if (!caixa) return res.status(404).json({ erro: "Caixa não encontrada" });
+        const produto = await db.Produto.findOne({ where: { id, id_cliente: req.clienteId } });
+        if (!produto) return res.status(404).json({ erro: "Produto não encontrado" });
 
         // campos opcionais: só atualiza o que veio
         const {
-            cod_identificacao,
+            sku,
+            nome,
             descricao,
+            pais_origem,
+            categoria,
+            hscode,
             altura,
             largura,
             profundidade,
             peso,
+            cod_identificacao,
         } = req.body;
 
         const updateData = {};
@@ -194,12 +211,12 @@ const editarCaixa = async (req, res) => {
             updateData.peso = kg;
         }
 
-        await caixa.update(updateData);
-        return res.status(200).json({ mensagem: "Caixa editada com sucesso", caixa });
+        await produto.update(updateData);
+        return res.status(200).json({ mensagem: "Produto editado com sucesso", produto });
     } catch (err) {
-        console.error("❌ editarCaixa:", err);
-        return res.status(500).json({ erro: "Erro ao editar caixa", detalhes: err.message });
+        console.error("❌ editarProduto:", err);
+        return res.status(500).json({ erro: "Erro ao editar produto", detalhes: err.message });
     }
 };
 
-module.exports = { verProdutos, registrarProduto }
+module.exports = { verProdutos, registrarProduto, excluirProduto, editarProduto };
