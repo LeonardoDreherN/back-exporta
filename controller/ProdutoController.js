@@ -114,9 +114,26 @@ const registrarProduto = async (req, res) => {
 };
 
 const verProdutos = async (req, res) => {
+
     try {
+
+        const clienteId =
+            req.clienteId ??
+            req.userId ??
+            req.user?.id ??
+            req.usuario?.id ??
+            req.cliente?.id ??
+            req.decoded?.clienteId ??   // caso seu middleware ponha em req.decoded
+            req.decoded?.id_cliente ??  // fallback comum
+            null;
+
+        // garanta número inteiro > 0
+        const cid = Number(clienteId);
+        if (!Number.isInteger(cid) || cid <= 0) {
+            return res.status(401).json({ erro: "Cliente não autenticado" });
+        }
         const produtos = await db.Produto.findAll({
-            //   where: { id_cliente: req.clienteId },
+            where: { id_cliente: cid },
             attributes: ["id", "sku", "nome", "descricao", "pais_origem", "categoria", "hscode", "altura", "largura", "profundidade", "peso", "id_cliente", "cod_identificacao"],
             order: [["id", "DESC"]],
         });

@@ -68,7 +68,7 @@ app.put(`/editarCaixa/:id`, autenticar, vincularCliente, editarCaixa)
 
 //PRODUTOS
 
-app.get('/verProdutos', verProdutos)
+app.get('/verProdutos', autenticar, verProdutos)
 app.post('/registrarProduto', autenticar, vincularCliente, registrarProduto)
 app.delete('/excluirProduto/:id', excluirProduto)
 app.put('/editarProduto/:id', editarProduto)
