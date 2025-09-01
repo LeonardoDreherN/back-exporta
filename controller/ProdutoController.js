@@ -6,16 +6,16 @@ const MAX_DIM = global.MAX_DIM ?? 999999;
 const MAX_PESO_NUMERIC = global.MAX_PESO_NUMERIC ?? 9999999.999;
 
 const registrarProduto = async (req, res) => {
+    const clienteId =
+        req.clienteId ??
+        req.userId ??
+        req.user?.id ??
+        req.usuario?.id ??
+        req.cliente?.id ??
+        null;
+    if (!clienteId) return res.status(401).json({ erro: 'Cliente não autenticado' });
     try {
 
-        const clienteId =
-            req.clienteId ??
-            req.userId ??
-            req.user?.id ??
-            req.usuario?.id ??
-            req.cliente?.id ??
-            null;
-        if (!clienteId) return res.status(401).json({ erro: 'Cliente não autenticado' });
 
         const b = req.body || {};
 
@@ -43,8 +43,8 @@ const registrarProduto = async (req, res) => {
             categoria: b.categoria,
             hscode: b.hscode,
             altura, largura, profundidade, peso,
-            id_cliente: b.id_cliente ?? b.idCliente ?? null,
-            cod_identificacao // <<< salva por CÓDIGO da caixa
+            cod_identificacao, // <<< salva por CÓDIGO da caixa
+            clienteId: req.clienteId
         };
 
         // obrigatórios
@@ -65,20 +65,20 @@ const registrarProduto = async (req, res) => {
             return res.status(400).json({ erro: 'Peso inválido (máx. 9.999.999,999 kg)' });
         }
 
-        // valida FK por código da caixa (somente se enviado)
+        // valida FK por código da produto (somente se enviado)
         if (cod_identificacao != null) {           // nota: != null bloqueia null e undefined
-            const existeCaixa = await db.Caixa.count({
+            const existeProduto = await db.Produto.count({
                 where: { cod_identificacao }          // nunca passa undefined aqui
             });
-            if (!existeCaixa) {
-                return res.status(400).json({ erro: 'cod_identificacao inválido (não existe em Caixas.cod_identificacao)' });
+            if (!existeProduto) {
+                return res.status(400).json({ erro: 'cod_identificacao inválido (não existe em Produtos.cod_identificacao)' });
             }
         }
 
         // valida cliente (se vier)
         if (cod_identificacao) {
-            const ok = await db.Caixa.count({
-                where: { cod_identificacao, id_cliente: req.clienteId }
+            const ok = await db.Produto.count({
+                where: { cod_identificacao, clienteId: req.clienteId }
             });
             if (!ok) return res.status(400).json({ erro: 'cod_identificacao inválido para este cliente' });
         }
