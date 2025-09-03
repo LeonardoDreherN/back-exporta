@@ -31,6 +31,10 @@ module.exports = (sequelize) => {
             allowNull: true,
             // IMPORTANTE: não colocar "references" aqui!
         },
+
+        shop_domain: { type: DataTypes.STRING, allowNull: true },          // ex.: loja.myshopify.com
+        shopify_product_gid: { type: DataTypes.STRING, allowNull: true },  // ex.: gid://shopify/Product/123...
+        last_synced_at: { type: DataTypes.DATE, allowNull: true },
     }, {
         indexes: [
             { unique: true, name: 'produtos_cliente_sku_uq', fields: ['id_cliente', 'sku'] },

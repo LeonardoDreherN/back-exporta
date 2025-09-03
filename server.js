@@ -6,6 +6,7 @@ const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./cont
 const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require('./controller/ClientesController.js')
 const cors = require('cors')
 const app = express()
+const crypto = require('crypto')
 
 dotenv.config()
 
@@ -31,6 +32,66 @@ const { verProdutos, registrarProduto, editarProduto, excluirProduto } = require
 
 
 app.use(express.json())
+
+app.get('/', (req, res) => {
+  const { shop } = req.query;
+  if (shop) return res.redirect(`/auth?shop=${encodeURIComponent(shop)}`);
+  return res.status(200).send('OK');
+});
+
+// --- início do OAuth ---
+app.get('/auth', (req, res) => {
+  const { shop } = req.query;
+  if (!shop) return res.status(400).send('Missing shop (ex.: ?shop=sualoja.myshopify.com)');
+  const state = crypto.randomBytes(16).toString('hex'); // guarde em sessão/cookie se quiser validar depois
+  const redirectUri = `${process.env.HOST}/auth/callback`;
+  const url =
+    `https://${shop}/admin/oauth/authorize` +
+    `?client_id=${process.env.SHOPIFY_API_KEY}` +
+    `&scope=${encodeURIComponent(process.env.SCOPES)}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&state=${state}`;
+  res.redirect(url);
+});
+
+// --- callback: troca code por access_token ---
+app.get('/auth/callback', async (req, res) => {
+  try {
+    const { shop, code, hmac } = req.query;
+    if (!shop || !code || !hmac) return res.status(400).send('Missing params');
+
+    if (!isValidHmac(req.query)) return res.status(401).send('Invalid HMAC');
+
+    const tokenResp = await fetch(`https://${shop}/admin/oauth/access_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: process.env.SHOPIFY_API_KEY,
+        client_secret: process.env.SHOPIFY_API_SECRET,
+        code
+      })
+    });
+    if (!tokenResp.ok) throw new Error(await tokenResp.text());
+    const { access_token, scope } = await tokenResp.json();
+
+    // TODO: salve em DB: shop, access_token, scope, id_cliente (se tiver)
+    console.log('SHOPIFY TOKEN OK ->', shop, scope);
+
+    // página simples de sucesso
+    res.status(200).send('App instalado! Token salvo. Já pode rodar o /shopify/sync/simple.');
+  } catch (e) {
+    console.error('OAuth error:', e);
+    res.status(500).send('OAuth error');
+  }
+});
+
+// inicie o servidor (se já tiver app.listen, não duplique)
+if (!global.__server_listening__) {
+  app.listen(PORT, () => {
+    global.__server_listening__ = true;
+    console.log(`Servidor rodando na porta ${PORT}`);
+  });
+}
 
 app.post('/registrarClientes', registrarCliente);
 app.post('/login', loginCliente);

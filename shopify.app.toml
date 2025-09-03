@@ -1,0 +1,16 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "3144252f9ac5dcd00a237dfb44fe3afb"
+name = "testeShop"
+application_url = "http://localhost:3001/"
+embedded = true
+handle = "testeshop-1"
+
+[webhooks]
+api_version = "2025-07"
+
+[auth]
+redirect_urls = [ "http://localhost:3001/auth/callback" ]
+
+[pos]
+embedded = false
