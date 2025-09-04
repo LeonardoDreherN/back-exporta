@@ -29,7 +29,38 @@ const { validateCNPJ } = require("./utils/cnpj");
 const { validateCNAE } = require('./utils/cnae.js')
 const { verProdutos, registrarProduto, editarProduto, excluirProduto } = require('./controller/ProdutoController.js')
 
+function isValidHmac(query) {
+  // HMAC enviado pela Shopify
+  const receivedHmac = String(query.hmac || '');
 
+  // Remova hmac e signature do cálculo
+  const params = { ...query };
+  delete params.hmac;
+  delete params.signature;
+
+  // Monte a mensagem: chaves ordenadas alfabeticamente e unidas por &
+  const message = Object.keys(params)
+    .sort()
+    .map((key) => {
+      const value = Array.isArray(params[key]) ? params[key].join(',') : params[key];
+      return `${key}=${value}`;
+    })
+    .join('&');
+
+  // Gere o digest com seu API Secret
+  const digest = crypto
+    .createHmac('sha256', process.env.SHOPIFY_API_SECRET)
+    .update(message)
+    .digest('hex');
+
+  // Compare em tempo constante
+  if (digest.length !== receivedHmac.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(digest, 'utf8'), Buffer.from(receivedHmac, 'utf8'));
+  } catch {
+    return false;
+  }
+}
 
 app.use(express.json())
 
@@ -42,7 +73,7 @@ app.get('/', (req, res) => {
 // --- início do OAuth ---
 app.get('/auth', (req, res) => {
   const { shop } = req.query;
-  if (!shop) return res.status(400).send('Missing shop (ex.: ?shop=sualoja.myshopify.com)');
+  if (!shop) return res.status(400).send('Missing shop (ex.: thiago123456.myshopify.com)');
   const state = crypto.randomBytes(16).toString('hex'); // guarde em sessão/cookie se quiser validar depois
   const redirectUri = `${process.env.HOST}/auth/callback`;
   const url =
