@@ -51,7 +51,7 @@ app.get('/health', (_, res) => res.send('ok'))
 //ROUTES DA SHOPIFY
 
 app.get('/', comLoja, garantirInstalada, (req, res) => {
-  res.type('html').send('<h1>testeShop</h1><p>App carregado dentro do Admin ✅</p>');
+  res.type('html').send('<h1>teste</h1><p>App carregado dentro do Admin ✅</p>');
 });
 
 app.get('/_debug/shops', async (_req, res) => {
