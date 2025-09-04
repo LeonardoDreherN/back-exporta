@@ -2,18 +2,24 @@
 
 client_id = "3144252f9ac5dcd00a237dfb44fe3afb"
 name = "testeShop"
-application_url = "http://localhost:3001/"
+application_url = "https://alto-thick-min-causing.trycloudflare.com/"
 embedded = true
 handle = "testeshop-1"
+
+[build]
+include_config_on_deploy = true
 
 [webhooks]
 api_version = "2025-07"
 
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_content,read_customers,read_files,read_orders,read_products"
+
 [auth]
-redirect_urls = [ "http://localhost:3001/auth/callback" ]
+redirect_urls = [
+  "https://alto-thick-min-causing.trycloudflare.com/shopify/auth/callback"
+]
 
 [pos]
 embedded = false
-
-[access_scopes]
-scopes = "read_products, read_orders, read_customers, read_files, read_content"
