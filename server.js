@@ -1,18 +1,22 @@
-const dotenv = require('dotenv')
 const express = require('express')
+const app = express()
+const dotenv = require('dotenv')
 const db = require('./models/index.js')
+const cors = require('cors')
+const path = require('path')
+
 const { autenticar, vincularCliente } = require('./middleware/auth.js')
 const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js')
 const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require('./controller/ClientesController.js')
-const cors = require('cors')
-const app = express()
-
+const { verProdutosLojaShopify } = require('./controller/ShopifyController.js')
 const { comLoja, garantirInstalada } = require('./middleware/shopifyAuth.js')
+
 const shopifyModule = require('./routes/shopifyRoutes.js')
 const shopifyRouter = shopifyModule.router || shopifyModule
 
 dotenv.config()
 
+app.use(express.json())
 const PORT = process.env.PORT || 3001
 
 app.use(cors({
@@ -41,7 +45,6 @@ const { validateCNPJ } = require("./utils/cnpj");
 const { validateCNAE } = require('./utils/cnae.js')
 const { verProdutos, registrarProduto, editarProduto, excluirProduto } = require('./controller/ProdutoController.js')
 
-app.use(express.json())
 app.use('/shopify', shopifyRouter)
 
 
@@ -58,6 +61,11 @@ app.get('/_debug/shops', async (_req, res) => {
   const rows = await db.Shop.findAll({ attributes: ['shop','scope','updatedAt'] });
   res.json(rows);
 }); //confere se foi salvo no BD
+
+const EXPORTS_DIR = path.join(__dirname, 'exports')
+app.use('/exports', express.static(EXPORTS_DIR, {maxAge: '1h', etag: true}))
+
+app.get('/shopify/produtos', comLoja, garantirInstalada, verProdutosLojaShopify);
 
 //CLIENTES
 
