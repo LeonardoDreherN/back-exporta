@@ -48,7 +48,7 @@ app.get('/auth', (req, res) => {
   const url =
     `https://${shop}/admin/oauth/authorize` +
     `?client_id=${process.env.SHOPIFY_API_KEY}` +
-    `&scope=${encodeURIComponent(process.env.SCOPES)}` +
+    `&scope=${encodeURIComponent(process.env.SHOPIFY_SCOPES)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&state=${state}`;
   res.redirect(url);
@@ -84,14 +84,6 @@ app.get('/auth/callback', async (req, res) => {
     res.status(500).send('OAuth error');
   }
 });
-
-// inicie o servidor (se já tiver app.listen, não duplique)
-if (!global.__server_listening__) {
-  app.listen(PORT, () => {
-    global.__server_listening__ = true;
-    console.log(`Servidor rodando na porta ${PORT}`);
-  });
-}
 
 app.post('/registrarClientes', registrarCliente);
 app.post('/login', loginCliente);

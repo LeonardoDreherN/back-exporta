@@ -14,3 +14,6 @@ redirect_urls = [ "http://localhost:3001/auth/callback" ]
 
 [pos]
 embedded = false
+
+[access_scopes]
+scopes = "read_products, read_orders, read_customers, read_files, read_content"
