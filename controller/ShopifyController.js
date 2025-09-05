@@ -29,7 +29,7 @@ const verProdutosLojaShopify = async (req, res) => {
         const limit = Math.min(Number(req.query.limite) || 50, 250);
         const pageInfo = req.query.infoPagina ? String(req.query.infoPagina) : undefined;
         const fields = (req.query.fields && String(req.query.fields))
-            || ['id', 'title', 'handle', 'status', 'updated_at', 'image'].join(',');
+            || ['id', 'title', 'handle', 'product_type', 'status', 'updated_at', 'variants'].join(',');
 
         // Monta params REST (Shopify espera limit/page_info/fields)
         const params = new URLSearchParams({ limit: String(limit), fields });
@@ -46,6 +46,7 @@ const verProdutosLojaShopify = async (req, res) => {
             headers: {
                 'X-Shopify-Access-Token': token,
                 'Accept': 'application/json',
+                'Content-Type': 'application/json'
             },
             agent: KEEPALIVE_AGENT,   // funciona no node-fetch
             signal: ac.signal,
@@ -60,13 +61,28 @@ const verProdutosLojaShopify = async (req, res) => {
             });
         }
 
-        const link = resp.headers.get('link') || resp.headers.get('Link');
-        const nextPage = proximaPaginaDoLink(link);
+        const produtos = Array.isArray(body.products) ? body.products : []
 
-        return res.status(200).json({
-            produtos: body.products || [],
-            nextPage,
-        });
+        const produto = produtos.map(p => ({
+            id: p.id,
+            title: p.title,
+            handle: p.handle,
+            status: p.status,
+            updated_at: p.updated_at,
+            product_type: p.product_type,
+            variants: (p.variants || []).map(v => ({
+                id: v.id,
+                sku: v.sku,
+                weight: v.weight,          // número
+                unit: v.weight_unit,       // 'g' | 'kg' | 'oz' | 'lb'
+                grams: v.grams
+            }))
+        }))
+
+
+        const link = resp.headers.get('link') || resp.headers.get('Link');
+
+        return res.status(200).json(produtos);
     } catch (err) {
         const isAbort = String(err?.name || '').toLowerCase().includes('abort');
         if (isAbort) return res.status(504).json({ erro: 'Timeout consultando Shopify' });
