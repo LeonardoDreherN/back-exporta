@@ -1,5 +1,6 @@
 // controller/ShopifyController.js
 const https = require('https');
+const db = require("../models/index.js");
 
 // Polyfill fetch (Node < 18)
 if (typeof fetch === 'undefined') {
@@ -29,7 +30,7 @@ const verProdutosLojaShopify = async (req, res) => {
         const limit = Math.min(Number(req.query.limite) || 50, 250);
         const pageInfo = req.query.infoPagina ? String(req.query.infoPagina) : undefined;
         const fields = (req.query.fields && String(req.query.fields))
-            || ['id', 'title', 'product_type', 'status','updated_at', 'variants'].join(',');
+            || ['id', 'title', 'product_type', 'status', 'updated_at', 'variants'].join(',');
 
         // Monta params REST (Shopify espera limit/page_info/fields)
         const params = new URLSearchParams({ limit: String(limit), fields });
@@ -39,7 +40,7 @@ const verProdutosLojaShopify = async (req, res) => {
 
         // Timeout + keep-alive
         const ac = new AbortController();
-        const timeoutMs = Number(process.env.SHOPIFY_TIMEOUT_MS) || 15000;
+        const timeoutMs = 15000;
         const to = setTimeout(() => ac.abort(), timeoutMs);
 
         const resp = await fetch(url, {
@@ -62,7 +63,7 @@ const verProdutosLojaShopify = async (req, res) => {
         }
 
         const lista = Array.isArray(body.products) ? body.products : [];
-        
+
         const produtos = lista.map(p => ({
             id: p.id,
             title: p.title,
@@ -77,12 +78,12 @@ const verProdutosLojaShopify = async (req, res) => {
                 price: v.price,
             }))
         }))
-        
-        
+
+
         const link = resp.headers.get('link') || resp.headers.get('Link');
         const nextPage = proximaPaginaDoLink(link)
-        
-        return res.status(200).json({produtos, nextPage});
+
+        return res.status(200).json({ produtos, nextPage });
     } catch (err) {
         const isAbort = String(err?.name || '').toLowerCase().includes('abort');
         if (isAbort) return res.status(504).json({ erro: 'Timeout consultando Shopify' });
@@ -92,4 +93,54 @@ const verProdutosLojaShopify = async (req, res) => {
     }
 };
 
-module.exports = { verProdutosLojaShopify };
+
+//FORM INFO SHOPIFY
+
+const registrarLojaShopify = async (req, res) => {
+    try {
+        const b = req.body
+
+        const payload = {
+            shopifyApiKey: b.shopifyApiKey,
+            shopifyApiSecret: b.shopifyApiSecret,
+            apiVersion: b.apiVersion,
+            shopDomain: (b.shopDomain || "").toLowerCase(),
+            id_cliente: b.id_cliente
+        }
+
+        const obrigatorios = ['shopifyApiKey', 'shopifyApiSecret', 'apiVersion', 'shopDomain'];
+        const faltando = obrigatorios.filter(k => payload[k] === undefined || payload[k] === null || payload[k] === '');
+        if (faltando.length) {
+            return res.status(400).json({ erro: 'Campos obrigatórios faltando', campos: faltando });
+        }
+
+        const existente = await db.InfoShopify.findOne({ where: { shopDomain: payload.shopDomain } });
+        if (existente) {
+            return res.status(409).json({
+                erro: "Loja já conectada",
+                loja: { id: existente.id, shopDomain: existente.shopDomain, apiVersion: existente.apiVersion },
+            });
+        }
+
+        const lojaConectada = await db.sequelize.transaction(async (t) => {
+            return db.InfoShopify.create(payload, { transaction: t })
+        })
+
+        return res.status(201).json({
+            mensagem: "Loja conectada",
+            loja: {
+                id: lojaConectada.id,
+                shopifyApiKey: lojaConectada.shopifyApiKey,
+                shopifyApiSecret: lojaConectada.shopifyApiSecret,
+                apiVersion: lojaConectada.apiVersion,
+                shopDomain: lojaConectada.shopDomain,
+                id_cliente: lojaConectada.id_cliente
+            }
+        })
+
+    } catch (err) {
+        console.error("Erro ao conectar loja: ", err)
+    }
+}
+
+module.exports = { verProdutosLojaShopify, registrarLojaShopify };

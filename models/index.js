@@ -2,7 +2,8 @@ const { Sequelize } = require('sequelize');
 const ClienteModel = require('./Cliente.js');
 const CaixaModel = require('./Caixas.js')
 const ProdutoModel = require('./Produtos.js')
-const ShopModel = require('./Shop.js')
+const ShopModel = require('./Shop.js');
+const InfoShopifyModel = require('./InfoShopify.js');
 require('dotenv/config');
 
 // Inicializa Sequelize
@@ -25,7 +26,8 @@ const db = {
   Cliente: ClienteModel(sequelize),
   Caixa: CaixaModel(sequelize),
   Produto: ProdutoModel(sequelize),
-  Shop: ShopModel(sequelize)
+  Shop: ShopModel(sequelize),
+  InfoShopify: InfoShopifyModel(sequelize)
 };
 
 module.exports = db;

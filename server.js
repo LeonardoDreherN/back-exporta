@@ -8,8 +8,9 @@ const path = require('path')
 const { autenticar, vincularCliente } = require('./middleware/auth.js')
 const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js')
 const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require('./controller/ClientesController.js')
-const { verProdutosLojaShopify } = require('./controller/ShopifyController.js')
+const { verProdutosLojaShopify, registrarLojaShopify } = require('./controller/ShopifyController.js')
 const { comLoja, garantirInstalada } = require('./middleware/shopifyAuth.js')
+
 
 const shopifyModule = require('./routes/shopifyRoutes.js')
 const shopifyRouter = shopifyModule.router || shopifyModule
@@ -109,6 +110,10 @@ app.get('/verProdutos', autenticar, verProdutos)
 app.post('/registrarProduto', autenticar, vincularCliente, registrarProduto)
 app.delete('/excluirProduto/:id', autenticar, excluirProduto)
 app.put('/editarProduto/:id', autenticar, editarProduto)
+
+//SHOPIFY
+
+app.post('/conectarLoja', registrarLojaShopify)
 
 db.sequelize.sync()
   .then(() => {
