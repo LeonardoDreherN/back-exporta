@@ -113,7 +113,7 @@ app.put('/editarProduto/:id', autenticar, editarProduto)
 
 //SHOPIFY
 
-app.post('/conectarLoja', registrarLojaShopify)
+app.post('/conectarLoja', autenticar, registrarLojaShopify)
 
 db.sequelize.sync()
   .then(() => {

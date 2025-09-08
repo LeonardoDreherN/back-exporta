@@ -97,6 +97,10 @@ const verProdutosLojaShopify = async (req, res) => {
 //FORM INFO SHOPIFY
 
 const registrarLojaShopify = async (req, res) => {
+
+    const clienteId = req.clienteId ?? res.locals?.clienteId;
+
+    if(!clienteId) return res.status(401).json({ erro: "Cliente nao autenticado!"})
     try {
         const b = req.body
 
@@ -104,8 +108,8 @@ const registrarLojaShopify = async (req, res) => {
             shopifyApiKey: b.shopifyApiKey,
             shopifyApiSecret: b.shopifyApiSecret,
             apiVersion: b.apiVersion,
-            shopDomain: (b.shopDomain || "").toLowerCase(),
-            id_cliente: b.id_cliente
+            shopDomain: b.shopDomain,
+            id_cliente: clienteId
         }
 
         const obrigatorios = ['shopifyApiKey', 'shopifyApiSecret', 'apiVersion', 'shopDomain'];
