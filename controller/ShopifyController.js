@@ -7,7 +7,6 @@ if (typeof fetch === 'undefined') {
     global.fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 }
 
-const API_VERSION = process.env.API_VERSION || '2025-07';
 const KEEPALIVE_AGENT = new https.Agent({ keepAlive: true, keepAliveMsecs: 10_000, maxSockets: 50 });
 
 function proximaPaginaDoLink(link) {
@@ -22,9 +21,10 @@ const verProdutosLojaShopify = async (req, res) => {
         if (!req.shopDomain || !req.shopToken) {
             return res.status(401).json({ erro: 'Loja nao autenticada/instalada' });
         }
-
+        
         const shop = req.shopDomain;
         const token = req.shopToken;
+        const API_VERSION = req.apiVersion || "2025-07";
 
         // Defaults LEVES (evita payload gigante)
         const limit = Math.min(Number(req.query.limite) || 50, 250);
@@ -40,8 +40,7 @@ const verProdutosLojaShopify = async (req, res) => {
 
         // Timeout + keep-alive
         const ac = new AbortController();
-        const timeoutMs = 15000;
-        const to = setTimeout(() => ac.abort(), timeoutMs);
+        const to = setTimeout(() => ac.abort(), 15000);
 
         const resp = await fetch(url, {
             headers: {
