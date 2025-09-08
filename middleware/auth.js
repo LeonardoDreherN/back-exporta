@@ -2,21 +2,49 @@
 const jwt = require("jsonwebtoken");
 const db = require("../models");
 
-// Autentica e injeta o payload do token
-const autenticar = (req, res, next) => {
+function extrairToken(req) {
+  // 1) Authorization: Bearer xxx
   const auth = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-  if (!token) return res.status(401).json({ erro: "Token não fornecido" });
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (m) return m[1];
+
+  // 2) (opcional) cookie httpOnly: token
+  if (req.cookies?.token) return req.cookies.token;
+
+  return null;
+}
+
+function autenticar(req, res, next) {
+  const token = extrairToken(req);
+  if (!token) {
+    return res.status(401).json({ erro: "Token não fornecido" });
+  }
 
   try {
-    req.usuario = jwt.verify(token, process.env.JWT_SECRET);
-    req.clienteId = req.usuario.id;
-    next();
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // aceite as variações de claims
+    const clienteId = decoded.sub || decoded.id || decoded.clienteId;
+    if (!clienteId) {
+      return res.status(401).json({ erro: "Token válido, mas sem clienteId" });
+    }
+
+    // padronize sempre nestes campos:
+    req.clienteId = clienteId;
+    req.user = {
+      id: clienteId,
+      email: decoded.email || decoded.emailPrincipal || null,
+      roles: decoded.roles || [],
+      // se quiser manter o payload completo:
+      // payload: decoded,
+    };
+
+    return next();
   } catch (e) {
     const msg = e?.name === "TokenExpiredError" ? "Token expirado" : "Token inválido";
     return res.status(401).json({ erro: msg });
   }
-};
+}
 
 // Resolve qual é o cliente logado e injeta req.clienteId
 const vincularCliente = async (req, res, next) => {

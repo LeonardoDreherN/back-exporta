@@ -100,7 +100,7 @@ const registrarLojaShopify = async (req, res) => {
 
     const clienteId = req.clienteId ?? res.locals?.clienteId;
 
-    if(!clienteId) return res.status(401).json({ erro: "Cliente nao autenticado!"})
+    if (!clienteId) return res.status(401).json({ erro: "Cliente nao autenticado!" })
     try {
         const b = req.body
 
@@ -116,6 +116,14 @@ const registrarLojaShopify = async (req, res) => {
         const faltando = obrigatorios.filter(k => payload[k] === undefined || payload[k] === null || payload[k] === '');
         if (faltando.length) {
             return res.status(400).json({ erro: 'Campos obrigatórios faltando', campos: faltando });
+        }
+
+        const jaTem = await db.InfoShopify.findOne({ where: { id_cliente: clienteId } });
+        if (jaTem) {
+            return res.status(409).json({
+                erro: "Cliente já possui uma loja conectada",
+                loja: { id: jaTem.id, shopDomain: jaTem.shopDomain, apiVersion: jaTem.apiVersion },
+            });
         }
 
         const existente = await db.InfoShopify.findOne({ where: { shopDomain: payload.shopDomain } });

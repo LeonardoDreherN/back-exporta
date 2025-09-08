@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const db = require('../models');
+const { autenticarJWT, autenticar } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -84,4 +85,22 @@ router.get('/auth/callback', async (req, res) => {
     }
 });
 
-module.exports = { router, tokenLoja, stateLoja };
+router.get("/conexao", autenticar, async (req, res) => {
+    try {
+        const clienteId = req.clienteId ?? res.locals?.clienteId;
+        if (!clienteId) return res.status(401).json({ erro: "Cliente nao autenticado!" });
+
+        const loja = await db.InfoShopify.findOne({
+            where: { id_cliente: clienteId },
+            attributes: ["id", "shopDomain", "apiVersion", "createdAt", "updatedAt"],
+        });
+
+        if (!loja) return res.json({ connected: false });
+        return res.json({ connected: true, loja });
+    } catch (e) {
+        console.error("Erro em GET /shopify/conexao:", e);
+        return res.status(500).json({ erro: "Falha ao verificar conexão" });
+    }
+});
+
+module.exports = router;

@@ -1,6 +1,7 @@
 const express = require('express')
 const app = express()
 const dotenv = require('dotenv')
+dotenv.config()
 const db = require('./models/index.js')
 const cors = require('cors')
 const path = require('path')
@@ -11,13 +12,10 @@ const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require
 const { verProdutosLojaShopify, registrarLojaShopify } = require('./controller/ShopifyController.js')
 const { comLoja, garantirInstalada } = require('./middleware/shopifyAuth.js')
 
-
 const shopifyModule = require('./routes/shopifyRoutes.js')
-const shopifyRouter = shopifyModule.router || shopifyModule
-
-dotenv.config()
 
 app.use(express.json())
+app.use(shopifyModule)
 const PORT = process.env.PORT || 3001
 
 app.use(cors({
@@ -46,8 +44,14 @@ const { validateCNPJ } = require("./utils/cnpj");
 const { validateCNAE } = require('./utils/cnae.js')
 const { verProdutos, registrarProduto, editarProduto, excluirProduto } = require('./controller/ProdutoController.js')
 
-app.use('/shopify', shopifyRouter)
-
+app.use((req, res, next) => {
+  res.setHeader(
+    'Content-Security-Policy',
+    "frame-ancestors https://admin.shopify.com https://*.myshopify.com https://*.shopify.com;"
+  );
+  res.removeHeader('X-Frame-Options');
+  next();
+});
 
 //saúde
 app.get('/health', (_, res) => res.send('ok'))
@@ -66,6 +70,7 @@ app.get('/_debug/shops', async (_req, res) => {
 const EXPORTS_DIR = path.join(__dirname, 'exports')
 app.use('/exports', express.static(EXPORTS_DIR, {maxAge: '1h', etag: true}))
 
+app.use('/shopify', shopifyModule)
 app.get('/shopify/produtos', comLoja, garantirInstalada, verProdutosLojaShopify);
 
 //CLIENTES
