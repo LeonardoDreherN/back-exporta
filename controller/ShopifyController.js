@@ -1,6 +1,9 @@
 // controller/ShopifyController.js
 const https = require('https');
 const db = require("../models/index.js");
+const { norm } = require('../utils/norm.js');
+const { getAccessTokenForShop } = require('../middleware/shopifyAuth.js');
+const { Op } = require('sequelize');
 
 // Polyfill fetch (Node < 18)
 if (typeof fetch === 'undefined') {
@@ -15,28 +18,190 @@ function proximaPaginaDoLink(link) {
     return m ? decodeURIComponent(m[1]) : null;
 }
 
+// async function resolveShopRow(req) {
+//     const clienteId = req.clienteId ?? req?.res?.locals?.clienteId ?? req?.res?.locals?.clienteId;
+//     if (!clienteId) {
+//         const err = new Error('Cliente não autenticado');
+//         err.http = 401;
+//         throw err;
+//     }
+
+//     const total = await db.InfoShopify.count({ where: { id_cliente: clienteId } });
+
+//     // Se o middleware já preencheu e não há ambiguidade, aproveite
+//     if (req.shopDomain && total <= 1) {
+//         const row = await db.InfoShopify.findOne({
+//             where: { id_cliente: clienteId, shopDomain: String(req.shopDomain).toLowerCase() },
+//             attributes: ['shopDomain', 'apiVersion', 'shopifyApiSecret'],
+//             raw: true,
+//         });
+//         if (row) return row;
+//         // se não achou, continua fluxo abaixo
+//     }
+
+//     // Quando houver múltiplas lojas, exija ?shop=...
+//     let candidate = null;
+//     if (req.query?.shop) {
+//         try { candidate = norm(req.query.shop); } catch (e) {
+//             const err = new Error(e.message || 'shop inválido');
+//             err.http = 400;
+//             throw err;
+//         }
+//     } else if (total > 1) {
+//         const lojas = await db.InfoShopify.findAll({
+//             where: { id_cliente: clienteId },
+//             attributes: ['shopDomain'],
+//             raw: true
+//         });
+//         const dica = lojas.length ? ` Ex.: ?shop=${lojas[0].shopDomain}` : '';
+//         const err = new Error('Sua conta possui múltiplas lojas; informe o parâmetro ?shop=loja.myshopify.com.' + dica);
+//         err.http = 400;
+//         throw err;
+//     }
+
+//     if (candidate) {
+//         // Match canônico
+//         const row = await db.InfoShopify.findOne({
+//             where: { id_cliente: clienteId, shopDomain: candidate },
+//             attributes: ['shopDomain', 'apiVersion', 'shopifyApiSecret'],
+//             raw: true,
+//         });
+//         if (row) return row;
+
+//         // Pequenos fallbacks para registros antigos "sujos"
+//         const fallback = await db.InfoShopify.findOne({
+//             where: {
+//                 id_cliente: clienteId,
+//                 [Op.or]: [
+//                     { shopDomain: `https://${candidate}` },
+//                     { shopDomain: `${candidate}/` },
+//                     { shopDomain: candidate.toUpperCase() },
+//                 ],
+//             },
+//             attributes: ['shopDomain', 'apiVersion', 'shopifyApiSecret'],
+//             raw: true,
+//         });
+//         if (fallback) return fallback;
+
+//         const err = new Error('Esta loja não pertence à sua conta (ou não está cadastrada com este domínio).');
+//         err.http = 403;
+//         throw err;
+//     }
+
+//     // Apenas 1 loja => use-a
+//     const unica = await db.InfoShopify.findOne({
+//         where: { id_cliente: clienteId },
+//         attributes: ['shopDomain', 'apiVersion', 'shopifyApiSecret'],
+//         order: [['createdAt', 'DESC']],
+//         raw: true,
+//     });
+//     if (!unica) {
+//         const err = new Error('Cliente não possui loja conectada');
+//         err.http = 404;
+//         throw err;
+//     }
+//     return unica;
+// }
+
+async function resolveLojaEToken(req) {
+    const clienteId = req.clienteId ?? req?.res?.locals?.clienteId;
+    if (!clienteId) {
+        const err = new Error('Cliente não autenticado');
+        err.http = 401;
+        throw err;
+    }
+
+    const total = await db.InfoShopify.count({ where: { id_cliente: clienteId } });
+
+    // Se houver várias lojas, exija ?shop=...
+    let candidate = null;
+    if (req.query?.shop) {
+        try { candidate = norm(req.query.shop); } catch (e) {
+            const err = new Error(e.message || 'shop inválido');
+            err.http = 400;
+            throw err;
+        }
+    } else if (total > 1) {
+        const lojas = await db.InfoShopify.findAll({
+            where: { id_cliente: clienteId },
+            attributes: ['shopDomain'],
+            raw: true
+        });
+        const dica = lojas.length ? ` Ex.: ?shop=${lojas[0].shopDomain}` : '';
+        const err = new Error('Sua conta possui múltiplas lojas; informe ?shop=loja.myshopify.com.' + dica);
+        err.http = 400;
+        throw err;
+    }
+
+    // Seleciona a linha canônica da InfoShopifies
+    let infoRow;
+    if (candidate) {
+        infoRow = await db.InfoShopify.findOne({
+            where: { id_cliente: clienteId, shopDomain: candidate },
+            attributes: ['shopDomain', 'apiVersion'],
+            raw: true
+        });
+        if (!infoRow) {
+            // pequenos fallbacks p/ registros antigos “sujos”
+            infoRow = await db.InfoShopify.findOne({
+                where: {
+                    id_cliente: clienteId,
+                    [Op.or]: [
+                        { shopDomain: `https://${candidate}` },
+                        { shopDomain: `${candidate}/` },
+                        { shopDomain: candidate.toUpperCase() },
+                    ],
+                },
+                attributes: ['shopDomain', 'apiVersion'],
+                raw: true
+            });
+            if (!infoRow) {
+                const err = new Error('Esta loja não pertence à sua conta (ou não está cadastrada).');
+                err.http = 403;
+                throw err;
+            }
+        }
+    } else {
+        infoRow = await db.InfoShopify.findOne({
+            where: { id_cliente: clienteId },
+            attributes: ['shopDomain', 'apiVersion'],
+            order: [['createdAt', 'DESC']],
+            raw: true
+        });
+        if (!infoRow) {
+            const err = new Error('Cliente não possui loja conectada');
+            err.http = 404;
+            throw err;
+        }
+    }
+
+    const shop = norm(infoRow.shopDomain); // garante canônico
+    const { token, scope } = await getAccessTokenForShop(shop);
+
+    if (!token) {
+        const err = new Error('Token de acesso ausente para esta loja. Reinstale o app para gerar o token.');
+        err.http = 401;
+        throw err;
+    }
+
+    const apiVersion = req.apiVersion || infoRow.apiVersion || "2025-07";
+    return { shop, token, apiVersion, scope };
+}
+
 const verProdutosLojaShopify = async (req, res) => {
     try {
-        // middlewares comLoja/garantirInstalada devem preencher:
-        if (!req.shopDomain || !req.shopToken) {
-            return res.status(401).json({ erro: 'Loja nao autenticada/instalada' });
-        }
-        
-        const shop = req.shopDomain;
-        const token = req.shopToken;
-        const API_VERSION = req.apiVersion || "2025-07";
+        const { shop, token, apiVersion } = await resolveLojaEToken(req);
 
-        // Defaults LEVES (evita payload gigante)
+        // Defaults (evitar payload gigantes)
         const limit = Math.min(Number(req.query.limite) || 50, 250);
         const pageInfo = req.query.infoPagina ? String(req.query.infoPagina) : undefined;
         const fields = (req.query.fields && String(req.query.fields))
             || ['id', 'title', 'product_type', 'status', 'updated_at', 'variants'].join(',');
 
-        // Monta params REST (Shopify espera limit/page_info/fields)
         const params = new URLSearchParams({ limit: String(limit), fields });
         if (pageInfo) params.set('page_info', pageInfo);
 
-        const url = `https://${shop}/admin/api/${API_VERSION}/products.json?${params.toString()}`;
+        const url = `https://${shop}/admin/api/${apiVersion}/products.json?${params.toString()}`;
 
         // Timeout + keep-alive
         const ac = new AbortController();
@@ -48,7 +213,7 @@ const verProdutosLojaShopify = async (req, res) => {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
             },
-            agent: KEEPALIVE_AGENT,   // funciona no node-fetch
+            agent: KEEPALIVE_AGENT,
             signal: ac.signal,
         }).finally(() => clearTimeout(to));
 
@@ -62,7 +227,6 @@ const verProdutosLojaShopify = async (req, res) => {
         }
 
         const lista = Array.isArray(body.products) ? body.products : [];
-
         const produtos = lista.map(p => ({
             id: p.id,
             title: p.title,
@@ -71,22 +235,22 @@ const verProdutosLojaShopify = async (req, res) => {
             variants: (p.variants || []).map(v => ({
                 id: v.id,
                 sku: v.sku,
-                weight: v.weight,          // número
-                weight_unit: v.weight_unit,       // 'g' | 'kg' | 'oz' | 'lb'
+                weight: v.weight,
+                weight_unit: v.weight_unit,
                 grams: v.grams,
                 price: v.price,
             }))
-        }))
-
+        }));
 
         const link = resp.headers.get('link') || resp.headers.get('Link');
-        const nextPage = proximaPaginaDoLink(link)
+        const nextPage = proximaPaginaDoLink(link);
 
-        return res.status(200).json({ produtos, nextPage });
+        return res.status(200).json({ produtos, nextPage, loja: shop });
     } catch (err) {
         const isAbort = String(err?.name || '').toLowerCase().includes('abort');
         if (isAbort) return res.status(504).json({ erro: 'Timeout consultando Shopify' });
-
+        const http = err?.http || 500;
+        if (http !== 500) return res.status(http).json({ erro: err.message });
         console.error('❌ verProdutosLojaShopify:', err);
         return res.status(500).json({ erro: 'Erro interno', detalhes: err.message });
     }
@@ -98,31 +262,30 @@ const verProdutosLojaShopify = async (req, res) => {
 const registrarLojaShopify = async (req, res) => {
 
     const clienteId = req.clienteId ?? res.locals?.clienteId;
-
     if (!clienteId) return res.status(401).json({ erro: "Cliente nao autenticado!" })
+
     try {
         const b = req.body
 
-        const payload = {
-            shopifyApiKey: b.shopifyApiKey,
-            shopifyApiSecret: b.shopifyApiSecret,
-            apiVersion: b.apiVersion,
-            shopDomain: b.shopDomain,
-            id_cliente: clienteId
+        let shopDomainNorm;
+        try {
+            shopDomainNorm = norm(b.shopDomain);
+        } catch (e) {
+            return res.status(400).json({ erro: e.message || 'shopDomain inválido' });
         }
+
+        const payload = {
+            shopifyApiKey: String(b.shopifyApiKey || ''),
+            shopifyApiSecret: String(b.shopifyApiSecret || ''),
+            apiVersion: String(b.apiVersion || ''),
+            shopDomain: shopDomainNorm,
+            id_cliente: clienteId
+        };
 
         const obrigatorios = ['shopifyApiKey', 'shopifyApiSecret', 'apiVersion', 'shopDomain'];
         const faltando = obrigatorios.filter(k => payload[k] === undefined || payload[k] === null || payload[k] === '');
         if (faltando.length) {
             return res.status(400).json({ erro: 'Campos obrigatórios faltando', campos: faltando });
-        }
-
-        const jaTem = await db.InfoShopify.findOne({ where: { id_cliente: clienteId } });
-        if (jaTem) {
-            return res.status(409).json({
-                erro: "Cliente já possui uma loja conectada",
-                loja: { id: jaTem.id, shopDomain: jaTem.shopDomain, apiVersion: jaTem.apiVersion },
-            });
         }
 
         const existente = await db.InfoShopify.findOne({ where: { shopDomain: payload.shopDomain } });
@@ -133,9 +296,7 @@ const registrarLojaShopify = async (req, res) => {
             });
         }
 
-        const lojaConectada = await db.sequelize.transaction(async (t) => {
-            return db.InfoShopify.create(payload, { transaction: t })
-        })
+        const lojaConectada = await db.InfoShopify.create(payload);
 
         return res.status(201).json({
             mensagem: "Loja conectada",

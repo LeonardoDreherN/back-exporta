@@ -5,6 +5,7 @@ dotenv.config()
 const db = require('./models/index.js')
 const cors = require('cors')
 const path = require('path')
+const cookieParser = require('cookie-parser');
 
 const { autenticar, vincularCliente } = require('./middleware/auth.js')
 const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js')
@@ -15,8 +16,8 @@ const { comLoja, garantirInstalada } = require('./middleware/shopifyAuth.js')
 const shopifyModule = require('./routes/shopifyRoutes.js')
 
 app.use(express.json())
-app.use(shopifyModule)
 const PORT = process.env.PORT || 3001
+app.use(cookieParser())
 
 app.use(cors({
   origin: 'http://localhost:3000',
@@ -58,9 +59,25 @@ app.get('/health', (_, res) => res.send('ok'))
 
 //ROUTES DA SHOPIFY
 
-app.get('/', comLoja, garantirInstalada, (req, res) => {
-  res.type('html').send('<h1>teste</h1><p>App carregado dentro do Admin ✅</p>');
+app.get('/', (req, res) => {
+  res.type('html').send(`
+  <div id="root">Carregando…</div>
+  <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+  <script>
+    (async () => {
+      const params = new URLSearchParams(location.search);
+      const createApp = window.appBridge.default;
+      const app = createApp({ apiKey: "${process.env.SHOPIFY_API_KEY}", host: params.get('host'), forceRedirect: true });
+      const {getSessionToken} = window.appBridge.utilities;
+      const token = await getSessionToken(app);
+      const resp = await fetch('/shopify/produtos' + (params.get('shop') ? ('?shop=' + params.get('shop')) : ''), {
+        headers: { Authorization: 'Bearer ' + token }
+      });
+      document.getElementById('root').textContent = await resp.text();
+    })();
+  </script>`);
 });
+
 
 app.get('/_debug/shops', async (_req, res) => {
   const rows = await db.Shop.findAll({ attributes: ['shop','scope','updatedAt'] });

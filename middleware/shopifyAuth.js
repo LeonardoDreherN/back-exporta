@@ -1,4 +1,5 @@
 const db = require('../models');
+const { norm } = require('../utils/norm');
 
 function extrairLojaDoHost(host) {
     try {
@@ -19,16 +20,17 @@ async function getShopFromInfoShopify(clienteId) {
 }
 
 async function getAccessTokenForShop(shopDomain) {
-    if (!shopDomain) return null;
-    const shop = await db.Shop.findOne({
+    const row = await db.Shop.findOne({
         where: { shop: shopDomain },
-        // inclua 'accessToken' (ou o nome que você usa) nos atributos
-        attributes: ["shop", "accessToken", "scope", "updatedAt"],
+        attributes: ['shop', 'accessToken', 'scope'],
+        raw: true
     });
-    return shop?.accessToken || null;
+    const token = row?.accessToken || row?.accesstoken || null;
+    return { token, scope: row?.scope || null };
 }
 
 async function comLoja(req, res, next) {
+    let shopRow;
     try {
         const clienteId = req.clienteId ?? res.locals?.clienteId;
         if (!clienteId) return res.status(401).json({ erro: "Cliente nao autenticado" });
@@ -36,10 +38,8 @@ async function comLoja(req, res, next) {
         let candidate = norm(req.query.shop);
         if (!candidate && req.query.host) candidate = extrairLojaDoHost(req.query.host);
 
-        let shopRow;
         // 1) Se o cliente enviou um domínio, valide a propriedade:
         if (candidate) {
-            if (!reShop.test(candidate)) return res.status(400).json({ erro: "shop inválido" });
             shopRow = await db.InfoShopify.findOne({
                 where: { id_cliente: clienteId, shopDomain: candidate },
                 attributes: ["shopDomain", "apiVersion"],
@@ -48,35 +48,27 @@ async function comLoja(req, res, next) {
             if (!shopRow) {
                 return res.status(403).json({ erro: "Esta loja não pertence à sua conta" });
             }
-        }
-        // 2) Senão, pegue a loja do próprio usuário:
-        else {
+        } else {
+            // opcional: pegar a loja padrão/mais recente do cliente
             shopRow = await db.InfoShopify.findOne({
                 where: { id_cliente: clienteId },
                 attributes: ["shopDomain", "apiVersion"],
-                order: [["updatedAt", "DESC"]],
+                order: [["createdAt", "DESC"]],
                 raw: true,
             });
-            if (!shopRow) return res.status(400).json({ erro: "Missing shop" });
+            if (!shopRow) {
+                return res.status(404).json({ erro: "Cliente não possui loja conectada" });
+            }
         }
 
         const shop = norm(shopRow.shopDomain);
-        const apiVersion = shopRow.apiVersion;
-
-        // 3) Busque o access token da mesma loja
-        const tok = await db.Shop.findOne({
-            where: { shop },
-            attributes: ["accessToken"],
-            raw: true,
-        });
-        if (!tok?.accessToken) {
-            return res.status(401).json({ erro: "Loja nao autenticada/instalada" });
-        }
+        const tok = await db.Shop.findOne({ where: { shop }, attributes: ["accessToken"], raw: true });
+        if (!tok?.accessToken) return res.status(401).json({ erro: "Loja nao autenticada/instalada" });
 
         // 4) Contexto para o controller
         req.shopDomain = shop;
         req.shopToken = tok.accessToken;
-        req.apiVersion = apiVersion; // opcional: usar a versão salva
+        req.apiVersion = shopRow.apiVersion; // opcional: usar a versão salva
 
         return next();
     } catch (e) {
