@@ -1,17 +1,20 @@
 const express = require('express');
 const crypto = require('crypto');
 const db = require('../models');
-const { autenticarJWT, autenticar } = require('../middleware/auth');
+const { autenticar } = require('../middleware/auth');
+require('dotenv').config();
 
 const router = express.Router();
+
+const APP_URL = process.env.SHOPIFY_APP_URL.replace(/\/$/, ''); // https://...trycloudflare.com
+const API_KEY = process.env.SHOPIFY_API_KEY;
+const API_SECRET = process.env.SHOPIFY_API_SECRET;
+const SCOPES = process.env.SHOPIFY_API_SCOPES; // + o que precisar
 
 function isValidShopDomain(shop) {
     return /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(shop || '');
 }
-function getScopes() {
-    return (process.env.SHOPIFY_API_SCOPES || process.env.SCOPES || '')
-        .split(',').map(s => s.trim()).filter(Boolean).join(',');
-}
+
 function isValidHmac(query) {
     const receivedHmac = String(query.hmac || '');
     const params = { ...query }; delete params.hmac; delete params.signature;
@@ -26,6 +29,22 @@ function isValidHmac(query) {
     }
 }
 
+function toStoreHandle(shopOrHost) {
+    if (!shopOrHost) return null;
+
+    // "thiago123456.myshopify.com" -> "thiago123456"
+    const m1 = String(shopOrHost).match(/^([a-z0-9-]+)\.myshopify\.com$/i);
+    if (m1) return m1[1].toLowerCase();
+
+    // (opcional) se um dia vier host base64 do Admin
+    try {
+        const dec = Buffer.from(String(shopOrHost), 'base64').toString('utf8'); // "admin.shopify.com/store/<store>"
+        const m2 = dec.match(/store\/([a-z0-9-]+)/i);
+        if (m2) return m2[1].toLowerCase();
+    } catch { }
+    return null;
+}
+
 // /shopify/auth
 router.get('/auth', (req, res) => {
     const { shop } = req.query;
@@ -34,14 +53,12 @@ router.get('/auth', (req, res) => {
     }
 
     const state = crypto.randomBytes(16).toString('hex');
-    res.cookie('shopify_state', state, { httpOnly: true, sameSite: 'lax', secure: true });
-    const APP_URL = (process.env.SHOPIFY_APP_URL || process.env.HOST || '').replace(/\/$/, '');
+    res.cookie('shopify_state', state, { httpOnly: true, sameSite: 'none', secure: true });
     const redirectUri = `${APP_URL}/shopify/auth/callback`;         // << crases
-    const scopes = getScopes();
 
     const url = new URL(`https://${shop}/admin/oauth/authorize`);  // << crases
-    url.searchParams.set('client_id', process.env.SHOPIFY_API_KEY);
-    url.searchParams.set('scope', scopes);
+    url.searchParams.set('client_id', API_KEY);
+    url.searchParams.set('scope', SCOPES);
     url.searchParams.set('redirect_uri', redirectUri);
     url.searchParams.set('state', state);
 
@@ -64,25 +81,25 @@ router.get('/auth/callback', async (req, res) => {
         res.clearCookie('shopify_state');
         if (!isValidHmac(req.query)) return res.status(401).send('Invalid HMAC');
 
+        
         const r = await fetch(`https://${shop}/admin/oauth/access_token`, { // << crases
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                client_id: process.env.SHOPIFY_API_KEY,
-                client_secret: process.env.SHOPIFY_API_SECRET,
+                client_id: API_KEY,
+                client_secret: API_SECRET,
                 code
             })
         });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || !j?.access_token) {
-            console.error('[callback] access_token error:', r.status, j);
-            return res.status(r.status).send('OAuth error');
-        }
-
-        await db.Shop.upsert({ shop: shop.toLowerCase(), accessToken: j.access_token, scope: j.scope || null });
-        console.log('[callback] token salvo para', shop);
-
-        return res.redirect(`https://${shop}/admin/apps/${process.env.SHOPIFY_API_KEY}`);
+        console.log(code)
+        const { access_token, scope } = await r.json();
+        await db.Shop.upsert({ shop: shop.toLowerCase(), accessToken: access_token, scope });
+        console.log(access_token)
+        // const host = req.query.host || Buffer.from(`${shop}/admin`).toString('base64')
+        
+        const store = toStoreHandle(shop)
+        const embeddedUrl = `https://admin.shopify.com/store/${store}/apps/apptest-276`;
+        return res.redirect(embeddedUrl);
     } catch (e) {
         console.error('OAuth callback error:', e);
         return res.status(500).send('OAuth error');

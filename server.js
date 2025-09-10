@@ -88,7 +88,7 @@ const EXPORTS_DIR = path.join(__dirname, 'exports')
 app.use('/exports', express.static(EXPORTS_DIR, {maxAge: '1h', etag: true}))
 
 app.use('/shopify', shopifyModule)
-app.get('/shopify/produtos', autenticar, comLoja, verProdutosLojaShopify);
+app.get('/shopify/produtos', autenticar, comLoja, garantirInstalada, verProdutosLojaShopify);
 
 //CLIENTES
 

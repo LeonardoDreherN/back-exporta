@@ -25,7 +25,7 @@ async function getAccessTokenForShop(shopDomain) {
         attributes: ['shop', 'accessToken', 'scope'],
         raw: true
     });
-    const token = row?.accessToken || row?.accesstoken || null;
+    const token = row?.accessToken || null;
     return { token, scope: row?.scope || null };
 }
 
@@ -63,7 +63,7 @@ async function comLoja(req, res, next) {
 
         const shop = norm(shopRow.shopDomain);
         const tok = await db.Shop.findOne({ where: { shop }, attributes: ["accessToken"], raw: true });
-        if (!tok?.accessToken) return res.status(401).json({ erro: "Loja nao autenticada/instalada" });
+        if (!tok?.accessToken) return res.status(401).json({ erro: "Loja nao autenticada/instalada" });  //<------------------ PROGRAMA PARA AQUI 
 
         // 4) Contexto para o controller
         req.shopDomain = shop;
