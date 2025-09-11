@@ -7,7 +7,7 @@ const cors = require('cors')
 const path = require('path')
 const cookieParser = require('cookie-parser');
 
-const { autenticar, vincularCliente } = require('./middleware/auth.js')
+const { autenticarUsuario, vincularCliente, autenticarShopify } = require('./middleware/auth.js')
 const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js')
 const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require('./controller/ClientesController.js')
 const { verProdutosLojaShopify, registrarLojaShopify } = require('./controller/ShopifyController.js')
@@ -88,14 +88,14 @@ const EXPORTS_DIR = path.join(__dirname, 'exports')
 app.use('/exports', express.static(EXPORTS_DIR, {maxAge: '1h', etag: true}))
 
 app.use('/shopify', shopifyModule)
-app.get('/shopify/produtos', autenticar, comLoja, garantirInstalada, verProdutosLojaShopify);
+app.get('/shopify/produtos', autenticarShopify, comLoja, garantirInstalada, verProdutosLojaShopify);
 
 //CLIENTES
 
 app.post('/registrarClientes', registrarCliente);
 app.post('/login', loginCliente);
-app.get('/verClientes', autenticar, verClientes);
-app.get('/verClienteAtual', autenticar, verClienteAtual);
+app.get('/verClientes', autenticarUsuario, verClientes);
+app.get('/verClienteAtual', autenticarUsuario, verClienteAtual);
 
 app.get('/validate/cnpj', async (req, res) => {
   try {
@@ -121,21 +121,21 @@ app.get('/validate/cnae', async (req, res) => {
 
 //CAIXAS
 
-app.post('/registrarCaixa', autenticar, vincularCliente, registrarCaixa)
-app.get('/verCaixas', autenticar, vincularCliente, verCaixas)
-app.delete('/excluirCaixa/:id', autenticar, vincularCliente, excluirCaixa)
-app.put(`/editarCaixa/:id`, autenticar, vincularCliente, editarCaixa)
+app.post('/registrarCaixa', autenticarUsuario, vincularCliente, registrarCaixa)
+app.get('/verCaixas', autenticarUsuario, vincularCliente, verCaixas) //VINCULAR
+app.delete('/excluirCaixa/:id', autenticarUsuario, vincularCliente, excluirCaixa)
+app.put(`/editarCaixa/:id`, autenticarUsuario, vincularCliente, editarCaixa)
 
 //PRODUTOS
 
-app.get('/verProdutos', autenticar, verProdutos)
-app.post('/registrarProduto', autenticar, vincularCliente, registrarProduto)
-app.delete('/excluirProduto/:id', autenticar, excluirProduto)
-app.put('/editarProduto/:id', autenticar, editarProduto)
+app.get('/verProdutos', autenticarUsuario, verProdutos)
+app.post('/registrarProduto', autenticarUsuario, vincularCliente, registrarProduto)
+app.delete('/excluirProduto/:id', autenticarUsuario, excluirProduto)
+app.put('/editarProduto/:id', autenticarUsuario, editarProduto)
 
 //SHOPIFY
 
-app.post('/conectarLoja', autenticar, registrarLojaShopify)
+app.post('/conectarLoja', autenticarShopify, registrarLojaShopify)
 
 db.sequelize.sync()
   .then(() => {

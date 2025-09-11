@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const db = require('../models');
-const { autenticar } = require('../middleware/auth');
+const { autenticarShopify } = require('../middleware/auth');
 require('dotenv').config();
 
 const router = express.Router();
@@ -112,7 +112,7 @@ router.get('/has-token', async (req, res) => {
     res.json({ hasToken: !!row, shop });
 });
 
-router.get("/conexao", autenticar, async (req, res) => {
+router.get("/conexao", autenticarShopify, async (req, res) => {
     try {
         const clienteId = req.clienteId ?? res.locals?.clienteId;
         if (!clienteId) return res.status(401).json({ erro: "Cliente nao autenticado!" });

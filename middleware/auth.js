@@ -14,7 +14,7 @@ function extrairToken(req) {
   return null;
 }
 
-function autenticar(req, res, next) {
+function autenticarShopify(req, res, next) {
   const token = extrairToken(req);
   if (!token) {
     return res.status(401).json({ erro: "Token não fornecido" });
@@ -38,6 +38,34 @@ function autenticar(req, res, next) {
       // se quiser manter o payload completo:
       // payload: decoded,
     };
+
+    return next();
+  } catch (e) {
+    const msg = e?.name === "TokenExpiredError" ? "Token expirado" : "Token inválido";
+    return res.status(401).json({ erro: msg });
+  }
+}
+
+function autenticarUsuario(req, res, next) {
+  const token = extrairToken(req);
+  if (!token) return res.status(401).json({ erro: "Token não fornecido" });
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const userId = decoded.userId ?? decoded.id ?? decoded.sub ?? null;
+    if (!userId) return res.status(403).json({ erro: "Usuário não identificado no token" });
+
+    const clienteId = decoded.clienteId ?? decoded.clientId ?? decoded.cid ?? null;
+
+    req.usuario = {
+      id: Number(userId),
+      clienteId: clienteId ? Number(clienteId) : null,
+      email: decoded.email ?? decoded.emailPrincipal ?? null,
+      roles: decoded.roles ?? [],
+    };
+
+    if (req.usuario.clienteId) req.clienteId = req.usuario.clienteId;
 
     return next();
   } catch (e) {
@@ -76,4 +104,4 @@ const vincularCliente = async (req, res, next) => {
   }
 };
 
-module.exports = { autenticar, vincularCliente };
+module.exports = { autenticarShopify, vincularCliente, autenticarUsuario };
