@@ -81,7 +81,7 @@ router.get('/auth/callback', async (req, res) => {
         res.clearCookie('shopify_state');
         if (!isValidHmac(req.query)) return res.status(401).send('Invalid HMAC');
 
-        
+
         const r = await fetch(`https://${shop}/admin/oauth/access_token`, { // << crases
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -96,10 +96,19 @@ router.get('/auth/callback', async (req, res) => {
         await db.Shop.upsert({ shop: shop.toLowerCase(), accessToken: access_token, scope });
         console.log(access_token)
         // const host = req.query.host || Buffer.from(`${shop}/admin`).toString('base64')
-        
-        const store = toStoreHandle(shop)
-        const embeddedUrl = `https://admin.shopify.com/store/${store}/apps/apptest-276`;
-        return res.redirect(embeddedUrl);
+
+        const shopNorm = shop.toLowerCase();
+        await db.Shop.upsert({ shop: shopNorm, accessToken: access_token, scope });
+
+        // use o host que veio da Shopify; se não vier, gera um compatível
+        const host = req.query.host || Buffer.from(`${shopNorm}/admin`, 'utf8').toString('base64');
+
+        const APP_HANDLE = process.env.SHOPIFY_APP_HANDLE || 'apptest-276'; // nome do app na Shopify, sem espaços
+
+        const store = (shopNorm.split('.myshopify.com')[0]);
+
+        // FRONT_URL no .env (ex.: http://localhost:3000)
+        return res.redirect(`https://admin.shopify.com/store/${store}/apps/${APP_HANDLE}?shop=${shopNorm}&host=${encodeURIComponent(host)}&embedded=1`);
     } catch (e) {
         console.error('OAuth callback error:', e);
         return res.status(500).send('OAuth error');

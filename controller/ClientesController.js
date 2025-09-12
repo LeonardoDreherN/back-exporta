@@ -177,7 +177,7 @@ const loginCliente = async (req, res) => {
                 razaoSocial: cliente.razaoSocial
             },
             process.env.JWT_SECRET,
-            { expiresIn: "1h" }
+            { expiresIn: "12h" }
         );
 
         res.json({

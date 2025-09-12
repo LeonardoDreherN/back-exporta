@@ -6,6 +6,7 @@ const db = require('./models/index.js')
 const cors = require('cors')
 const path = require('path')
 const cookieParser = require('cookie-parser');
+const helmet = require('helmet');
 
 const { autenticarUsuario, vincularCliente, autenticarShopify } = require('./middleware/auth.js')
 const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js')
@@ -17,6 +18,17 @@ const shopifyModule = require('./routes/shopifyRoutes.js')
 
 app.use(express.json())
 const PORT = process.env.PORT || 3001
+
+app.use(helmet({
+  frameguard: false,
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      frameAncestors: ["'self'", "https://admin.shopify.com", "https://*.myshopify.com", "https://*.shopify.com"],
+    },
+  },
+}));
+
 app.use(cookieParser())
 
 app.use(cors({
@@ -44,15 +56,6 @@ if (typeof fetch === "undefined") {
 const { validateCNPJ } = require("./utils/cnpj");
 const { validateCNAE } = require('./utils/cnae.js')
 const { verProdutos, registrarProduto, editarProduto, excluirProduto } = require('./controller/ProdutoController.js')
-
-app.use((req, res, next) => {
-  res.setHeader(
-    'Content-Security-Policy',
-    "frame-ancestors https://admin.shopify.com https://*.myshopify.com https://*.shopify.com;"
-  );
-  res.removeHeader('X-Frame-Options');
-  next();
-});
 
 //saúde
 app.get('/health', (_, res) => res.send('ok'))
