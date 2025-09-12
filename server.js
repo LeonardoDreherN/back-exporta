@@ -6,7 +6,6 @@ const db = require('./models/index.js')
 const cors = require('cors')
 const path = require('path')
 const cookieParser = require('cookie-parser');
-const helmet = require('helmet');
 
 const { autenticarUsuario, vincularCliente, autenticarShopify } = require('./middleware/auth.js')
 const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js')
@@ -18,17 +17,6 @@ const shopifyModule = require('./routes/shopifyRoutes.js')
 
 app.use(express.json())
 const PORT = process.env.PORT || 3001
-
-app.use(helmet({
-  frameguard: false,
-  contentSecurityPolicy: {
-    useDefaults: true,
-    directives: {
-      frameAncestors: ["'self'", "https://admin.shopify.com", "https://*.myshopify.com", "https://*.shopify.com"],
-    },
-  },
-}));
-
 app.use(cookieParser())
 
 app.use(cors({
@@ -57,40 +45,88 @@ const { validateCNPJ } = require("./utils/cnpj");
 const { validateCNAE } = require('./utils/cnae.js')
 const { verProdutos, registrarProduto, editarProduto, excluirProduto } = require('./controller/ProdutoController.js')
 
+app.use('/shopify', shopifyModule)
+
 //saúde
 app.get('/health', (_, res) => res.send('ok'))
 
 //ROUTES DA SHOPIFY
 
+const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
+
 app.get('/', (req, res) => {
-  res.type('html').send(`
-  <div id="root">Carregando…</div>
+  res.type('html').send(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Shopify App</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+  <style>
+    html,body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif}
+  </style>
+</head>
+<body>
+  <div id="root" style="padding:16px">Carregando…</div>
+
   <script>
-    (async () => {
-      const params = new URLSearchParams(location.search);
-      const createApp = window.appBridge.default;
-      const app = createApp({ apiKey: "${process.env.SHOPIFY_API_KEY}", host: params.get('host'), forceRedirect: true });
-      const {getSessionToken} = window.appBridge.utilities;
-      const token = await getSessionToken(app);
-      const resp = await fetch('/shopify/produtos' + (params.get('shop') ? ('?shop=' + params.get('shop')) : ''), {
-        headers: { Authorization: 'Bearer ' + token }
-      });
-      document.getElementById('root').textContent = await resp.text();
+  (async function () {
+    // 1) Limpa parâmetros sensíveis
+    (function () {
+      var p = new URLSearchParams(location.search);
+      ['hmac','timestamp','code','state','session'].forEach(function(k){ p.delete(k); });
+      if (location.search.indexOf('hmac=') !== -1) {
+        history.replaceState({}, '', location.pathname + (p.toString() ? '?' + p.toString() : ''));
+      }
     })();
-  </script>`);
+
+    var params = new URLSearchParams(location.search);
+    var host = params.get('host');
+    var shop = params.get('shop');
+
+    // 2) Fallback se o Admin não passou "host"
+    if (!host) {
+      var tgt = location.origin + '/shopify/auth' + (shop ? ('?shop=' + encodeURIComponent(shop)) : '');
+      window.top.location.href = tgt;
+      return;
+    }
+
+    // 3) App Bridge (UMD) + fallback
+    var AB = window.appBridge || window['app-bridge'];
+    if (!AB || !AB.createApp) {
+      var tgt2 = location.origin + '/shopify/auth' + (shop ? ('?shop=' + encodeURIComponent(shop)) : '');
+      window.top.location.href = tgt2;
+      return;
+    }
+
+    var app = AB.createApp({ apiKey: '${SHOPIFY_API_KEY}', host: host, forceRedirect: true });
+
+    try {
+      // 4) Session token e chamada à sua API
+      var getSessionToken = AB.utilities.getSessionToken;
+      var token = await getSessionToken(app);
+      var url = '/shopify/produtos' + (shop ? ('?shop=' + encodeURIComponent(shop)) : '');
+      var resp = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+      document.getElementById('root').textContent = await resp.text();
+    } catch (e) {
+      document.getElementById('root').textContent = 'Inicializado (embedded).';
+      console.error('[root] erro ao obter session token ou listar produtos:', e);
+    }
+  })();
+  </script>
+</body>
+</html>`);
 });
 
 
 app.get('/_debug/shops', async (_req, res) => {
-  const rows = await db.Shop.findAll({ attributes: ['shop','scope','updatedAt'] });
+  const rows = await db.Shop.findAll({ attributes: ['shop', 'scope', 'updatedAt'] });
   res.json(rows);
 }); //confere se foi salvo no BD
 
 const EXPORTS_DIR = path.join(__dirname, 'exports')
-app.use('/exports', express.static(EXPORTS_DIR, {maxAge: '1h', etag: true}))
+app.use('/exports', express.static(EXPORTS_DIR, { maxAge: '1h', etag: true }))
 
-app.use('/shopify', shopifyModule)
 app.get('/shopify/produtos', autenticarShopify, comLoja, garantirInstalada, verProdutosLojaShopify);
 
 //CLIENTES
