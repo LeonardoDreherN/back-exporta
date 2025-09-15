@@ -1,23 +1,23 @@
 function renderTopLevelRedirect({ apiKey, host, targetUrl }) {
-  return `<!doctype html>
-<html><head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Redirecionando…</title>
-  <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
-  <style>body{font-family:system-ui,Segoe UI,Roboto; margin:0; padding:24px}</style>
-</head><body>Redirecionando…
-<script>
-(function () {
-  var AB = window.appBridge || window['app-bridge'];
-  var target = '${targetUrl}';
-  if (!AB || !AB.createApp) { window.top.location.href = target; return; }
-  var app = AB.createApp({ apiKey: '${apiKey}', host: '${host}', forceRedirect: true });
-  var Redirect = AB.actions.Redirect;
-  Redirect.create(app).dispatch(Redirect.Action.REMOTE, target);
-})();
-</script>
-</body></html>`;
+    return `<!doctype html>
+    <html><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Redirecionando…</title>
+    <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+    <style>body{font-family:system-ui,Segoe UI,Roboto; margin:0; padding:24px}</style>
+    </head><body>Redirecionando…
+    <script>
+    (function () {
+        var AB = window.appBridge || window['app-bridge'];
+        var target = '${targetUrl}';
+        if (!AB || !AB.createApp) { window.top.location.href = target; return; }
+        var app = AB.createApp({ apiKey: '${apiKey}', host: '${host}', forceRedirect: true });
+        var Redirect = AB.actions.Redirect;
+        Redirect.create(app).dispatch(Redirect.Action.REMOTE, target);
+        })();
+        </script>
+        </body></html>`;
 }
 
 const express = require('express');
@@ -67,7 +67,28 @@ function toStoreHandle(shopOrHost) {
     return null;
 }
 
+const usedAuthCodes = new Map(); // code -> timestamp
+const AUTH_CODE_TTL_MS = 5 * 60 * 1000;
+
+function isCodeUsed(code) {
+    const now = Date.now();
+    for (const [c, t] of usedAuthCodes) {
+        if (now - t > AUTH_CODE_TTL_MS) usedAuthCodes.delete(c);
+    }
+    return usedAuthCodes.has(code);
+}
+function markCodeUsed(code) {
+    usedAuthCodes.set(code, Date.now());
+}
+
+
 const lastAuthByKey = new Map();
+
+router.get('/has-token', async (req, res) => {
+    const shop = String(req.query.shop || '').toLowerCase().trim();
+    const row = await db.Shop.findOne({ where: { shop }, attributes: ['shop'], raw: true });
+    res.json({ hasToken: !!row, shop });
+});
 
 router.get('/auth', async (req, res) => {
     const { shop, host: hostFromQuery, hmac } = req.query;
@@ -134,41 +155,100 @@ router.get('/auth', async (req, res) => {
 });
 
 // /shopify/auth/callback
+// /shopify/auth/callback
 router.get('/auth/callback', async (req, res) => {
     try {
         console.log('[callback] HIT', req.query);
-        const { shop, code, hmac, state } = req.query;
+        const { shop, code, hmac, state, embedded, id_token } = req.query;
         if (!shop || !code || !hmac || !state) return res.status(400).send('Missing params');
         if (!isValidShopDomain(shop)) return res.status(400).send('Invalid shop');
-        if (!req.cookies || req.cookies.shopify_state !== state) return res.status(401).send('Invalid state');
-        res.clearCookie('shopify_state');
         if (!isValidHmac(req.query)) return res.status(401).send('Invalid HMAC');
 
-        // troca code -> token
+        const shopNorm = shop.toLowerCase();
+        const host = req.query.host || Buffer.from(`${shopNorm}/admin`, 'utf8').toString('base64');
+
+        // Caso 1) Callback "embedded" (Admin reencenando dentro do iframe):
+        // Não exija cookie 'shopify_state' aqui — apenas volte para a raiz embedded.
+        if (embedded === '1' || id_token) {
+            const html = renderTopLevelRedirect({
+                apiKey: API_KEY,
+                host,
+                targetUrl: `${APP_URL}/?shop=${shopNorm}&host=${encodeURIComponent(host)}&embedded=1`,
+            });
+            return res.status(200).type('html').send(html);
+        }
+
+        // Caso 2) Callback Top-Level (primeira batida verdadeira do OAuth):
+        // Aqui sim o cookie/state precisa bater.
+        if (!req.cookies || req.cookies.shopify_state !== state) {
+            return res.status(401).send('Invalid state');
+        }
+        res.clearCookie('shopify_state');
+
+        // Se a loja já tem token, não processe de novo.
+        const existing = await db.Shop.findOne({
+            where: { shop: shopNorm },
+            attributes: ['accessToken'],
+            raw: true
+        });
+        if (existing?.accessToken) {
+            const html = renderTopLevelRedirect({
+                apiKey: API_KEY,
+                host,
+                targetUrl: `${APP_URL}/?shop=${shopNorm}&host=${encodeURIComponent(host)}&embedded=1`,
+            });
+            return res.status(200).type('html').send(html);
+        }
+
+        // Evite reaproveitar o mesmo "code"
+        if (isCodeUsed(code)) {
+            const html = renderTopLevelRedirect({
+                apiKey: API_KEY,
+                host,
+                targetUrl: `${APP_URL}/?shop=${shopNorm}&host=${encodeURIComponent(host)}&embedded=1`,
+            });
+            return res.status(200).type('html').send(html);
+        }
+
+        // Troca code -> token
         const r = await fetch(`https://${shop}/admin/oauth/access_token`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ client_id: API_KEY, client_secret: API_SECRET, code })
+            body: JSON.stringify({ client_id: API_KEY, client_secret: API_SECRET, code }),
         });
-        const body = await r.json().catch(() => ({}));
+
+        let body = {};
+        try { body = await r.json(); } catch { }
+
         if (!r.ok || !body?.access_token) {
+            // Se o code já foi usado / inválido, trate como duplicata benigna
+            if (r.status === 400 || r.status === 422) {
+                console.warn('[callback] code reuse/invalid; seguindo para raiz embedded', { status: r.status, body });
+                const html = renderTopLevelRedirect({
+                    apiKey: API_KEY,
+                    host,
+                    targetUrl: `${APP_URL}/?shop=${shopNorm}&host=${encodeURIComponent(host)}&embedded=1`,
+                });
+                return res.status(200).type('html').send(html);
+            }
             console.error('[callback] Falha token', { status: r.status, body });
             return res.status(502).send('Falha ao obter token da Shopify');
         }
 
-        const shopNorm = shop.toLowerCase();
-        await db.Shop.upsert({ shop: shopNorm, accessToken: body.access_token, scope: body.scope || null });
+        markCodeUsed(code);
+        await db.Shop.upsert({
+            shop: shopNorm,
+            accessToken: body.access_token,
+            scope: body.scope || null
+        });
 
-        // use o host recebido; se não vier, gere um compatível
-        const host = req.query.host || Buffer.from(`${shopNorm}/admin`, 'utf8').toString('base64');
-
-        // Top-level redirect para a SUA raiz (evita X-Frame-Options do admin)
         const html = renderTopLevelRedirect({
             apiKey: API_KEY,
             host,
             targetUrl: `${APP_URL}/?shop=${shopNorm}&host=${encodeURIComponent(host)}&embedded=1`,
         });
         return res.status(200).type('html').send(html);
+
     } catch (e) {
         console.error('OAuth callback error:', e);
         return res.status(500).send('OAuth error');
@@ -176,11 +256,6 @@ router.get('/auth/callback', async (req, res) => {
 });
 
 
-router.get('/has-token', async (req, res) => {
-    const shop = String(req.query.shop || '').toLowerCase().trim();
-    const row = await db.Shop.findOne({ where: { shop }, attributes: ['shop'], raw: true });
-    res.json({ hasToken: !!row, shop });
-});
 
 router.get("/conexao", autenticarShopify, async (req, res) => {
     try {

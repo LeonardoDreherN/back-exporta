@@ -31,25 +31,42 @@ async function getAccessTokenForShop(shopDomain) {
 
 async function comLoja(req, res, next) {
     try {
-        const clienteId = req.clienteId ?? res.locals?.clienteId;
-        if (!clienteId) return res.status(401).json({ erro: "Cliente nao autenticado" });
+        let clienteId = req.clienteId ?? res.locals?.clienteId;
 
         let candidate = norm(req.query.shop);
         if (!candidate && req.query.host) candidate = extrairLojaDoHost(req.query.host);
 
-        let shopRow;
-        if (candidate) {
-            shopRow = await db.InfoShopify.findOne({
-                where: { id_cliente: clienteId, shopDomain: candidate },
-                attributes: ["shopDomain", "apiVersion"], raw: true,
+        if (!clienteId && candidate) {
+            const dono = await db.InfoShopify.findOne({
+                where: { shopDomain: candidate },
+                attributes: ['id_cliente', 'shopDomain', 'apiVersion'],
+                raw: true,
             });
-            if (!shopRow) return res.status(403).json({ erro: "Esta loja não pertence à sua conta" });
-        } else {
+            if (dono) {
+                clienteId = dono.id_cliente;
+                // opcionalmente disponibiliza:
+                req.clienteId = dono.id_cliente;
+                res.locals.clienteId = dono.id_cliente;
+            }
+        }
+
+        let shopRow = null;
+        if (!candidate && clienteId) {
             shopRow = await db.InfoShopify.findOne({
                 where: { id_cliente: clienteId },
-                attributes: ["shopDomain", "apiVersion"], order: [["createdAt", "DESC"]], raw: true,
+                attributes: ['shopDomain', 'apiVersion'],
+                order: [['createdAt', 'DESC']],
+                raw: true,
             });
-            if (!shopRow) return res.status(404).json({ erro: "Cliente não possui loja conectada" });
+            if (!shopRow) return res.status(404).json({ erro: 'Cliente não possui loja conectada' });
+        }
+
+        if (candidate && !shopRow) {
+            shopRow = { shopDomain: candidate, apiVersion: null };
+        }
+
+        if (!shopRow) {
+            return res.status(400).json({ erro: 'Não foi possível determinar a loja (shop/host ausente)' });
         }
 
         const shop = norm(shopRow.shopDomain);

@@ -59,59 +59,86 @@ app.get('/', (req, res) => {
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Shopify App</title>
+  <title>appTest</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
   <style>
     html,body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif}
+    #root{padding:24px}
+    .muted{color:#6b7280}
   </style>
 </head>
 <body>
-  <div id="root" style="padding:16px">Carregando…</div>
+  <div id="root">Carregando…</div>
 
   <script>
-  (async function () {
-    // 1) Limpa parâmetros sensíveis
-    (function () {
-      var p = new URLSearchParams(location.search);
-      ['hmac','timestamp','code','state','session'].forEach(function(k){ p.delete(k); });
-      if (location.search.indexOf('hmac=') !== -1) {
-        history.replaceState({}, '', location.pathname + (p.toString() ? '?' + p.toString() : ''));
+  (function () {
+    function shopFromHost(host) {
+      try {
+        var dec = atob(host || '');
+        var m = dec.match(/store\\/([a-z0-9-]+)/i);
+        if (m) return (m[1].toLowerCase() + '.myshopify.com');
+      } catch {}
+      return null;
+    }
+
+    (async function () {
+      // Limpa parâmetros sensíveis
+      (function () {
+        var p = new URLSearchParams(location.search);
+        ['hmac','timestamp','code','state','session'].forEach(function(k){ p.delete(k); });
+        if (location.search.indexOf('hmac=') !== -1) {
+          history.replaceState({}, '', location.pathname + (p.toString() ? '?' + p.toString() : ''));
+        }
+      })();
+
+      var params = new URLSearchParams(location.search);
+      var host = params.get('host');
+      var shop = params.get('shop') || (host ? shopFromHost(host) : null);
+
+      if (!host) {
+        // sem host -> sobe para OAuth top-level
+        window.top.location.href = location.origin + '/shopify/auth' + (shop?('?shop='+encodeURIComponent(shop)):'');
+        return;
       }
+
+      var AB = window.appBridge || window['app-bridge'];
+      if (!AB || !AB.createApp) {
+        window.top.location.href = location.origin + '/shopify/auth' + (shop?('?shop='+encodeURIComponent(shop)):'');
+        return;
+      }
+
+      var app = AB.createApp({ apiKey: '${SHOPIFY_API_KEY}', host: host, forceRedirect: true });
+      var Redirect = AB.actions.Redirect;
+
+      // Garante instalação (sem chamar outras rotas)
+      try {
+        var r = await fetch('/shopify/has-token?shop=' + encodeURIComponent(shop || ''));
+        var info = await r.json();
+        if (!info.hasToken) {
+          var target = location.origin + '/shopify/auth?shop=' + encodeURIComponent(shop) + '&host=' + encodeURIComponent(host);
+          Redirect.create(app).dispatch(Redirect.Action.REMOTE, target);
+          return;
+        }
+      } catch (e) {
+        var t = location.origin + '/shopify/auth?shop=' + encodeURIComponent(shop) + '&host=' + encodeURIComponent(host);
+        Redirect.create(app).dispatch(Redirect.Action.REMOTE, t);
+        return;
+      }
+
+      // Boas-vindas (nenhuma chamada ao backend)
+      var handle = (shop || '').replace(/\\.myshopify\\.com$/i,'');
+      document.getElementById('root').innerHTML =
+        '<h1>Bem-vindo(a) ao appTest</h1>' +
+        '<p class="muted">Loja: <strong>' + (handle || '—') + '</strong></p>' +
+        '<p class="muted">Seu app foi inicializado dentro do Admin (embedded).</p>';
+
+      // Opcional: TitleBar
+      try {
+        var TitleBar = AB.actions.TitleBar;
+        TitleBar.create(app, { title: 'appTest' });
+      } catch {}
     })();
-
-    var params = new URLSearchParams(location.search);
-    var host = params.get('host');
-    var shop = params.get('shop');
-
-    // 2) Fallback se o Admin não passou "host"
-    if (!host) {
-      var tgt = location.origin + '/shopify/auth' + (shop ? ('?shop=' + encodeURIComponent(shop)) : '');
-      window.top.location.href = tgt;
-      return;
-    }
-
-    // 3) App Bridge (UMD) + fallback
-    var AB = window.appBridge || window['app-bridge'];
-    if (!AB || !AB.createApp) {
-      var tgt2 = location.origin + '/shopify/auth' + (shop ? ('?shop=' + encodeURIComponent(shop)) : '');
-      window.top.location.href = tgt2;
-      return;
-    }
-
-    var app = AB.createApp({ apiKey: '${SHOPIFY_API_KEY}', host: host, forceRedirect: true });
-
-    try {
-      // 4) Session token e chamada à sua API
-      var getSessionToken = AB.utilities.getSessionToken;
-      var token = await getSessionToken(app);
-      var url = '/shopify/produtos' + (shop ? ('?shop=' + encodeURIComponent(shop)) : '');
-      var resp = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
-      document.getElementById('root').textContent = await resp.text();
-    } catch (e) {
-      document.getElementById('root').textContent = 'Inicializado (embedded).';
-      console.error('[root] erro ao obter session token ou listar produtos:', e);
-    }
   })();
   </script>
 </body>
