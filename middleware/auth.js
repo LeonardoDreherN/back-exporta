@@ -53,13 +53,16 @@ function autenticarUsuario(req, res, next) {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const userId = decoded.userId ?? decoded.id ?? decoded.sub ?? null;
-    if (!userId) return res.status(403).json({ erro: "Usuário não identificado no token" });
+    const userId    = decoded.userId ?? decoded.id ?? decoded.sub ?? null;
+    // se o token não tiver clienteId explícito, use o próprio userId como clienteId
+    const clienteId = decoded.clienteId ?? decoded.clientId ?? decoded.cid ?? userId ?? null;
 
-    const clienteId = decoded.clienteId ?? decoded.clientId ?? decoded.cid ?? null;
+    if (!userId && !clienteId) {
+      return res.status(403).json({ erro: "Usuário/cliente não identificado no token" });
+    }
 
     req.usuario = {
-      id: Number(userId),
+      id: userId ? Number(userId) : null,
       clienteId: clienteId ? Number(clienteId) : null,
       email: decoded.email ?? decoded.emailPrincipal ?? null,
       roles: decoded.roles ?? [],

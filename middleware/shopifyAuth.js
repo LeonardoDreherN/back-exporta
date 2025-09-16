@@ -3,10 +3,12 @@ const { norm } = require('../utils/norm');
 
 function extrairLojaDoHost(host) {
     try {
-        const dec = Buffer.from(String(host || ''), 'base64').toString('utf8');
-        const m = dec.match(/([a-z0-9-]+\.myshopify\.com)/i);
-        return m ? m[1].toLowerCase() : null;
-    } catch { return null; }
+        const dec = Buffer.from(String(host || ''), 'base64').toString('utf8'); // "admin.shopify.com/store/<handle>"
+        const m = dec.match(/admin\.shopify\.com\/store\/([a-z0-9-]+)/i);
+        return m ? (m[1].toLowerCase() + '.myshopify.com') : null;
+    } catch {
+        return null;
+    }
 }
 
 async function getShopFromInfoShopify(clienteId) {
@@ -39,7 +41,7 @@ async function comLoja(req, res, next) {
         if (!clienteId && candidate) {
             const dono = await db.InfoShopify.findOne({
                 where: { shopDomain: candidate },
-                attributes: ['id_cliente', 'shopDomain', 'apiVersion'],
+                attributes: ['id_cliente', 'shopDomain'],
                 raw: true,
             });
             if (dono) {
@@ -54,7 +56,7 @@ async function comLoja(req, res, next) {
         if (!candidate && clienteId) {
             shopRow = await db.InfoShopify.findOne({
                 where: { id_cliente: clienteId },
-                attributes: ['shopDomain', 'apiVersion'],
+                attributes: ['shopDomain'],
                 order: [['createdAt', 'DESC']],
                 raw: true,
             });
@@ -62,7 +64,7 @@ async function comLoja(req, res, next) {
         }
 
         if (candidate && !shopRow) {
-            shopRow = { shopDomain: candidate, apiVersion: null };
+            shopRow = { shopDomain: candidate };
         }
 
         if (!shopRow) {
@@ -74,7 +76,6 @@ async function comLoja(req, res, next) {
 
         req.shopDomain = shop;
         req.shopToken = tok?.accessToken || null;   // <-- sem 401 aqui
-        req.apiVersion = shopRow.apiVersion || undefined;
         next();
     } catch (e) { next(e); }
 }

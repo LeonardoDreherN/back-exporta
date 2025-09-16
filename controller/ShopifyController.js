@@ -4,6 +4,10 @@ const db = require("../models/index.js");
 const { norm } = require('../utils/norm.js');
 const { getAccessTokenForShop } = require('../middleware/shopifyAuth.js');
 const { Op } = require('sequelize');
+const APP_URL = (process.env.SHOPIFY_APP_URL || '').replace(/\/$/, '');
+const API_VERSION = process.env.SHOPIFY_VERSION || "2025-07";
+
+
 
 // Polyfill fetch (Node < 18)
 if (typeof fetch === 'undefined') {
@@ -262,56 +266,63 @@ const verProdutosLojaShopify = async (req, res) => {
 const registrarLojaShopify = async (req, res) => {
 
     const clienteId = req.clienteId ?? res.locals?.clienteId;
-    if (!clienteId) return res.status(401).json({ erro: "Cliente nao autenticado!" })
+    if (!clienteId) return res.status(401).json({ erro: 'Cliente nao autenticado!' });
 
     try {
-        const b = req.body
-
-        let shopDomainNorm;
+        const raw = String(req.body?.shopDomain || '').trim().toLowerCase();
+        let shopDomain;
         try {
-            shopDomainNorm = norm(b.shopDomain);
+            shopDomain = norm(raw); // garante algo tipo "minha-loja.myshopify.com"
         } catch (e) {
-            return res.status(400).json({ erro: e.message || 'shopDomain inválido' });
+            return res.status(400).json({ erro: e?.message || 'shopDomain inválido' });
+        }
+        if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shopDomain)) {
+            return res.status(400).json({ erro: 'Domínio inválido (ex.: minha-loja.myshopify.com)' });
         }
 
-        const payload = {
-            shopifyApiKey: String(b.shopifyApiKey || ''),
-            shopifyApiSecret: String(b.shopifyApiSecret || ''),
-            apiVersion: String(b.apiVersion || ''),
-            shopDomain: shopDomainNorm,
-            id_cliente: clienteId
-        };
+        const existente = await db.InfoShopify.findOne({
+            where: { shopDomain },
+            attributes: ['id', 'id_cliente', 'shopDomain', 'updatedAt'],
+            raw: true,
+        });
 
-        const obrigatorios = ['shopifyApiKey', 'shopifyApiSecret', 'apiVersion', 'shopDomain'];
-        const faltando = obrigatorios.filter(k => payload[k] === undefined || payload[k] === null || payload[k] === '');
-        if (faltando.length) {
-            return res.status(400).json({ erro: 'Campos obrigatórios faltando', campos: faltando });
-        }
+        const nextAuthUrl = `${APP_URL}/shopify/auth?shop=${encodeURIComponent(shopDomain)}`;
 
-        const existente = await db.InfoShopify.findOne({ where: { shopDomain: payload.shopDomain } });
         if (existente) {
+            if (existente.id_cliente === clienteId) {
+                // idempotente
+                return res.status(200).json({
+                    ok: true,
+                    mensagem: 'Loja já conectada a este cliente',
+                    loja: existente,
+                    nextAuthUrl,
+                });
+            }
             return res.status(409).json({
-                erro: "Loja já conectada",
-                loja: { id: existente.id, shopDomain: existente.shopDomain, apiVersion: existente.apiVersion },
+                erro: 'Loja já conectada em outra conta',
+                loja: { id: existente.id, shopDomain: existente.shopDomain },
             });
         }
 
-        const lojaConectada = await db.InfoShopify.create(payload);
+        const criado = await db.InfoShopify.create({
+            id_cliente: clienteId,
+            shopDomain,
+            apiVersion: API_VERSION,
+        });
 
         return res.status(201).json({
-            mensagem: "Loja conectada",
+            ok: true,
+            mensagem: 'Loja conectada',
             loja: {
-                id: lojaConectada.id,
-                shopifyApiKey: lojaConectada.shopifyApiKey,
-                shopifyApiSecret: lojaConectada.shopifyApiSecret,
-                apiVersion: lojaConectada.apiVersion,
-                shopDomain: lojaConectada.shopDomain,
-                id_cliente: lojaConectada.id_cliente
-            }
-        })
-
+                id: criado.id,
+                shopDomain: criado.shopDomain,
+                id_cliente: criado.id_cliente,
+            },
+            nextAuthUrl,
+        });
     } catch (err) {
-        console.error("Erro ao conectar loja: ", err)
+        console.error('[registrarLojaShopify] erro:', err);
+        return res.status(500).json({ erro: 'Falha ao registrar loja' });
     }
 }
 

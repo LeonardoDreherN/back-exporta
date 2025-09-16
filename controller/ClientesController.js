@@ -173,6 +173,7 @@ const loginCliente = async (req, res) => {
         const token = jwt.sign(
             {
                 id: cliente.id,
+                clienteId: cliente.id,
                 emailPrincipal: cliente.emailPrincipal,
                 razaoSocial: cliente.razaoSocial
             },
