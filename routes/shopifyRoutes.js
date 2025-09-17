@@ -53,7 +53,16 @@ const router = express.Router();
 const APP_URL = process.env.SHOPIFY_APP_URL.replace(/\/$/, '');
 const API_KEY = process.env.SHOPIFY_API_KEY;
 const API_SECRET = process.env.SHOPIFY_API_SECRET;
-const SCOPES = process.env.SHOPIFY_API_SCOPES;
+const RAW_SCOPES = String(process.env.SHOPIFY_API_SCOPES || '');
+const SCOPES = RAW_SCOPES
+    .split(/[,\s]+/)
+    .map(s => s.trim())
+    .filter(Boolean)
+    .join(',');
+
+if (!SCOPES) {
+    console.error('[SHOPIFY] Nenhum escopo configurado! Defina SHOPIFY_API_SCOPES no .env');
+}
 
 function isValidShopDomain(shop) {
     return /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(shop || '');
@@ -152,9 +161,14 @@ router.get('/auth', async (req, res) => {
     const redirectUri = new URL('/shopify/auth/callback', APP_URL).toString();
     const url = new URL(`https://${shopNorm}/admin/oauth/authorize`);
     url.searchParams.set('client_id', API_KEY);
-    url.searchParams.set('scope', SCOPES);
     url.searchParams.set('redirect_uri', redirectUri);
     url.searchParams.set('state', state);
+    if (!SCOPES) {
+        console.error('[SHOPIFY] SCOPES vazios! Verifique SHOPIFY_API_SCOPES no .env');
+        return res.status(500).send('App mal configurado: SCOPES ausentes');
+    }
+    url.searchParams.set('scope', SCOPES);
+
 
     console.log('Auth redirect_uri =>', redirectUri);
     return res.redirect(url.toString());

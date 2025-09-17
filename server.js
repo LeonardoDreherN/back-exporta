@@ -11,7 +11,7 @@ const { autenticarUsuario, vincularCliente, autenticarShopify } = require('./mid
 const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js')
 const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require('./controller/ClientesController.js')
 const { verProdutosLojaShopify, registrarLojaShopify } = require('./controller/ShopifyController.js')
-const { comLoja, garantirInstalada } = require('./middleware/shopifyAuth.js')
+const { comLoja, garantirInstalada, getAccessTokenForShop } = require('./middleware/shopifyAuth.js')
 
 const shopifyModule = require('./routes/shopifyRoutes.js')
 
@@ -131,7 +131,8 @@ app.get('/', (req, res) => {
       document.getElementById('root').innerHTML =
         '<h1>Bem-vindo(a) ao appTest</h1>' +
         '<p class="muted">Loja: <strong>' + (handle || '—') + '</strong></p>' +
-        '<p class="muted">Seu app foi inicializado dentro do Admin (embedded).</p>';
+        '<p class="muted">Seu app foi inicializado dentro do Admin (embedded).</p>' +
+        '<a href="${process.env.FRONTEND}/login" target="_top">Voltar para a Intrex</a>';
 
       // Opcional: TitleBar
       try {
@@ -148,7 +149,17 @@ app.get('/', (req, res) => {
 
 app.get('/_debug/shops', async (_req, res) => {
   const rows = await db.Shop.findAll({ attributes: ['shop', 'scope', 'updatedAt'] });
-  res.json(rows);
+  const out = [];
+  for(const r of rows){
+    let liveScopes = 'n/a'
+    try{
+      liveScopes = await getAccessTokenForShop(r.shop, r.accessToken)
+    }catch (e){
+      liveScopes = `erro: ${e.message}`
+    }
+    out.push({shop: r.shop, scope: r.scope, updatedAt: r.updatedAt, liveScopes})
+  }
+  res.json(out)
 }); //confere se foi salvo no BD
 
 const EXPORTS_DIR = path.join(__dirname, 'exports')
