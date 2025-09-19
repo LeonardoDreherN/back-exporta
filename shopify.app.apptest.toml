@@ -2,7 +2,7 @@
 
 client_id = "1e63f0c2737f4f598ef035490454fdf4"
 name = "appTest"
-application_url = "https://lesson-guestbook-treat-profit.trycloudflare.com"
+application_url = "https://eva-scholars-simon-plenty.trycloudflare.com"
 embedded = true
 handle = "apptest-276"
 
@@ -11,11 +11,11 @@ api_version = "2025-07"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_content,read_customers,read_files,read_orders,read_products"
+scopes = "read_customers,read_files,read_orders,read_products,read_content"
 
 [auth]
 redirect_urls = [
-  "https://lesson-guestbook-treat-profit.trycloudflare.com/shopify/auth/callback"
+  "https://eva-scholars-simon-plenty.trycloudflare.com/shopify/auth/callback"
 ]
 
 [pos]

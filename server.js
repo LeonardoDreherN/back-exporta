@@ -44,6 +44,7 @@ if (typeof fetch === "undefined") {
 const { validateCNPJ } = require("./utils/cnpj");
 const { validateCNAE } = require('./utils/cnae.js')
 const { verProdutos, registrarProduto, editarProduto, excluirProduto } = require('./controller/ProdutoController.js')
+const { getAccessScopesLive } = require('./utils/scopes.js')
 
 app.use('/shopify', shopifyModule)
 
@@ -161,6 +162,24 @@ app.get('/_debug/shops', async (_req, res) => {
   }
   res.json(out)
 }); //confere se foi salvo no BD
+
+app.get('/_debug/scopes', async (req, res) => {
+  try {
+    const shop = String(req.query.shop || '').toLowerCase();
+    if (!shop) return res.status(400).json({ erro: 'informe ?shop=...' });
+
+    const row = await db.Shop.findOne({ where: { shop }, attributes: ['accessToken','scope'], raw: true });
+    if (!row) return res.status(404).json({ erro: 'token não encontrado' });
+
+    let live = [];
+    try { live = await getAccessScopesLive(shop, row.accessToken); } catch(e) {
+      live = [`erro: ${e.message}`];
+    }
+    res.json({ shop, column_scope: row.scope, live_scopes: live });
+  } catch (e) {
+    res.status(500).json({ erro: 'falha debug', detalhes: e?.message });
+  }
+});
 
 const EXPORTS_DIR = path.join(__dirname, 'exports')
 app.use('/exports', express.static(EXPORTS_DIR, { maxAge: '1h', etag: true }))
