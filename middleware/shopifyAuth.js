@@ -1,5 +1,6 @@
 const db = require('../models');
 const { norm } = require('../utils/norm');
+const multer = require('multer');
 
 function extrairLojaDoHost(host) {
     try {
@@ -91,5 +92,6 @@ async function garantirInstalada(req, res, next) {
     next();
 }
 
+const uploadOrder = multer({storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 }});
 
-module.exports = { comLoja, garantirInstalada, getShopFromInfoShopify, getAccessTokenForShop };
+module.exports = { comLoja, garantirInstalada, getShopFromInfoShopify, getAccessTokenForShop, uploadOrder };

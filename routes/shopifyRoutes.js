@@ -46,6 +46,8 @@ const express = require('express');
 const crypto = require('crypto');
 const db = require('../models');
 const { autenticarShopify, autenticarUsuario } = require('../middleware/auth');
+const { uploadOrdersMinimal } = require('../controller/pedidosMinimalController');
+const { uploadOrder } = require('../middleware/shopifyAuth');
 require('dotenv').config();
 
 const router = express.Router();
@@ -279,4 +281,17 @@ router.get("/conexao", autenticarUsuario, async (req, res) => {
     }
 });
 
+router.post(
+    '/upload-minimal',
+    uploadOrder.fields([{ name: 'file' }, { name: 'sku_master' }]),
+    uploadOrdersMinimal
+);
+
+const { findCustomerFromCsv } = require('../controller/customerController');
+
+router.post(
+    '/find',
+    uploadOrder.fields([{ name: 'file' }]),
+    findCustomerFromCsv
+);
 module.exports = router;

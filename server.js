@@ -1,23 +1,27 @@
-const express = require('express')
-const app = express()
-const dotenv = require('dotenv')
-dotenv.config()
-const db = require('./models/index.js')
-const cors = require('cors')
-const path = require('path')
+// app.js
+const express = require('express');
+const app = express();
+const dotenv = require('dotenv');
+dotenv.config();
+const db = require('./models/index.js');
+const cors = require('cors');
+const path = require('path');
 const cookieParser = require('cookie-parser');
 
-const { autenticarUsuario, vincularCliente, autenticarShopify } = require('./middleware/auth.js')
-const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js')
-const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require('./controller/ClientesController.js')
-const { verProdutosLojaShopify, registrarLojaShopify } = require('./controller/ShopifyController.js')
-const { comLoja, garantirInstalada, getAccessTokenForShop } = require('./middleware/shopifyAuth.js')
+const { autenticarUsuario, vincularCliente, autenticarShopify } = require('./middleware/auth.js');
+const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js');
+const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require('./controller/ClientesController.js');
+const { verProdutosLojaShopify, registrarLojaShopify } = require('./controller/ShopifyController.js');
+const { comLoja, garantirInstalada, getAccessTokenForShop } = require('./middleware/shopifyAuth.js');
 
-const shopifyModule = require('./routes/shopifyRoutes.js')
+// Módulo de rotas da Shopify (inclui auth/conexao/produtos + upload-minimal + find)
+const shopifyModule = require('./routes/shopifyRoutes.js');
 
-app.use(express.json())
-const PORT = process.env.PORT || 3001
-app.use(cookieParser())
+// Middlewares globais
+app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // necessário p/ ler campos text em multipart/form-data
+const PORT = process.env.PORT || 3001;
+app.use(cookieParser());
 
 app.use(cors({
   origin: 'http://localhost:3000',
@@ -25,7 +29,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'authorization'],
   exposedHeaders: ['Authorization'],
   credentials: false
-}))
+}));
 
 app.use((req, res, next) => {
   res.setHeader(
@@ -36,25 +40,26 @@ app.use((req, res, next) => {
   next();
 });
 
-if (typeof fetch === "undefined") {
+// Polyfill fetch (Node < 18)
+if (typeof fetch === 'undefined') {
   global.fetch = (...args) =>
-    import("node-fetch").then(({ default: f }) => f(...args));
+    import('node-fetch').then(({ default: f }) => f(...args));
 }
 
-const { validateCNPJ } = require("./utils/cnpj");
-const { validateCNAE } = require('./utils/cnae.js')
-const { verProdutos, registrarProduto, editarProduto, excluirProduto } = require('./controller/ProdutoController.js')
-const { getAccessScopesLive } = require('./utils/scopes.js')
+// Utils/validadores e controllers da sua plataforma
+const { validateCNPJ } = require('./utils/cnpj');
+const { validateCNAE } = require('./utils/cnae.js');
+const { verProdutos, registrarProduto, editarProduto, excluirProduto } = require('./controller/ProdutoController.js');
+const { getAccessScopesLive } = require('./utils/scopes.js');
 
-app.use('/shopify', shopifyModule)
+// Monta TODAS as rotas da Shopify sob /shopify (NÃO duplicar)
+app.use('/shopify', shopifyModule);
 
-//saúde
-app.get('/health', (_, res) => res.send('ok'))
+// Saúde
+app.get('/health', (_, res) => res.send('ok'));
 
-//ROUTES DA SHOPIFY
-
+// --- Rota raiz (embedded landing com App Bridge) ---
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
-
 app.get('/', (req, res) => {
   res.type('html').send(`<!doctype html>
 <html>
@@ -147,21 +152,21 @@ app.get('/', (req, res) => {
 </html>`);
 });
 
-
+// Debug: conferir lojas e escopos
 app.get('/_debug/shops', async (_req, res) => {
   const rows = await db.Shop.findAll({ attributes: ['shop', 'scope', 'updatedAt'] });
   const out = [];
-  for(const r of rows){
-    let liveScopes = 'n/a'
-    try{
-      liveScopes = await getAccessTokenForShop(r.shop, r.accessToken)
-    }catch (e){
-      liveScopes = `erro: ${e.message}`
+  for (const r of rows) {
+    let liveScopes = 'n/a';
+    try {
+      liveScopes = await getAccessTokenForShop(r.shop, r.accessToken);
+    } catch (e) {
+      liveScopes = `erro: ${e.message}`;
     }
-    out.push({shop: r.shop, scope: r.scope, updatedAt: r.updatedAt, liveScopes})
+    out.push({ shop: r.shop, scope: r.scope, updatedAt: r.updatedAt, liveScopes });
   }
-  res.json(out)
-}); //confere se foi salvo no BD
+  res.json(out);
+});
 
 app.get('/_debug/scopes', async (req, res) => {
   try {
@@ -172,35 +177,36 @@ app.get('/_debug/scopes', async (req, res) => {
     if (!row) return res.status(404).json({ erro: 'token não encontrado' });
 
     let live = [];
-    try { live = await getAccessScopesLive(shop, row.accessToken); } catch(e) {
-      live = [`erro: ${e.message}`];
-    }
+    try { live = await getAccessScopesLive(shop, row.accessToken); }
+    catch (e) { live = [`erro: ${e.message}`]; }
     res.json({ shop, column_scope: row.scope, live_scopes: live });
   } catch (e) {
     res.status(500).json({ erro: 'falha debug', detalhes: e?.message });
   }
 });
 
-const EXPORTS_DIR = path.join(__dirname, 'exports')
-app.use('/exports', express.static(EXPORTS_DIR, { maxAge: '1h', etag: true }))
+// Arquivos estáticos de /exports
+const EXPORTS_DIR = path.join(__dirname, 'exports');
+app.use('/exports', express.static(EXPORTS_DIR, { maxAge: '1h', etag: true }));
 
+// Rotas de produtos da Shopify (existentes)
 app.get('/shopify/produtos', autenticarShopify, comLoja, garantirInstalada, verProdutosLojaShopify);
 
-//CLIENTES
-
+// --- CLIENTES (sua plataforma) ---
 app.post('/registrarClientes', registrarCliente);
 app.post('/login', loginCliente);
 app.get('/verClientes', autenticarUsuario, verClientes);
 app.get('/verClienteAtual', autenticarUsuario, verClienteAtual);
 
+// --- VALIDADORES ---
 app.get('/validate/cnpj', async (req, res) => {
   try {
     const { cnpj, online } = req.query;
     const out = await validateCNPJ(cnpj, { online }); // só DV aqui
-    return res.status(200).json(out)
+    return res.status(200).json(out);
   } catch (e) {
-    console.error("[/validate/cnpj]", e);
-    res.status(500).json({ valid: false, reason: "server" });
+    console.error('[/validate/cnpj]', e);
+    res.status(500).json({ valid: false, reason: 'server' });
   }
 });
 
@@ -208,35 +214,33 @@ app.get('/validate/cnae', async (req, res) => {
   try {
     const { cnae } = req.query;
     const out = await validateCNAE(cnae);
-    return res.status(200).json(out)
+    return res.status(200).json(out);
   } catch (e) {
-    console.error("[/validate/cnae]", e);
-    res.status(500).json({ valid: false, reason: "server" });
+    console.error('[/validate/cnae]', e);
+    res.status(500).json({ valid: false, reason: 'server' });
   }
 });
 
-//CAIXAS
+// --- CAIXAS ---
+app.post('/registrarCaixa', autenticarUsuario, vincularCliente, registrarCaixa);
+app.get('/verCaixas', autenticarUsuario, vincularCliente, verCaixas); // VINCULAR
+app.delete('/excluirCaixa/:id', autenticarUsuario, vincularCliente, excluirCaixa);
+app.put('/editarCaixa/:id', autenticarUsuario, vincularCliente, editarCaixa);
 
-app.post('/registrarCaixa', autenticarUsuario, vincularCliente, registrarCaixa)
-app.get('/verCaixas', autenticarUsuario, vincularCliente, verCaixas) //VINCULAR
-app.delete('/excluirCaixa/:id', autenticarUsuario, vincularCliente, excluirCaixa)
-app.put(`/editarCaixa/:id`, autenticarUsuario, vincularCliente, editarCaixa)
+// --- PRODUTOS (sua plataforma) ---
+app.get('/verProdutos', autenticarUsuario, verProdutos);
+app.post('/registrarProduto', autenticarUsuario, vincularCliente, registrarProduto);
+app.delete('/excluirProduto/:id', autenticarUsuario, excluirProduto);
+app.put('/editarProduto/:id', autenticarUsuario, editarProduto);
 
-//PRODUTOS
+// --- SHOPIFY: conectar loja (sua plataforma) ---
+app.post('/conectarLoja', autenticarUsuario, vincularCliente, registrarLojaShopify);
 
-app.get('/verProdutos', autenticarUsuario, verProdutos)
-app.post('/registrarProduto', autenticarUsuario, vincularCliente, registrarProduto)
-app.delete('/excluirProduto/:id', autenticarUsuario, excluirProduto)
-app.put('/editarProduto/:id', autenticarUsuario, editarProduto)
-
-//SHOPIFY
-
-app.post('/conectarLoja', autenticarUsuario, vincularCliente, registrarLojaShopify)
-
+// Start
 db.sequelize.sync()
   .then(() => {
-    app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`))
+    app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
   })
   .catch((err) => {
-    console.error('Erro ao sincronizar com o banco:', err)
-  })
+    console.error('Erro ao sincronizar com o banco:', err);
+  });
