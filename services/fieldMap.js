@@ -16,8 +16,8 @@ const H = {
     shipAddr1: ["Shipping Address1", "Endereço de envio 1", "Shipping Street"],
     shipAddr2: ["Shipping Address2", "Endereço de envio 2"],
     shipCity: ["Shipping City", "Cidade (envio)"],
-    shipProv: ["Shipping Province", "Estado (envio)"],
-    shipZip: ["Shipping Zip", "CEP (envio)"],
+    shipProv: ["Shipping Province", "Estado (envio)", "Shipping Province Name"],
+    shipZip: ["Shipping Zip", "CEP (envio)", "Shipping Postal Code"],
     shipCountry: ["Shipping Country", "País (envio)"],
 
     // billing (fallback)
@@ -61,4 +61,14 @@ function getFullName(row) {
     );
 }
 
-module.exports = { H, pick, getFullName };
+function pickWithKey(row, keys) {
+    const arr = Array.isArray(keys) ? keys : (keys ? [keys] : []);
+    for (const k of arr) {
+        if (k in row && String(row[k]).trim() !== '') {
+            return { value: String(row[k]).trim(), key: k };
+        }
+    }
+    return { value: '', key: null };
+}
+
+module.exports = { H, pick, getFullName, pickWithKey };

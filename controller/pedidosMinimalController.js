@@ -9,6 +9,15 @@ async function uploadOrdersMinimal(req, res) {
 
         const ordersRows = await readCsvBuffer(req.files.file[0].buffer);
 
+        console.log('CSV rows:', ordersRows.length);
+        if (ordersRows[0]) {
+            console.log('[HEADERS]', Object.keys(ordersRows[0]));
+            console.log('[SAMPLE]', {
+                city: ordersRows[0]['Shipping City'] || ordersRows[0]['Cidade (envio)'],
+                zip: ordersRows[0]['Shipping Zip'] || ordersRows[0]['Shipping Postal Code'] || ordersRows[0]['CEP (envio)'],
+            });
+        }
+
         let skuMap = {};
         if (req.files?.sku_master?.[0]) {
             const skuRows = await readCsvBuffer(req.files.sku_master[0].buffer);

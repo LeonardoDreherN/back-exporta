@@ -1,4 +1,4 @@
-const { H, pick } = require("./fieldMap");
+const { H, pick, pickWithKey } = require("./fieldMap");
 
 function buildSkuMap(skuRows) {
     const map = {};
@@ -21,31 +21,44 @@ const toNum = (v) => {
     return Number.isFinite(n) ? n : undefined;
 };
 
+
 function buildMinimalRows(ordersRows, skuMap) {
     const out = [];
     for (const r of ordersRows) {
-        const sku = String(pick(r, H.itemSKU)).trim();
+        const sku = (pick(r, H.itemSKU) || '').trim();
         const m = skuMap[sku] || {};
+
+        const cidadePick = pickWithKey(r, H.shipCity);
+        const cepPick = pickWithKey(r, H.shipZip);
+
         out.push({
-            titulo: pick(r, H.itemTitle) || m.description || "",
+            // Produto...
+            titulo: pick(r, H.itemTitle) || m.description || '',
             sku,
-            pesoUnit: m.pesoUnit || "",
+            pesoUnit: m.pesoUnit || '',
             quantidade: Number(pick(r, H.itemQty) || 0),
             preco: toNum(pick(r, H.itemPrice)),
-            descricao: m.description || "",
-            categoria: m.category || "",
-            hscode: m.hscode || "",
+            descricao: m.description || '',
+            categoria: m.category || '',
+            hscode: m.hscode || '',
 
-            nome_completo: (pick(r, H.shipName) || "").trim(),
-            email: pick(r, H.email) || "",
-            rua_e_numero: [pick(r, H.shipAddr1), pick(r, H.shipAddr2)].filter(Boolean).join(", "),
-            estado_provincia: pick(r, H.shipProv) || "",
-            pais: pick(r, H.shipCountry) || "",
-            telefone: pick(r, H.shipPhone) || "",
+            // Cliente
+            nome_completo: pick(r, H.shipName) || '',
+            email: pick(r, H.email) || '',
+            rua_e_numero: [pick(r, H.shipAddr1), pick(r, H.shipAddr2)].filter(Boolean).join(', '),
+            cidade: pick(r, H.shipCity) || '',                 // <- cidade
+            estado_provincia: pick(r, H.shipProv) || '',       // <- estado/UF (agora cobre 'Province Name')
+            cep: pick(r, H.shipZip) || '',             // 🟢 agora vai
+            pais: pick(r, H.shipCountry) || '',
+            telefone: pick(r, H.shipPhone) || '',
 
+            // Pedido
             id: pick(r, H.id),
             valorTotal: toNum(pick(r, H.total)),
-            moeda: pick(r, H.currency) || ""
+            moeda: pick(r, H.currency) || '',
+
+            // debug opcional (remova em produção)
+            __debug: { cityKey: cidadePick.key, zipKey: cepPick.key }
         });
     }
     return out;
