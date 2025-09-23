@@ -1,35 +1,35 @@
-const ALLOW_ORIGIN = process.env.FRONTEND_URL ?? "localhost:3000";
-const cors = {
-    "Access-Control-Allow-Origin": ALLOW_ORIGIN,
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+// GET /api/cotacoes?limit=20&offset=0&pais_dest=US&moeda=USD&pedido_ref=D5
+const { Cotacao } = require('../models');
 
-export function OPTIONS() {
-    return new Response(null, { status: 204, headers: cors });
-}
+const ALLOW = process.env.FRONTEND_URL || '*';
 
-export async function POST(req, res) {
+module.exports = async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', ALLOW);
+    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-cliente-id');
+    if (req.method === 'OPTIONS') return res.status(204).end();
+    if (req.method !== 'GET') return res.status(405).json({ ok: false, error: 'Method not allowed' });
+
     try {
-        const payload = await req.json();
+        const cliente_id = (req.headers['x-cliente-id'] || req.query.cliente_id || '').toString().trim();
+        if (!cliente_id) return res.status(400).json({ ok: false, error: 'cliente_id obrigatório' });
 
-        // Repassa para sua "transportadora" (mock)
-        const carrierUrl = process.env.CARRIER_API_URL;
-        const r = await fetch(carrierUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
+        const limit = Math.max(1, Math.min(100, Number(req.query.limit || 20)));
+        const offset = Math.max(0, Number(req.query.offset || 0));
+        const where = { cliente_id };
+
+        if (req.query.pais_dest) where.pais_dest = req.query.pais_dest;
+        if (req.query.moeda) where.moeda_emissao = req.query.moeda;
+        if (req.query.pedido_ref) where.pedido_ref = req.query.pedido_ref;
+
+        const rows = await Cotacao.findAll({
+            where,
+            order: [['created_at', 'DESC']],
+            limit, offset
         });
 
-        const data = await r.json().catch(() => ({}));
-        return new Response(JSON.stringify({ ok: r.ok, carrierResponse: data }), {
-            status: r.status,
-            headers: { "Content-Type": "application/json", ...cors },
-        });
-    } catch (err) {
-        return new Response(JSON.stringify({ ok: false, error: err?.message || "bad request" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json", ...cors },
-        });
+        return res.status(200).json({ ok: true, cliente_id, limit, offset, itens: rows });
+    } catch (e) {
+        return res.status(400).json({ ok: false, error: e?.message || 'bad request' });
     }
-}
+};
