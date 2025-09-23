@@ -1,5 +1,5 @@
 // backend/api/mock-transportadora.js
-const ALLOW_ORIGIN = process.env.FRONTEND_URL || "*";
+const ALLOW_ORIGIN = process.env.FRONTEND_URL || "http://localhost:3000";
 
 const cors = {
     "Access-Control-Allow-Origin": ALLOW_ORIGIN,
