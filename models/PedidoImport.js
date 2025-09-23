@@ -1,46 +1,39 @@
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
-    const PedidoImport = sequelize.define('PedidoImport', {
-        // PK técnica (surrogate) para facilitar com Sequelize
+    return sequelize.define('PedidoImport', {
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
 
-        // Identificação do cliente (tenant)
-        cliente_id: { type: DataTypes.STRING, allowNull: false },
+        cliente_id: { type: DataTypes.STRING, allowNull: false, field: 'cliente_id' },
+        pedido_ref: { type: DataTypes.STRING, allowNull: false, field: 'pedido_ref' },
 
-        // Identificação do pedido dentro do cliente (ex.: "D5")
-        pedido_ref: { type: DataTypes.STRING, allowNull: false },
+        origem: { type: DataTypes.STRING, allowNull: true, defaultValue: 'CSV', field: 'origem' },
 
-        origem: { type: DataTypes.STRING, allowNull: true, defaultValue: 'CSV' },
+        moeda: { type: DataTypes.STRING, allowNull: true, field: 'moeda' },
+        total: { type: DataTypes.DECIMAL(12, 2), allowNull: true, field: 'total' },
 
-        // Campos resumidos p/ filtro
-        moeda: { type: DataTypes.STRING, allowNull: true },
-        total: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
+        nomeComprador: { type: DataTypes.STRING, allowNull: true, field: 'nome_comprador' },
+        emailComprador: { type: DataTypes.STRING, allowNull: true, field: 'email_comprador' },
+        telefoneComprador: { type: DataTypes.STRING, allowNull: true, field: 'telefone_comprador' },
 
-        nomeComprador: { type: DataTypes.STRING, allowNull: true },
-        emailComprador: { type: DataTypes.STRING, allowNull: true },
-        telefoneComprador: { type: DataTypes.STRING, allowNull: true },
+        endereco: { type: DataTypes.STRING, allowNull: true, field: 'endereco' },
+        cidade: { type: DataTypes.STRING, allowNull: true, field: 'cidade' },
+        estado: { type: DataTypes.STRING, allowNull: true, field: 'estado' },
+        CEP: { type: DataTypes.STRING, allowNull: true, field: 'cep' },
+        pais: { type: DataTypes.STRING, allowNull: true, field: 'pais' },
 
-        endereco: { type: DataTypes.STRING, allowNull: true },
-        cidade: { type: DataTypes.STRING, allowNull: true },
-        estado: { type: DataTypes.STRING, allowNull: true },
-        CEP: { type: DataTypes.STRING, allowNull: true },
-        pais: { type: DataTypes.STRING, allowNull: true },
-
-        itens: { type: DataTypes.JSON, allowNull: true }, // array de itens
-        raw_json: { type: DataTypes.JSON, allowNull: true }, // linhas brutas
+        itens: { type: DataTypes.JSON, allowNull: true, field: 'itens' },
+        raw_json: { type: DataTypes.JSON, allowNull: true, field: 'raw_json' },
     }, {
+        tableName: 'pedidos_importados',
         underscored: true,
         timestamps: true,
         indexes: [
-            // Garante unicidade do pedido por cliente
-            { unique: true, fields: ['cliente_id', 'pedido_ref'] },
+            { unique: true, fields: ['cliente_id', 'pedido_ref'] }, // impede duplicar D5 no mesmo cliente
             { fields: ['cliente_id'] },
-            { fields: ['emailComprador'] },
+            { fields: ['email_comprador'] }, // <-- snake_case
             { fields: ['cidade'] },
             { fields: ['pais'] },
         ],
     });
-
-    return PedidoImport;
 };
