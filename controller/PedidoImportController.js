@@ -121,24 +121,46 @@ async function importPedidos(req, res) {
 async function listPedidos(req, res) {
     try {
         const cliente_id = req.clienteId;
+        if (!cliente_id) return res.status(401).json({ ok: false, error: "unauthenticated" });
+
         const q = (req.query.q || "").toString().trim();
         const where = { cliente_id };
         if (q) {
             where[Op.or] = [
                 { pedido_ref: { [Op.iLike]: `%${q}%` } },
-                { email_comprador: { [Op.iLike]: `%${q}%` } },
+                { emailComprador: { [Op.iLike]: `%${q}%` } }, // atenção ao nome do campo no model
                 { cidade: { [Op.iLike]: `%${q}%` } },
             ];
         }
+
         const limit = Math.max(1, Math.min(100, Number(req.query.limit || 20)));
         const offset = Math.max(0, Number(req.query.offset || 0));
+
         const rows = await PedidoImport.findAll({
-            where, limit, offset, order: [["createdAt", "DESC"]],
-            attributes: ["pedido_ref", "moeda", "total", "cidade", "pais", "email_comprador"]
+            where,
+            limit,
+            offset,
+            order: [["created_at", "DESC"]], // com underscored: created_at
+            attributes: [
+                "id",
+                "cliente_id",
+                "pedido_ref",
+                "moeda",
+                "total",
+                "nomeComprador",
+                "emailComprador",
+                "telefoneComprador",
+                "cidade",
+                "estado",
+                "CEP",
+                "pais",
+                "itens",
+            ],
         });
-        res.json({ ok: true, cliente_id, itens: rows, limit, offset });
+
+        return res.json({ ok: true, itens: rows, limit, offset });
     } catch (e) {
-        res.status(500).json({ ok: false, error: e.message });
+        return res.status(500).json({ ok: false, error: e.message });
     }
 }
 
