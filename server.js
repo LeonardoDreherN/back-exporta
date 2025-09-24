@@ -13,6 +13,8 @@ const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./cont
 const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require('./controller/ClientesController.js');
 const { verProdutosLojaShopify, registrarLojaShopify } = require('./controller/ShopifyController.js');
 const { comLoja, garantirInstalada, getAccessTokenForShop } = require('./middleware/shopifyAuth.js');
+const { criarCotacao, listarCotacoes } = require('./controller/CotacaoController.js');
+const { importPedidos, listPedidos } = require('./controller/PedidoImportController.js');
 
 // Módulo de rotas da Shopify (inclui auth/conexao/produtos + upload-minimal + find)
 const shopifyModule = require('./routes/shopifyRoutes.js');
@@ -235,6 +237,14 @@ app.put('/editarProduto/:id', autenticarUsuario, editarProduto);
 
 // --- SHOPIFY: conectar loja (sua plataforma) ---
 app.post('/conectarLoja', autenticarUsuario, vincularCliente, registrarLojaShopify);
+
+// PEDIDOS (import/list)
+app.post('/import-pedidos', autenticarUsuario, vincularCliente, importPedidos);
+app.get('/pedidos', autenticarUsuario, vincularCliente, listPedidos);
+
+// COTAÇÕES (mock da transportadora + listar)
+app.post('/cotacao/mock', autenticarUsuario, vincularCliente, criarCotacao);
+app.get('/cotacoes', autenticarUsuario, vincularCliente, listarCotacoes);
 
 // Start
 db.sequelize.sync()

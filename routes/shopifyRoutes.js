@@ -45,9 +45,11 @@ document.addEventListener('DOMContentLoaded', function() {
 const express = require('express');
 const crypto = require('crypto');
 const db = require('../models');
-const { autenticarShopify, autenticarUsuario } = require('../middleware/auth');
+const { autenticarUsuario, vincularCliente } = require('../middleware/auth');
 const { uploadOrdersMinimal } = require('../controller/pedidosMinimalController');
 const { uploadOrder } = require('../middleware/shopifyAuth');
+const { findCustomerFromCsv } = require('../controller/customerController');
+const { importPedidosInternal } = require('../controller/PedidoImportController');
 require('dotenv').config();
 
 const router = express.Router();
@@ -281,13 +283,42 @@ router.get("/conexao", autenticarUsuario, async (req, res) => {
     }
 });
 
+
 router.post(
     '/upload-minimal',
+    autenticarUsuario,          // descobre o cliente pelo token
+    vincularCliente,            // seta req.clienteId
     uploadOrder.fields([{ name: 'file' }, { name: 'sku_master' }]),
-    uploadOrdersMinimal
-);
+    async (req, res) => {
+        // ... parse do CSV (uploadOrdersMinimal retornando linhas) ...
+        // const { importPedidosInternal } = require('../controller/PedidoImportController');
+        // const parsed = await uploadOrdersMinimal(req, res, /*returnOnly*/ true);
+        // const linhas = parsed?.linhas || [];
+        // const imported = await importPedidosInternal(req.clienteId, linhas);
+        // return res.json({ ok: true, linhas_count: linhas.length, imported });
 
-const { findCustomerFromCsv } = require('../controller/customerController');
+        try {
+            // agora uploadOrdersMinimal só retorna dados (não escreve em res)
+            const parsed = await uploadOrdersMinimal(req, res, /* returnOnly */ true);
+            const linhas = parsed?.linhas || [];
+
+            // se quiser já importar:
+            const { importPedidosInternal } = require('../controller/PedidoImportController');
+            const imported = await importPedidosInternal(req.clienteId, linhas);
+
+            console.log('REQ HEADERS', req.headers['content-type'], req.headers['authorization']);
+            console.log('FILES KEYS', Object.keys(req.files || {}));
+            console.log('HAS FILE?', !!(req.files?.file && req.files.file[0]), req.files?.file?.[0]?.originalname);
+
+            // >>> única resposta do request <<<
+            return res.json({ ok: true, linhas, linhas_count: linhas.length, imported });
+        } catch (e) {
+            // >>> única resposta de erro <<<
+            console.error('[upload-minimal] erro:', e);
+            return res.status(400).json({ ok: false, error: e?.message || 'falha ao processar CSV' });
+        }
+    }
+);
 
 router.post(
     '/find',
