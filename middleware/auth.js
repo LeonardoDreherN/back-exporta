@@ -14,6 +14,18 @@ function extrairToken(req) {
   return null;
 }
 
+function logAuthDebug(req, stage, extra = {}) {
+  if (process.env.AUTH_DEBUG === '1') {
+    console.log(`[auth:${stage}]`, {
+      hasAuthHeader: !!req.headers.authorization,
+      hasCookie: !!req.cookies?.token,
+      clienteId: req.clienteId,
+      usuario: req.usuario?.id,
+      ...extra,
+    });
+  }
+}
+
 function autenticarShopify(req, res, next) {
   const token = extrairToken(req);
   if (!token) {
@@ -39,6 +51,8 @@ function autenticarShopify(req, res, next) {
       // payload: decoded,
     };
 
+    logAuthDebug(req, "autenticarShopify_ok", { decoded });
+
     return next();
   } catch (e) {
     const msg = e?.name === "TokenExpiredError" ? "Token expirado" : "Token inválido";
@@ -53,7 +67,7 @@ function autenticarUsuario(req, res, next) {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const userId    = decoded.userId ?? decoded.id ?? decoded.sub ?? null;
+    const userId = decoded.userId ?? decoded.id ?? decoded.sub ?? null;
     // se o token não tiver clienteId explícito, use o próprio userId como clienteId
     const clienteId = decoded.clienteId ?? decoded.clientId ?? decoded.cid ?? userId ?? null;
 
@@ -61,11 +75,21 @@ function autenticarUsuario(req, res, next) {
       return res.status(403).json({ erro: "Usuário/cliente não identificado no token" });
     }
 
-    req.usuario = {
+    const usuario = {
       id: userId ? Number(userId) : null,
       clienteId: clienteId ? Number(clienteId) : null,
       email: decoded.email ?? decoded.emailPrincipal ?? null,
       roles: decoded.roles ?? [],
+      // payload: decoded, // opcional
+    };
+
+    req.usuario = usuario;
+    // Compatibilidade com trechos que usam req.user
+    req.user = {
+      id: usuario.id,
+      clienteId: usuario.clienteId,
+      email: usuario.email,
+      roles: usuario.roles,
     };
 
     if (req.usuario.clienteId) req.clienteId = req.usuario.clienteId;

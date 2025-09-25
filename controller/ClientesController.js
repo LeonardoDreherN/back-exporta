@@ -199,12 +199,14 @@ const loginCliente = async (req, res) => {
     }
 };
 
-const verClienteAtual = async(req, res) => {
-    try{
-        const cliente = await Cliente.findByPk(req.user.id,{
+const verClienteAtual = async (req, res) => {
+    try {
+        const id = req.clienteId ?? req.usuario?.clienteId ?? req.usuario?.id ?? req.user?.clienteId ?? req.user?.id;
+        if (!id) return res.status(401).json({ erro: "Não autenticado" });
+        const cliente = await Cliente.findByPk(id, {
             attributes: ["id", "cnpj", "emailPrincipal", "razaoSocial"]
         })
-        if(!cliente){
+        if (!cliente) {
             return res.status(404).json({ erro: "Cliente não encontrado" });
         }
         res.json(cliente);

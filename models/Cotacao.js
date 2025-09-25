@@ -2,54 +2,41 @@ const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
     const Cotacao = sequelize.define('Cotacao', {
+
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+        cliente_id: { type: DataTypes.INTEGER, allowNull: false },
 
-        // Tenant
-        cliente_id: { type: DataTypes.STRING, allowNull: false },
+        // campos que você já tem
+        moeda_emissao: { type: DataTypes.STRING(10) },
+        moeda_pagamento: { type: DataTypes.STRING(10) },
+        pais_remetente: { type: DataTypes.STRING(2) },
+        pais_dest: { type: DataTypes.STRING(2) },
+        pedido_ref: { type: DataTypes.STRING, allowNull: false },
 
-        // Identificação da cotação (única por cliente)
-        quote_id: { type: DataTypes.STRING, allowNull: false },
-
-        carrier: { type: DataTypes.STRING, allowNull: false, defaultValue: 'MockCarrier' },
-
-        // Liga com o pedido importado do MESMO cliente
-        pedido_ref: { type: DataTypes.STRING, allowNull: false }, // ex.: "D5"
-        // IDs das caixas selecionadas (do MESMO cliente). Se você hidratar inline, pode deixar null.
-        caixa_ids: { type: DataTypes.JSON, allowNull: true }, // [1,2,3]
-
-        // parâmetros do frete
-        moeda_emissao: { type: DataTypes.STRING, allowNull: false },
-        moeda_pagamento: { type: DataTypes.STRING, allowNull: false },
-        pais_remetente: { type: DataTypes.STRING, allowNull: false },
-        pais_dest: { type: DataTypes.STRING, allowNull: false },
-
-        quantidade_caixas: { type: DataTypes.INTEGER, allowNull: false },
-
-        // totais
-        preco_total: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
-        preco_total_moeda_pagamento: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
-        peso_taxavel_total_kg: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
-
-        // snapshots (auditoria)
-        pedido_snapshot: { type: DataTypes.JSON, allowNull: true },
-        caixas_snapshot: { type: DataTypes.JSON, allowNull: true },
-        breakdown: { type: DataTypes.JSON, allowNull: false },
-
-        created_at: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+        // NOVOS snapshots
+        pedido: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
+        caixa: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
     }, {
         tableName: 'cotacoes',
         underscored: true,
-        timestamps: false,
+        timestamps: true,
         indexes: [
-            // Unicidade por cliente
-            { unique: true, fields: ['cliente_id', 'quote_id'] },
-            { fields: ['cliente_id'] },
-            { fields: ['created_at'] },
-            { fields: ['pais_dest'] },
-            { fields: ['moeda_emissao'] },
-            { fields: ['cliente_id', 'pedido_ref'] },
+            { fields: ['cliente_id', 'created_at'] },
+            { fields: ['pedido'], using: 'gin', operator: 'jsonb_path_ops' },
+            { unique: true, fields: ['cliente_id', 'pedido_ref'] }
         ],
     });
+
+    Cotacao.associate = (models) => {
+        if (models.Cliente) {
+            Cotacao.belongsTo(models.Cliente, { foreignKey: 'cliente_id', as: 'cliente' });
+        }
+        // ⚠️ Se você ainda usa a relação com Caixas (models/Caixas.js),
+        // pode manter somente para "lookup". O snapshot "caixa" é a verdade.
+        if (models.Caixas) {
+            Cotacao.belongsTo(models.Caixas, { foreignKey: 'caixa_id', as: 'caixaRel', constraints: false });
+        }
+    };
 
     return Cotacao
 };

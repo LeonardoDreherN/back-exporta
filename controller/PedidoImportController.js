@@ -1,6 +1,7 @@
 // controller/PedidoImportController.js
 const { PedidoImport } = require("../models");
-const { Op } = require("sequelize");
+const { Op, where, fn, col } = require("sequelize");
+const db = require("../models");
 
 const s = (v) => (v ?? "").toString().trim();
 const pickFirst = (...vals) => vals.find(v => s(v) !== "") ?? "";
@@ -8,6 +9,7 @@ const normalizeId = (id) => {
     const x = s(id);
     return x.startsWith("#") ? x.slice(1) : x;
 };
+const normSku = (v) => (v ?? "").toString().trim().toUpperCase();
 
 function groupRowsByOrder(rows) {
     const byId = new Map();
@@ -42,7 +44,7 @@ function groupRowsByOrder(rows) {
         acc.itens.push(item);
 
         if (!acc.moeda) acc.moeda = s(r.moeda);
-        acc.total += item.valorTotalLinha;
+        acc.total = item.valorTotalLinha;
 
         acc.nomeComprador = pickFirst(acc.nomeComprador, r.nome_completo);
         acc.emailComprador = pickFirst(acc.emailComprador, r.email);
@@ -58,12 +60,77 @@ function groupRowsByOrder(rows) {
     return Array.from(byId.values()).map(p => ({ ...p, total: Number(p.total.toFixed(2)) }));
 }
 
+async function loadProdutosPorSku(cliente_id, skus) {
+    if (!skus.length) return new Map();
+
+    // normaliza para UPPER para comparar de forma case-insensitive
+    const skusUpper = skus.map(normSku);
+
+    // SELECT ... WHERE id_cliente = ? AND UPPER(sku) IN (…)
+    const produtos = await db.Produto.findAll({
+        where: {
+            id_cliente: cliente_id,
+            [Op.and]: [where(fn('upper', col('sku')), { [Op.in]: skusUpper })]
+        },
+        attributes: [
+            'sku', 'categoria', 'hscode', 'descricao', 'nome',
+            'peso', 'altura', 'largura', 'profundidade',
+            'cod_identificacao', 'pais_origem'
+        ],
+        raw: true,
+    });
+
+    const map = new Map();
+    for (const p of produtos) map.set(normSku(p.sku), p);
+    return map;
+}
+
+/** Preenche categoria/hscode/descricao/peso/dimensões nos itens dos pedidos */
+async function enrichPedidosWithProdutos(pedidos, cliente_id) {
+    const skus = Array.from(new Set(
+        pedidos.flatMap(p => (p.itens || []).map(it => normSku(it.sku)).filter(Boolean))
+    ));
+
+    console.log('[enrich] skus extraidos:', skus);
+    if (!skus.length) return pedidos;
+    
+    const prodMap = await loadProdutosPorSku(cliente_id, skus);
+    console.log('[enrich] encontrados:', Array.from(prodMap.keys()));
+
+    for (const ped of pedidos) {
+        for (const it of (ped.itens || [])) {
+            const prod = prodMap.get(normSku(it.sku));
+            if (!prod) continue;
+
+            if (!it.categoria) it.categoria = (prod.categoria || "").toString();
+            if (!it.hscode) it.hscode = (prod.hscode || "").toString();
+            if (!it.descricao) it.descricao = (prod.descricao || prod.nome || "").toString();
+
+            if (!it.pais_origem && prod.pais_origem) it.pais_origem = prod.pais_origem;
+            if (!it.cod_identificacao && prod.cod_identificacao) it.cod_identificacao = prod.cod_identificacao;
+
+            // completa peso/dimensões se não vierem na planilha
+            if (!it.pesoUnit && prod.peso != null) it.pesoUnit = String(prod.peso);
+            if (!it.dim) {
+                it.dim = {
+                    altura: prod.altura ?? null,
+                    largura: prod.largura ?? null,
+                    profundidade: prod.profundidade ?? null,
+                };
+            }
+        }
+    }
+    return pedidos;
+}
+
 // ---------- NOVO: função reutilizável para importar ----------
 async function importPedidosInternal(cliente_id, linhas) {
     if (!cliente_id) throw new Error("cliente_id obrigatório");
     if (!Array.isArray(linhas) || !linhas.length) return { created: 0, updated: 0, grouped_orders: 0 };
 
-    const pedidos = groupRowsByOrder(linhas);
+    let pedidos = groupRowsByOrder(linhas);
+    // ← novo: preencher categoria/hscode/descricao a partir de Produtos (por SKU)
+    pedidos = await enrichPedidosWithProdutos(pedidos, cliente_id);
 
     const existentes = await PedidoImport.findAll({
         where: { cliente_id, pedido_ref: { [Op.in]: pedidos.map(p => p.pedido_ref) } },
@@ -93,12 +160,13 @@ async function importPedidosInternal(cliente_id, linhas) {
 
         if (setExist.has(p.pedido_ref)) {
             await PedidoImport.update(payload, { where: { cliente_id, pedido_ref: p.pedido_ref } });
-            updated++;
+            updated;
         } else {
             await PedidoImport.create(payload);
-            created++;
+            created;
         }
     }
+
     return { created, updated, grouped_orders: pedidos.length };
 }
 

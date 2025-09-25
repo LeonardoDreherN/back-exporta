@@ -243,8 +243,20 @@ app.post('/import-pedidos', autenticarUsuario, vincularCliente, importPedidos);
 app.get('/pedidos', autenticarUsuario, vincularCliente, listPedidos);
 
 // COTAÇÕES (mock da transportadora + listar)
-app.post('/cotacao/mock', autenticarUsuario, vincularCliente, criarCotacao);
-app.get('/cotacoes', autenticarUsuario, vincularCliente, listarCotacoes);
+// app.post('/cotacao/mock', autenticarUsuario, vincularCliente, criarCotacao);
+// app.get('/cotacoes', autenticarUsuario, vincularCliente, listarCotacoes);
+
+app.get('/api/cotacoes', autenticarUsuario, vincularCliente, listarCotacoes);
+app.post('/api/cotacoes', autenticarUsuario, vincularCliente, criarCotacao);
+
+app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req,res)=>{
+  res.json({
+    authHeader: !!req.headers.authorization,
+    clienteId: req.clienteId ?? null,
+    usuario: req.usuario ?? null,
+    user: req.user ?? null,
+  });
+});
 
 // Start
 db.sequelize.sync()
