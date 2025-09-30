@@ -6,14 +6,13 @@ module.exports = (sequelize) => {
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
         cliente_id: { type: DataTypes.INTEGER, allowNull: false },
 
-        // campos que você já tem
-        moeda_emissao: { type: DataTypes.STRING(10) },
-        moeda_pagamento: { type: DataTypes.STRING(10) },
+        // // campos que você já tem
+        // moeda_emissao: { type: DataTypes.STRING(10) },
+        // moeda_pagamento: { type: DataTypes.STRING(10) },
         pais_remetente: { type: DataTypes.STRING(2) },
         pais_dest: { type: DataTypes.STRING(2) },
         pedido_ref: { type: DataTypes.STRING, allowNull: false },
 
-        // NOVOS snapshots
         pedido: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
         caixa: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
     }, {

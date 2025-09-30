@@ -111,21 +111,35 @@ const verProdutosLojaShopify = async (req, res) => {
     try {
         const { shop, token, apiVersion } = await resolveLojaEToken(req);
 
-        // Defaults (evitar payload gigantes)
         const limit = Math.min(Number(req.query.limite) || 50, 250);
         const pageInfo = req.query.infoPagina ? String(req.query.infoPagina) : undefined;
-        const fields = (req.query.fields && String(req.query.fields))
-            || ['id', 'title', 'product_type', 'status', 'updated_at', 'variants'].join(',');
+
+        // 👉 Precisamos desses campos no REST:
+        // - product_category (traz product_taxonomy_node_id)
+        // - harmonized_system_code (HS no produto, fallback)
+        // - variants (para extrair o HS code das variantes)
+        const fields =
+            (req.query.fields && String(req.query.fields)) ||
+            [
+                'id',
+                'title',
+                'handle',
+                'status',
+                'updated_at',
+                'product_type',
+                'product_category',
+                'harmonized_system_code',
+                'variants'
+            ].join(',');
 
         const params = new URLSearchParams({ limit: String(limit), fields });
         if (pageInfo) params.set('page_info', pageInfo);
 
         const url = `https://${shop}/admin/api/${apiVersion}/products.json?${params.toString()}`;
 
-        // Timeout + keep-alive
+        // ===== REST listagem =====
         const ac = new AbortController();
         const to = setTimeout(() => ac.abort(), 15000);
-
         const resp = await fetch(url, {
             headers: {
                 'X-Shopify-Access-Token': token,
@@ -137,29 +151,110 @@ const verProdutosLojaShopify = async (req, res) => {
         }).finally(() => clearTimeout(to));
 
         const body = await resp.json().catch(() => ({}));
-
         if (!resp.ok) {
             return res.status(resp.status).json({
-                erro: 'Erro ao consultar produtos na Shopify',
+                erro: 'Erro ao consultar produtos na Shopify (REST)',
                 detalhes: body?.errors || body,
             });
         }
 
         const lista = Array.isArray(body.products) ? body.products : [];
-        const produtos = lista.map(p => ({
-            id: p.id,
-            title: p.title,
-            status: p.status,
-            product_type: p.product_type ?? null,
-            variants: (p.variants || []).map(v => ({
+
+        // ===== Coletar IDs de taxonomia retornados pelo REST =====
+        const taxonomyIds = new Set(); // GIDs de ProductTaxonomyNode
+        for (const p of lista) {
+            const rawId =
+                p?.product_category?.product_taxonomy_node_id ??
+                p?.category?.product_taxonomy_node_id ?? // (edge antigo)
+                null;
+
+            if (!rawId) continue;
+
+            const gid = String(rawId).startsWith('gid://shopify/')
+                ? String(rawId)
+                : `gid://shopify/ProductTaxonomyNode/${String(rawId).replace(/\D+/g, '')}`;
+
+            taxonomyIds.add(gid);
+        }
+
+        // ===== GraphQL: traduzir IDs -> fullName (1 chamada por página) =====
+        const taxonomyMap = new Map(); // gid -> fullName
+        if (taxonomyIds.size) {
+            const Q_TAX_NODES = `
+        query($ids:[ID!]!){
+          nodes(ids:$ids){
+            ... on ProductTaxonomyNode { id fullName }
+          }
+        }
+      `;
+            const ac2 = new AbortController();
+            const to2 = setTimeout(() => ac2.abort(), 15000);
+            try {
+                const gqlResp = await fetch(`https://${shop}/admin/api/${apiVersion}/graphql.json`, {
+                    method: 'POST',
+                    headers: {
+                        'X-Shopify-Access-Token': token,
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ query: Q_TAX_NODES, variables: { ids: Array.from(taxonomyIds) } }),
+                    agent: KEEPALIVE_AGENT,
+                    signal: ac2.signal,
+                });
+                const gqlBody = await gqlResp.json().catch(() => ({}));
+                if (!gqlResp.ok || gqlBody.errors) {
+                    console.warn('⚠️ Falha GraphQL taxonomy nodes:', gqlBody.errors || gqlBody);
+                } else {
+                    for (const n of gqlBody.data?.nodes || []) {
+                        if (n && n.id) taxonomyMap.set(n.id, n.fullName || null);
+                    }
+                }
+            } finally {
+                clearTimeout(to2);
+            }
+        }
+
+        // ===== Montar saída no shape que seu front espera =====
+        const produtos = lista.map(p => {
+            const rawTaxId =
+                p?.product_category?.product_taxonomy_node_id ??
+                p?.category?.product_taxonomy_node_id ??
+                null;
+
+            const taxGid = rawTaxId
+                ? (String(rawTaxId).startsWith('gid://shopify/')
+                    ? String(rawTaxId)
+                    : `gid://shopify/ProductTaxonomyNode/${String(rawTaxId).replace(/\D+/g, '')}`)
+                : null;
+
+            const fullName = taxGid ? taxonomyMap.get(taxGid) || null : null;
+
+            const variants = (p.variants || []).map(v => ({
                 id: v.id,
-                sku: v.sku,
-                weight: v.weight,
-                weight_unit: v.weight_unit,
-                grams: v.grams,
-                price: v.price,
-            }))
-        }));
+                sku: v.sku ?? null,
+                price: v.price ?? null,
+                // 👇 convertemos do REST (snake_case) para camelCase do front
+                harmonizedSystemCode: v.harmonized_system_code || null,
+            }));
+
+            return {
+                id: p.id,
+                title: p.title,
+                handle: p.handle,
+                status: p.status ?? null,
+                updated_at: p.updated_at ?? null,
+                product_type: p.product_type ?? null,
+
+                // 👉 Dois campos para o seu getCategoria() fazer fallback
+                productCategory: taxGid ? { productTaxonomyNode: { id: taxGid, fullName } } : null,
+                standardizedProductType: taxGid ? { productTaxonomyNode: { id: taxGid, fullName } } : null,
+
+                // 👉 HS no produto como fallback (principal é nas variantes)
+                harmonizedSystemCode: p?.harmonized_system_code || null,
+
+                variants
+            };
+        });
 
         const link = resp.headers.get('link') || resp.headers.get('Link');
         const nextPage = proximaPaginaDoLink(link);
@@ -241,4 +336,4 @@ const registrarLojaShopify = async (req, res) => {
     }
 }
 
-module.exports = { verProdutosLojaShopify, registrarLojaShopify };
+module.exports = { verProdutosLojaShopify, registrarLojaShopify, resolveLojaEToken };

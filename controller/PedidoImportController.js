@@ -2,6 +2,8 @@
 const { PedidoImport } = require("../models");
 const { Op, where, fn, col } = require("sequelize");
 const db = require("../models");
+const { resolveLojaEToken } = require("./ShopifyController");
+
 
 const s = (v) => (v ?? "").toString().trim();
 const pickFirst = (...vals) => vals.find(v => s(v) !== "") ?? "";
@@ -10,6 +12,195 @@ const normalizeId = (id) => {
     return x.startsWith("#") ? x.slice(1) : x;
 };
 const normSku = (v) => (v ?? "").toString().trim().toUpperCase();
+
+// ===== Helpers Shopify (Pedidos via REST + enrich via GraphQL) =====
+async function fetchShopifyOrdersPage({ shop, token, apiVersion, limit = 50, pageInfo }) {
+    const params = new URLSearchParams({
+        status: 'any',
+        limit: String(Math.min(limit, 250)),
+        // Campos úteis no nível do pedido e itens
+        // (line_items sempre vem razoavelmente completo; filtramos no map)
+        fields: [
+            'id,name,current_total_price,currency',
+            'email,phone',
+            'shipping_address,billing_address',
+            'line_items'
+        ].join(',')
+    });
+    if (pageInfo) params.set('page_info', String(pageInfo));
+
+    const url = `https://${shop}/admin/api/${apiVersion}/orders.json?${params.toString()}`;
+
+    const ac = new AbortController();
+    const to = setTimeout(() => ac.abort(), 15000);
+    try {
+        const resp = await fetch(url, {
+            headers: {
+                'X-Shopify-Access-Token': token,
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            agent: KEEPALIVE_AGENT,
+            signal: ac.signal,
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            const err = new Error('Erro ao consultar pedidos na Shopify (REST)');
+            err.http = resp.status;
+            err.details = json?.errors || json;
+            throw err;
+        }
+        const link = resp.headers.get('link') || resp.headers.get('Link');
+        return { orders: Array.isArray(json.orders) ? json.orders : [], nextPage: proximaPaginaDoLink(link) };
+    } finally {
+        clearTimeout(to);
+    }
+}
+
+function toGid(kind, idNum) {
+    return `gid://shopify/${kind}/${String(idNum).replace(/\D+/g, '')}`;
+}
+
+async function fetchProductsAndVariantsMeta({ shop, token, apiVersion, productIds, variantIds }) {
+    // UMA chamada GraphQL para cada tipo (nodes) — lotes até ~200 ids.
+    const Q_NODES = `
+    query($ids:[ID!]!) {
+      nodes(ids:$ids) {
+        ... on Product {
+          id
+          harmonizedSystemCode
+          productType
+          standardizedProductType { productTaxonomyNode { id fullName } }
+          productCategory       { productTaxonomyNode { id fullName } }
+          metafield(namespace:"custom", key:"category"){ value } # opcional
+        }
+        ... on ProductVariant {
+          id
+          harmonizedSystemCode
+          product { id }
+        }
+      }
+    }
+  `;
+
+    async function gql(ids) {
+        const ac = new AbortController();
+        const to = setTimeout(() => ac.abort(), 15000);
+        try {
+            const r = await fetch(`https://${shop}/admin/api/${apiVersion}/graphql.json`, {
+                method: 'POST',
+                headers: {
+                    'X-Shopify-Access-Token': token,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ query: Q_NODES, variables: { ids } }),
+                agent: KEEPALIVE_AGENT,
+                signal: ac.signal,
+            });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || j.errors) {
+                const e = new Error('GraphQL nodes falhou');
+                e.http = r.status;
+                e.details = j.errors || j;
+                throw e;
+            }
+            return j.data?.nodes || [];
+        } finally {
+            clearTimeout(to);
+        }
+    }
+
+    const pGids = [...productIds].map(id => toGid('Product', id));
+    const vGids = [...variantIds].map(id => toGid('ProductVariant', id));
+    const ids = [...pGids, ...vGids];
+    if (!ids.length) return { productMap: new Map(), variantMap: new Map() };
+
+    const nodes = await gql(ids);
+
+    const productMap = new Map(); // productIdNum -> { categoryFullName, productType, hsProduct }
+    const variantMap = new Map(); // variantIdNum -> { hsVariant, productIdNum }
+
+    for (const n of nodes) {
+        if (!n || !n.id) continue;
+        const kind = String(n.id).includes('/ProductVariant/') ? 'variant' : 'product';
+        const idNum = Number(String(n.id).split('/').pop());
+
+        if (kind === 'product') {
+            const fullName =
+                n.standardizedProductType?.productTaxonomyNode?.fullName ??
+                n.productCategory?.productTaxonomyNode?.fullName ??
+                n.metafield?.value ?? null;
+
+            productMap.set(idNum, {
+                categoryFullName: fullName,
+                productType: n.productType || null,
+                hsProduct: n.harmonizedSystemCode || null,
+            });
+        } else {
+            const pId = n.product?.id ? Number(String(n.product.id).split('/').pop()) : null;
+            variantMap.set(idNum, {
+                productIdNum: pId,
+                hsVariant: n.harmonizedSystemCode || null,
+            });
+        }
+    }
+
+    return { productMap, variantMap };
+}
+
+function mapOrderToGroupedShape(order, { productMap, variantMap }) {
+    // monta no mesmo formato do seu groupRowsByOrder()
+    const out = {
+        pedido_ref: String(order.name || order.id).replace(/^#/, ''),
+        moeda: order.currency || '',
+        total: Number(order.current_total_price || 0),
+        nomeComprador: (order.shipping_address?.name || order.billing_address?.name || order.customer?.name || '').trim(),
+        emailComprador: (order.email || '').trim(),
+        telefoneComprador: (order.shipping_address?.phone || order.phone || '').trim(),
+        endereco: (order.shipping_address?.address1 || '').trim(),
+        cidade: (order.shipping_address?.city || '').trim(),
+        estado: (order.shipping_address?.province || '').trim(),
+        CEP: (order.shipping_address?.zip || '').trim(),
+        pais: (order.shipping_address?.country || '').trim(),
+        itens: [],
+    };
+
+    for (const li of (order.line_items || [])) {
+        const pid = li.product_id ? Number(li.product_id) : null;
+        const vid = li.variant_id ? Number(li.variant_id) : null;
+
+        const pMeta = pid ? productMap.get(pid) : null;
+        const vMeta = vid ? variantMap.get(vid) : null;
+
+        const category =
+            pMeta?.categoryFullName ??
+            pMeta?.productType ?? // fallback
+            '';
+
+        const hs =
+            vMeta?.hsVariant ??
+            pMeta?.hsProduct ??
+            '';
+
+        out.itens.push({
+            sku: (li.sku || '').trim(),
+            titulo: (li.name || li.title || '').trim(),
+            qty: Number(li.quantity || 0),
+            preco: Number(li.price || 0),
+            categoria: category || '',
+            hscode: hs || '',
+            descricao: (li.name || li.title || '').trim(),
+            pesoUnit: li.grams ? String(li.grams / 1000) : '', // gr → kg (ajuste se quiser)
+            valorTotalLinha: Number((li.price || 0) * (li.quantity || 0)),
+            moedaLinha: order.currency || '',
+            __debug: { pid, vid }
+        });
+    }
+
+    return out;
+}
+
 
 function groupRowsByOrder(rows) {
     const byId = new Map();
@@ -93,7 +284,7 @@ async function enrichPedidosWithProdutos(pedidos, cliente_id) {
 
     console.log('[enrich] skus extraidos:', skus);
     if (!skus.length) return pedidos;
-    
+
     const prodMap = await loadProdutosPorSku(cliente_id, skus);
     console.log('[enrich] encontrados:', Array.from(prodMap.keys()));
 
@@ -232,4 +423,39 @@ async function listPedidos(req, res) {
     }
 }
 
-module.exports = { importPedidos, listPedidos, importPedidosInternal };
+// GET /shopify/pedidos (enriquecidos com categoria + HS)
+async function listPedidosShopify(req, res) {
+    try {
+        const { shop, token, apiVersion } = await resolveLojaEToken(req);
+
+        const limit = Math.min(Number(req.query.limit) || 20, 100); // por página
+        const pageInfo = req.query.page_info ? String(req.query.page_info) : undefined;
+
+        // 1) Busca pedidos (REST)
+        const { orders, nextPage } = await fetchShopifyOrdersPage({ shop, token, apiVersion, limit, pageInfo });
+
+        // 2) Colete ids únicos de produto/variante presentes nos line_items
+        const productIds = new Set();
+        const variantIds = new Set();
+        for (const o of orders) {
+            for (const li of (o.line_items || [])) {
+                if (li.product_id) productIds.add(Number(li.product_id));
+                if (li.variant_id) variantIds.add(Number(li.variant_id));
+            }
+        }
+
+        // 3) Enriquecer via GraphQL (UMA chamada com nodes(ids:[...]))
+        const meta = await fetchProductsAndVariantsMeta({ shop, token, apiVersion, productIds, variantIds });
+
+        // 4) Mapear para o shape que você já usa (grouped)
+        const itens = orders.map(o => mapOrderToGroupedShape(o, meta));
+
+        return res.json({ ok: true, itens, nextPage, shop });
+    } catch (e) {
+        const http = e?.http || 500;
+        return res.status(http).json({ ok: false, error: e.message, detalhes: e.details || undefined });
+    }
+}
+
+
+module.exports = { importPedidos, listPedidos, importPedidosInternal, listPedidosShopify };

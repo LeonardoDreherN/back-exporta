@@ -1,5 +1,5 @@
 const { readCsvBuffer } = require('../services/csvReader.js');
-const { findSingleCustomer } = require('../services/customerFinder');
+const { findSingleCustomer } = require('../services/customerFinder.js');
 
 async function findCustomerFromCsv(req, res) {
     try {

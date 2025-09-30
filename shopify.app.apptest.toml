@@ -2,7 +2,7 @@
 
 client_id = "1e63f0c2737f4f598ef035490454fdf4"
 name = "appTest"
-application_url = "https://vertical-ensuring-sponsors-applying.trycloudflare.com"
+application_url = "https://module-relaxation-bin-couples.trycloudflare.com"
 embedded = true
 handle = "apptest-276"
 
@@ -15,7 +15,7 @@ scopes = "read_customers,read_files,read_orders,read_products,read_content"
 
 [auth]
 redirect_urls = [
-  "https://vertical-ensuring-sponsors-applying.trycloudflare.com/shopify/auth/callback"
+  "https://module-relaxation-bin-couples.trycloudflare.com/shopify/auth/callback"
 ]
 
 [pos]

@@ -18,6 +18,7 @@ const { importPedidos, listPedidos } = require('./controller/PedidoImportControl
 
 // Módulo de rotas da Shopify (inclui auth/conexao/produtos + upload-minimal + find)
 const shopifyModule = require('./routes/shopifyRoutes.js');
+// const upsRoutes = require('./routes/upsRoutes.js');
 
 // Middlewares globais
 app.use(express.json());
@@ -59,6 +60,7 @@ app.use('/shopify', shopifyModule);
 
 // Saúde
 app.get('/health', (_, res) => res.send('ok'));
+// app.get('/healthUPS', (_req, res) => res.json({ ok: true, service: 'Intrex API UPS', time: new Date().toISOString() }));
 
 // --- Rota raiz (embedded landing com App Bridge) ---
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
@@ -191,8 +193,6 @@ app.get('/_debug/scopes', async (req, res) => {
 const EXPORTS_DIR = path.join(__dirname, 'exports');
 app.use('/exports', express.static(EXPORTS_DIR, { maxAge: '1h', etag: true }));
 
-// Rotas de produtos da Shopify (existentes)
-app.get('/shopify/produtos', autenticarShopify, comLoja, garantirInstalada, verProdutosLojaShopify);
 
 // --- CLIENTES (sua plataforma) ---
 app.post('/registrarClientes', registrarCliente);
@@ -238,6 +238,9 @@ app.put('/editarProduto/:id', autenticarUsuario, editarProduto);
 // --- SHOPIFY: conectar loja (sua plataforma) ---
 app.post('/conectarLoja', autenticarUsuario, vincularCliente, registrarLojaShopify);
 
+// Rotas de produtos da Shopify (existentes)
+app.get('/shopify/produtos', autenticarShopify, comLoja, garantirInstalada, verProdutosLojaShopify);
+
 // PEDIDOS (import/list)
 app.post('/import-pedidos', autenticarUsuario, vincularCliente, importPedidos);
 app.get('/pedidos', autenticarUsuario, vincularCliente, listPedidos);
@@ -257,6 +260,10 @@ app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req,res)=>{
     user: req.user ?? null,
   });
 });
+
+// API UPS
+
+// app.use('/api', upsRoutes);
 
 // Start
 db.sequelize.sync()
