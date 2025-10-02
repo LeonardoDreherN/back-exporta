@@ -10,6 +10,7 @@ module.exports = (sequelize) => {
         nomeComprador: { type: DataTypes.STRING },
         emailComprador: { type: DataTypes.STRING },
         telefoneComprador: { type: DataTypes.STRING },
+        endereco: { type: DataTypes.STRING},
         cidade: { type: DataTypes.STRING },
         estado: { type: DataTypes.STRING },
         CEP: { type: DataTypes.STRING },

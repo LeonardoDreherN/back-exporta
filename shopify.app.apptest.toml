@@ -2,7 +2,7 @@
 
 client_id = "1e63f0c2737f4f598ef035490454fdf4"
 name = "appTest"
-application_url = "https://module-relaxation-bin-couples.trycloudflare.com"
+application_url = "https://segment-accounting-troops-discretion.trycloudflare.com"
 embedded = true
 handle = "apptest-276"
 
@@ -15,7 +15,7 @@ scopes = "read_customers,read_files,read_orders,read_products,read_content"
 
 [auth]
 redirect_urls = [
-  "https://module-relaxation-bin-couples.trycloudflare.com/shopify/auth/callback"
+  "https://segment-accounting-troops-discretion.trycloudflare.com/shopify/auth/callback"
 ]
 
 [pos]

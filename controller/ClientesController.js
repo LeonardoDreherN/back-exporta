@@ -1,5 +1,5 @@
 
-const Cliente = require("../models/Cliente.js");
+const Cliente = require("../models/index.js");
 const db = require("../models/index.js");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
@@ -145,7 +145,7 @@ const registrarCliente = async (req, res) => {
 const verClientes = async (req, res) => {
     try {
         const clientes = await db.Cliente.findAll({
-            attributes: ["id", "cnpj", "emailPrincipal"] // 🚫 não retorna senha
+            attributes: ["id", "cnpj", "emailPrincipal", "enderecoRua"] // 🚫 não retorna senha
         });
 
         res.json(clientes);
@@ -201,23 +201,40 @@ const loginCliente = async (req, res) => {
 
 const verClienteAtual = async (req, res) => {
     try {
-        const id = req.clienteId ?? req.usuario?.clienteId ?? req.usuario?.id ?? req.user?.clienteId ?? req.user?.id;
+        const id =
+            req.clienteId ??
+            req.usuario?.clienteId ??
+            req.usuario?.id ??
+            req.user?.clienteId ??
+            req.user?.id;
+
         if (!id) return res.status(401).json({ erro: "Não autenticado" });
-        const cliente = await Cliente.findByPk(id, {
-            attributes: ["id", "cnpj", "emailPrincipal", "razaoSocial"]
-        })
-        if (!cliente) {
-            return res.status(404).json({ erro: "Cliente não encontrado" });
-        }
+
+        const cliente = await db.Cliente.findByPk(id, {
+            attributes: [
+                "id",
+                "razaoSocial",
+                "emailPrincipal",
+                "telefoneCelular",
+                "cnpj",
+                "enderecoPais",
+                "enderecoCEP",
+                "enderecoRua",
+                "enderecoNumero",
+                "enderecoComplemento",
+                "enderecoCidade",
+                "enderecoEstado"
+            ]
+        });
+
+        if (!cliente) return res.status(404).json({ erro: "Cliente não encontrado" });
+
         res.json(cliente);
     } catch (err) {
         console.error("Erro ao ver cliente atual:", err);
-        res.status(500).json({
-            erro: "Erro interno do servidor",
-            detalhes: err.message
-        });
+        res.status(500).json({ erro: "Erro interno do servidor", detalhes: err.message });
     }
-}
+};
 
 module.exports = {
     registrarCliente,

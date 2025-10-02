@@ -18,7 +18,7 @@ const { importPedidos, listPedidos } = require('./controller/PedidoImportControl
 
 // Módulo de rotas da Shopify (inclui auth/conexao/produtos + upload-minimal + find)
 const shopifyModule = require('./routes/shopifyRoutes.js');
-// const upsRoutes = require('./routes/upsRoutes.js');
+const upsRoutes = require('./routes/upsRoutes.js');
 
 // Middlewares globais
 app.use(express.json());
@@ -57,10 +57,11 @@ const { getAccessScopesLive } = require('./utils/scopes.js');
 
 // Monta TODAS as rotas da Shopify sob /shopify (NÃO duplicar)
 app.use('/shopify', shopifyModule);
+app.use('/api/ups', upsRoutes);
 
 // Saúde
 app.get('/health', (_, res) => res.send('ok'));
-// app.get('/healthUPS', (_req, res) => res.json({ ok: true, service: 'Intrex API UPS', time: new Date().toISOString() }));
+
 
 // --- Rota raiz (embedded landing com App Bridge) ---
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
@@ -197,7 +198,7 @@ app.use('/exports', express.static(EXPORTS_DIR, { maxAge: '1h', etag: true }));
 // --- CLIENTES (sua plataforma) ---
 app.post('/registrarClientes', registrarCliente);
 app.post('/login', loginCliente);
-app.get('/verClientes', autenticarUsuario, verClientes);
+app.get('/verClientes', verClientes);
 app.get('/verClienteAtual', autenticarUsuario, verClienteAtual);
 
 // --- VALIDADORES ---
@@ -246,9 +247,6 @@ app.post('/import-pedidos', autenticarUsuario, vincularCliente, importPedidos);
 app.get('/pedidos', autenticarUsuario, vincularCliente, listPedidos);
 
 // COTAÇÕES (mock da transportadora + listar)
-// app.post('/cotacao/mock', autenticarUsuario, vincularCliente, criarCotacao);
-// app.get('/cotacoes', autenticarUsuario, vincularCliente, listarCotacoes);
-
 app.get('/api/cotacoes', autenticarUsuario, vincularCliente, listarCotacoes);
 app.post('/api/cotacoes', autenticarUsuario, vincularCliente, criarCotacao);
 

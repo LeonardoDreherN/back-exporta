@@ -151,18 +151,29 @@ async function fetchProductsAndVariantsMeta({ shop, token, apiVersion, productId
 
 function mapOrderToGroupedShape(order, { productMap, variantMap }) {
     // monta no mesmo formato do seu groupRowsByOrder()
+    const ship = order.shipping_address || {};
+    const address1 = (ship.address1 || '').trim();
+    const address2 = (ship.address2 || '').trim();
+    const ruaENum = address2 ? `${address1}, ${address2}` : address1;
+
+    const countryCode = (ship.country_code || ship.country_code_v2 || ship.country || '').toString().trim();
+    const province = (ship.province_code || ship.province || '').toString().trim();
+
     const out = {
         pedido_ref: String(order.name || order.id).replace(/^#/, ''),
         moeda: order.currency || '',
         total: Number(order.current_total_price || 0),
-        nomeComprador: (order.shipping_address?.name || order.billing_address?.name || order.customer?.name || '').trim(),
+
+        nomeComprador: (ship.name || order.billing_address?.name || order.customer?.name || '').trim(),
         emailComprador: (order.email || '').trim(),
-        telefoneComprador: (order.shipping_address?.phone || order.phone || '').trim(),
-        endereco: (order.shipping_address?.address1 || '').trim(),
-        cidade: (order.shipping_address?.city || '').trim(),
-        estado: (order.shipping_address?.province || '').trim(),
-        CEP: (order.shipping_address?.zip || '').trim(),
-        pais: (order.shipping_address?.country || '').trim(),
+        telefoneComprador: (ship.phone || order.phone || '').trim(),
+
+        endereco: ruaENum,                        // <<<<<<<<<<<<<< aqui
+        cidade: (ship.city || '').trim(),
+        estado: province,                          // código se houver
+        CEP: (ship.zip || '').toString().trim(),
+        pais: countryCode,                         // código se houver
+
         itens: [],
     };
 
@@ -409,6 +420,7 @@ async function listPedidos(req, res) {
                 "nomeComprador",
                 "emailComprador",
                 "telefoneComprador",
+                "endereco",
                 "cidade",
                 "estado",
                 "CEP",

@@ -1,13 +1,15 @@
-require('dotenv').config();
-
-const isSandbox = (process.env.UPS_ENV || 'sandbox') === 'sandbox';
+const base = process.env.UPS_ENV === 'PROD'
+    ? process.env.UPS_BASE_URL_PROD
+    : process.env.UPS_BASE_URL_CIE;
 
 module.exports = {
-    env: process.env.UPS_ENV || 'sandbox',
-    version: process.env.UPS_API_VERSION || 'v2407',
+    base,
+    oauth: `${base}/security/v1/oauth/token`,
+    rate: `${base}/api/rating/v2407/Rate`,
+    ship: `${base}/api/shipments/v2407/ship`,
+    track: `${base}/api/track/v1/details`,
+    account: process.env.UPS_ACCOUNT,
     clientId: process.env.UPS_CLIENT_ID,
     clientSecret: process.env.UPS_CLIENT_SECRET,
-    transactionSrc: process.env.UPS_TRANSACTION_SRC || 'back-exporta',
-    oauthUrl: 'https://www.ups.com/security/v1/oauth/token',
-    baseUrl: isSandbox ? 'https://wwwcie.ups.com' : 'https://onlinetools.ups.com',
+    timeoutMs: 15000,
 };

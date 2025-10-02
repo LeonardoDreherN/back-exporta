@@ -16,6 +16,7 @@
     "@ngrok/ngrok": "^1.5.2",
     "@shopify/shopify-api": "^11.14.1",
     "@shopify/shopify-app-session-storage-memory": "^4.0.20",
+    "axios": "^1.12.2",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
