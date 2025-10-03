@@ -135,135 +135,22 @@ module.exports = {
     },
 
     // ---------------- SHIP ----------------
-    ship: async (req, res, next) => {
+    ship: async (req, res) => {
+        const t0 = Date.now();
         try {
-            const {
-                shipper = {},          // { nome, telefone, rua, numero, complemento, cidade, estado, cep, pais }
-                shipTo = {},           // idem
-                serviceCode,           // ex: "07"
-                packages = [],         // [{ weightKg, dimCm: {height,width,length}, reference? }]
-                payment = { bill: 'Shipper' },
-                invoice = null,        // { currency, items: [...] } | null
-                label,                 // { format?: 'PNG'|'ZPL', stockSize?: { widthIn,heightIn } }
-            } = req.body || {};
+            // ... monte o finalPayload exatamente como já está no seu código ...
 
-            // Somente Bill Shipper habilitado
-            const payBill = String(payment?.bill || 'Shipper');
-            if (payBill !== 'Shipper') {
-                return res.status(400).json({
-                    ok: false,
-                    error: 'Somente “Bill Shipper” está habilitado neste ambiente.'
-                });
-            }
-            if (!UPS_ACCOUNT_NUMBER) {
-                return res.status(400).json({
-                    ok: false,
-                    error: 'Defina UPS_ACCOUNT_NUMBER no .env para Bill Shipper.'
-                });
-            }
-
-            const shipperCountry = iso2Country(shipper.pais);
-            const shipToCountry = iso2Country(shipTo.pais);
-            const { w: weightUOM, d: dimUOM } = unitsForCountry(shipperCountry);
-
-            const addrLine = (p) => {
-                const a = [[p.rua, p.numero].filter(Boolean).join(', '), p.complemento].filter(Boolean);
-                return a.length ? a : [[p.rua, p.numero].filter(Boolean).join(', ')];
-            };
-
-            const upsShipper = {
-                Name: shipper.nome || shipper.company || 'Shipper',
-                AttentionName: shipper.nome || 'Contato',
-                ShipperNumber: UPS_ACCOUNT_NUMBER,
-                Phone: { Number: String(shipper.telefone || '').replace(/\D/g, '').slice(0, 15) || '0000000000' },
-                Address: {
-                    AddressLine: addrLine(shipper),
-                    City: shipper.cidade,
-                    StateProvinceCode: isoState(shipper.estado),
-                    PostalCode: cleanZip(shipper.cep),
-                    CountryCode: shipperCountry,
-                }
-            };
-
-            const upsShipFrom = { ...upsShipper };
-
-            const upsShipTo = {
-                Name: shipTo.nome || 'Recebedor',
-                AttentionName: shipTo.nome || 'Contato',
-                Phone: { Number: String(shipTo.telefone || '').replace(/\D/g, '').slice(0, 15) || '0000000000' },
-                Address: {
-                    AddressLine: addrLine(shipTo),
-                    City: shipTo.cidade,
-                    StateProvinceCode: isoState(shipTo.estado),
-                    PostalCode: cleanZip(shipTo.cep),
-                    CountryCode: shipToCountry,
-                }
-            };
-
-            const upsPackages = packages.map((p) => {
-                const weight = weightUOM === 'LBS' ? kgToLbs(p.weightKg) : round2(p.weightKg);
-                const h = dimUOM === 'IN' ? cmToIn(p?.dimCm?.height) : round2(p?.dimCm?.height);
-                const w = dimUOM === 'IN' ? cmToIn(p?.dimCm?.width) : round2(p?.dimCm?.width);
-                const l = dimUOM === 'IN' ? cmToIn(p?.dimCm?.length) : round2(p?.dimCm?.length);
-                return {
-                    Description: 'General merchandise',
-                    Packaging: { Code: '02' },
-                    Dimensions: { UnitOfMeasurement: { Code: dimUOM }, Length: String(l), Width: String(w), Height: String(h) },
-                    PackageWeight: { UnitOfMeasurement: { Code: weightUOM }, Weight: String(weight) }
-                };
+            // CHAMA A SUA SERVICE (que usa /api/shipments/v2407/ship do seu config)
+            const raw = await shipping.createShipment(finalPayload, {
+                idempotencyKey: req.headers['x-idempotency-key']
             });
 
-            const PaymentInformation = {
-                ShipmentCharge: { Type: '01', BillShipper: { AccountNumber: UPS_ACCOUNT_NUMBER } }
-            };
-
-            let Products = undefined;
-            if (invoice && Array.isArray(invoice.items) && invoice.items.length) {
-                Products = invoice.items.map((it) => ({
-                    Description: it.description || it.titulo || it.sku || 'Item',
-                    OriginCountryCode: (it.countryOfOrigin || shipperCountry),
-                    CommodityCode: it.hscode || undefined,
-                    NumberOfPackagesPerCommodity: '1',
-                    Unit: { Number: String(it.quantity || 1), Value: String(it.unitPrice || 0), UnitOfMeasurement: { Code: 'PCS' } },
-                    Weight: it.weightKg
-                        ? { UnitOfMeasurement: { Code: weightUOM }, Weight: String(weightUOM === 'LBS' ? kgToLbs(it.weightKg) : round2(it.weightKg)) }
-                        : undefined,
-                }));
-            }
-
-            const ShipmentRequest = {
-                Request: { RequestOption: 'nonvalidate', TransactionReference: { CustomerContext: 'back-exporta' } },
-                Shipment: {
-                    Description: `Exporta - ${shipper.nome || ''} -> ${shipTo.nome || ''}`.slice(0, 35),
-                    Shipper: upsShipper,
-                    ShipFrom: upsShipFrom,
-                    ShipTo: upsShipTo,
-                    PaymentInformation,
-                    Service: { Code: serviceCode || '07' },
-                    Package: upsPackages,
-                    ...(Products ? { Product: Products } : {})
-                }
-            };
-
-            const LabelSpecification = {
-                LabelImageFormat: { Code: (label?.format || 'PNG') },
-                LabelStockSize: label?.stockSize
-                    ? { Width: String(label.stockSize.widthIn || 4), Height: String(label.stockSize.heightIn || 6) }
-                    : { Width: '4', Height: '6' }
-            };
-
-            const finalPayload = { ShipmentRequest, LabelSpecification };
-
-            // chama UPS
-
-            // ---- mapeia resposta em formato simples esperado pelo front ----
+            // MAPEIA DEPOIS
             const sr = raw?.ShipmentResponse?.ShipmentResults;
             const pkg = sr?.PackageResults;
             const list = (Array.isArray(pkg) ? pkg : [pkg]).filter(Boolean);
 
-            const trackingNumbers = [
-                ...list.map(p => p?.TrackingNumber).filter(Boolean),
-            ];
+            const trackingNumbers = [...list.map(p => p?.TrackingNumber).filter(Boolean)];
             const master = sr?.ShipmentIdentificationNumber;
             if (!trackingNumbers.length && master) trackingNumbers.push(master);
 
@@ -271,29 +158,27 @@ module.exports = {
             const labelB64 =
                 first?.ShippingLabel?.GraphicImage ||
                 first?.LabelImage?.GraphicImage ||
-                sr?.LabelImage?.GraphicImage ||
-                null;
+                sr?.LabelImage?.GraphicImage || null;
 
             const labelType =
                 first?.ShippingLabel?.LabelImageFormat?.Code ||
                 first?.LabelImage?.LabelImageFormat?.Code ||
-                sr?.LabelImage?.LabelImageFormat?.Code ||
-                'PNG';
+                sr?.LabelImage?.LabelImageFormat?.Code || 'PNG';
 
-            const raw = await shipping.createShipment(finalPayload, {
-                idempotencyKey: req.headers['x-idempotency-key']
-            });
-
-            console.log("[UPS/SHIP] payload:", JSON.stringify(finalPayload, null, 2));
-            console.log("[UPS/SHIP] resp:", JSON.stringify(raw, null, 2)); // <- usar raw
-
-            return res.json({
+            return res.status(200).json({
                 ok: true,
+                tookMs: Date.now() - t0,
                 trackingNumbers,
                 label: labelB64 ? { b64: labelB64, type: labelType } : null,
-                raw // opcional para debug
+                raw
             });
-        } catch (e) { next(e); }
+        } catch (e) {
+            const status = e?.response?.status || 502;
+            return res.status(status).json({
+                ok: false,
+                error: e?.response?.data || { message: e.message || 'UPS error' }
+            });
+        }
     },
 
     // ---------------- TRACK ----------------

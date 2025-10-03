@@ -1,6 +1,6 @@
 const base = process.env.UPS_ENV === 'PROD'
-    ? process.env.UPS_BASE_URL_PROD
-    : process.env.UPS_BASE_URL_CIE;
+    ? process.env.UPS_BASE_URL_PROD || "https://onlinetools.ups.com"
+    : process.env.UPS_BASE_URL_CIE || "https://wwwcie.ups.com";
 
 module.exports = {
     base,

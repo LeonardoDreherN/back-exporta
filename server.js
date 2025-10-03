@@ -7,6 +7,7 @@ const db = require('./models/index.js');
 const cors = require('cors');
 const path = require('path');
 const cookieParser = require('cookie-parser');
+const cfg = require('./config/ups.js')
 
 const { autenticarUsuario, vincularCliente, autenticarShopify } = require('./middleware/auth.js');
 const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js');
@@ -262,11 +263,17 @@ app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req,res)=>{
 // API UPS
 
 // app.use('/api', upsRoutes);
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const status = err?.response?.status || err?.status || 500;
+  res.status(status).json({ ok:false, error: err?.response?.data || { message: err.message } });
+});
 
 // Start
 db.sequelize.sync()
   .then(() => {
     app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+    console.log(cfg.ship)
   })
   .catch((err) => {
     console.error('Erro ao sincronizar com o banco:', err);
