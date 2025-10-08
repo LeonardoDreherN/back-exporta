@@ -3,10 +3,12 @@ const rating = require('../services/ups/rating');
 const shipping = require('../services/ups/shipping');
 const tracking = require('../services/ups/tracking');
 
+const axios = require('axios')
+
 
 // ====== CONFIG ======
-const UPS_BASE = process.env.UPS_BASE || 'https://wwwcie.ups.com';
-const UPS_OAUTH_TOKEN = process.env.UPS_OAUTH_TOKEN || ''; // se usar OAuth, injete aqui
+const UPS_BASE = process.env.UPS_BASE_URL_PROD || 'https://onlinetools.ups.com';
+const UPS_OAUTH_TOKEN = process.env.UPS_OAUTH_TOKEN || 'eyJraWQiOiI5NzllNmVhYy1iZmExLTQzZmQtYTliZi05NTBhYzE0OGVkNjMiLCJ0eXAiOiJKV1QiLCJhbGciOiJSUzM4NCJ9.eyJzdWIiOiJqdWxpYWV4cG9ydGFkaWdpdGFsQGdtYWlsLmNvbSIsImNsaWVudGlkIjoiWThTYldsVVVjUGtUZTdOWkVBZ0JHUU03bEdnc09RZ0F2SVUyOHUwVWlucEtVZFc4IiwiaXNzIjoiaHR0cHM6Ly9hcGlzLnVwcy5jb20iLCJ1dWlkIjoiQTgwMzIwNTgtOThGOC0xMTVDLTlGRTEtNkZBOTU5QkVERjUzIiwic2lkIjoiOTc5ZTZlYWMtYmZhMS00M2ZkLWE5YmYtOTUwYWMxNDhlZDYzIiwiYXVkIjoiSW50cmV4IiwiYXQiOiJIVGh4QlRNUDl3U0NEa1d1MmNPTG94bUFwWmF6IiwibmJmIjoxNzU5OTI1OTQ0LCJEaXNwbGF5TmFtZSI6IkludHJleCIsImV4cCI6MTc1OTk0MDM0NCwiaWF0IjoxNzU5OTI1OTQ0LCJqdGkiOiI1MWM5MmJkNC0wNDc5LTRmNjUtODk1YS04MmRiOWQwZTczNTQifQ.UKyfHsHMdjOnE5txdl2Fr94cJOkkuL4chL1Ow7a98s1MgNqrpshyjr-a8nUwL186QzHzhezBfcO1CZc2Qd5KTtKYMYijacm3SvhyZUD4vBu73xpQnN8AN6O5gJCMVdRWcOVlIFUvRAWRsGPOwvMAco-wBJVe2LcGKwT3C87W6Lepeg4No6B4iMJ8rree3t1a7pxixwOep7TIv8kmhfVULhIumUEBWKeUxCk0O0dTLE8dimHg0I0jp82Ib4kMrOCFoJHYPL366CGjGDAmsHvP5M3jnuDmn3Hlsz_CS6p6kgv43HQnY-4GXvb4yC929XFtiVhMI4I7-hI2nhIALqn-UiDvF989lj7kea6g6JPcYRLwgF59J5qB5aInfUFJkRk0DUiiEvWV5Ojja5d78llxRUPRvHLI5ZQjy2nywry5fGUrr6-bnG8YYrvv0fgL5WSK_V4NWQNqm_EjYV5Zu2K-D6bJSsV129fIk1SOTqv86IBikcpHqys6qj8nbL3MH_YymLuar_a7JpmFPUFQO4EhhczMai91lRRcmTeM2_SNy8sTEsrAtaReyRa6tCcpi1oQsgZFa1frIggKAbXeUdmq05Lmjz8_egzc_nQ-lTKXh930-uwIAIoX-RmiV4Sm2MaIK2Cts3rb8DkxihzsKzrIlOBZfy7elfYAC3i_41l9xFs'; // se usar OAuth, injete aqui
 const UPS_ACCOUNT_NUMBER = process.env.UPS_ACCOUNT_NUMBER || 'JE8372'; // ex: "JE8372"
 // use STUB=true para simular resposta e testar o front sem a UPS
 const UPS_STUB = String(process.env.UPS_STUB || '') === 'true';
