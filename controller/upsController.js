@@ -1,17 +1,19 @@
 // controller/upsController.js
+const { default: axios } = require('axios');
 const rating = require('../services/ups/rating');
 const shipping = require('../services/ups/shipping');
 const tracking = require('../services/ups/tracking');
 
-
 // ====== CONFIG ======
 const UPS_BASE = process.env.UPS_BASE || 'https://wwwcie.ups.com';
-const UPS_OAUTH_TOKEN = process.env.UPS_OAUTH_TOKEN || ''; // se usar OAuth, injete aqui
-const UPS_ACCOUNT_NUMBER = process.env.UPS_ACCOUNT_NUMBER || 'JE8372'; // ex: "JE8372"
-// use STUB=true para simular resposta e testar o front sem a UPS
+const UPS_OAUTH_TOKEN = process.env.UPS_OAUTH_TOKEN || '';
+const UPS_ACCOUNT_NUMBER = process.env.UPS_ACCOUNT_NUMBER || 'JE8372';
 const UPS_STUB = String(process.env.UPS_STUB || '') === 'true';
+const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || '';
+const UPS_CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || '';
 
-
+const onlyDigits = (s) => String(s || '').replace(/\D+/g, '');
+const trunc = (s, n) => (s ? String(s).slice(0, n) : undefined);
 function cleanZip(s = '') { return String(s).replace(/['"`\s]/g, '').replace(/\D/g, ''); }
 function kgToLbs(kg) { const n = Number(kg) || 0; return +(n * 2.2046226218).toFixed(3); }
 function cmToIn(cm) { const n = Number(cm) || 0; return +(n / 2.54).toFixed(2); }
@@ -29,38 +31,16 @@ function iso2Country(c) {
         BR: 'BR', BRA: 'BR', BRASIL: 'BR', BRAZIL: 'BR',
         US: 'US', USA: 'US', UNITEDSTATES: 'US', 'UNITED STATES': 'US',
         CA: 'CA', CANADA: 'CA',
+        MX: 'MX', MEXICO: 'MX',
+        AR: 'AR', ARGENTINA: 'AR', CL: 'CL', CHILE: 'CL',
     };
     return map[x] || (x.length === 2 ? x : undefined);
 }
 function isoState(s) { return String(s || '').trim().toUpperCase(); }
 
+// ====== ERROS (removida a duplicação) ======
 function normalizeUpsError(err) {
-    // status preferencialmente do upstream; senão, 400 se foi validação sua; senão, 500
     const status = err?.response?.status || 500;
-
-    // tenta capturar mensagens comuns da UPS / axios
-    const data = err?.response?.data;
-    const msg =
-        // sua API pode já mandar { error: "..." }
-        (typeof data?.error === 'string' && data.error) ||
-        // alguns retornos: { error: { message: "..." } }
-        (typeof data?.error?.message === 'string' && data.error.message) ||
-        // API UPS JSON (exemplos frequentes)
-        data?.response?.errors?.[0]?.message ||
-        data?.Fault?.detail?.Errors?.ErrorDetail?.PrimaryErrorCode?.Description ||
-        data?.Fault?.reason?.Text ||
-        // axios / generic
-        (typeof err?.message === 'string' && err.message) ||
-        'Falha ao emitir remessa';
-
-    return { status, message: msg, raw: data };
-}
-
-// ====== HELPERS ======
-function normalizeUpsError(err) {
-    // Sem resposta => erro de rede/timeout/autenticação
-    const status = err?.response?.status || 500;
-
     let message =
         err?.response?.data?.response?.errors?.[0]?.message ||
         err?.response?.data?.Fault?.detail?.Errors?.ErrorDetail?.PrimaryErrorCode?.Description ||
@@ -69,57 +49,181 @@ function normalizeUpsError(err) {
         err?.message ||
         'Falha ao emitir remessa';
 
-    // Para debug local, inclua err.code quando não houver response
     if (!err?.response && err?.code) {
         message = `${message} (code=${err.code})`;
     }
-
     const raw = err?.response?.data;
     return { status, message, raw };
 }
 
-// Concatena rua + número de forma segura
+// Concatena rua + número
 function joinAddressLine(rua, numero) {
     const a = String(rua || '').trim();
     const b = String(numero || '').trim();
     return [a, b].filter(Boolean).join(', ');
 }
 
-// Mapeia seu UpsShipRequest => payload REST da UPS (Ship v2407+)
+let _upsTokenCache = { token: null, expTs: 0 }; // epoch ms
+
+async function getUpsToken(force = false) {
+    const now = Date.now();
+    if (!force && _upsTokenCache.token && now < _upsTokenCache.expTs - 60_000) {
+        return _upsTokenCache.token;
+    }
+    if (!UPS_CLIENT_ID || !UPS_CLIENT_SECRET) {
+        throw new Error('UPS OAuth2: defina UPS_CLIENT_ID e UPS_CLIENT_SECRET no .env');
+    }
+
+    const oauthUrl = `${UPS_BASE}/security/v1/oauth/token`;
+    const basic = Buffer.from(`${UPS_CLIENT_ID}:${UPS_CLIENT_SECRET}`).toString('base64');
+
+    const resp = await axios.post(
+        oauthUrl,
+        'grant_type=client_credentials',
+        {
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Authorization': `Basic ${basic}`,
+                'Accept': 'application/json',
+            },
+            timeout: 15000,
+        }
+    );
+
+    const token = resp?.data?.access_token;
+    const expiresIn = Number(resp?.data?.expires_in || 0);
+    if (!token) throw new Error('UPS OAuth2: token ausente na resposta');
+
+    _upsTokenCache = {
+        token,
+        expTs: Date.now() + expiresIn * 1000,
+    };
+    return token;
+}
+
+/**
+ * Traduz o NOVO payload do front (ShipmentRequest-like) para um RateRequest da UPS Rating.
+ * Ignora InternationalForms/Contacts (não usados em Rating).
+ */
+function translateShipmentRequestToRateRequest(frontSR) {
+    const S = frontSR?.Shipment || {};
+    const shipper = S?.Shipper || {};
+    const shipTo = S?.ShipTo || {};
+    const service = S?.Service || {};
+    const pkg1 = S?.Package || S?.Packages; // teu front manda 1 só
+
+    // Extrai address minimal
+    const addrPick = (node) => {
+        const A = node?.Address || {};
+        return {
+            PostalCode: cleanZip(A?.PostalCode || A?.Postalcode || A?.Zip || ''),
+            CountryCode: iso2Country(A?.CountryCode) || undefined,
+            StateProvinceCode: A?.StateProvinceCode || A?.State || undefined,
+            City: A?.City || undefined,
+            AddressLine: Array.isArray(A?.AddressLine) ? A.AddressLine[0] : (A?.AddressLine || undefined),
+        };
+    };
+
+    const shAddr = addrPick(shipper);
+    const toAddr = addrPick(shipTo);
+
+    // Monta pacote(s)
+    const toRatePkg = (p) => {
+        if (!p) return null;
+        const UOMw = p?.PackageWeight?.UnitOfMeasurement?.Code || 'KGS';
+        const weight = p?.PackageWeight?.Weight || '0';
+        const UOMd = p?.Dimensions?.UnitOfMeasurement?.Code || 'CM';
+        const H = p?.Dimensions?.Height ?? '0';
+        const W = p?.Dimensions?.Width ?? '0';
+        const L = p?.Dimensions?.Length ?? '0';
+        return {
+            PackagingType: { Code: '02' },
+            PackageWeight: { UnitOfMeasurement: { Code: UOMw }, Weight: String(weight) },
+            Dimensions: { UnitOfMeasurement: { Code: UOMd }, Height: String(H), Width: String(W), Length: String(L) },
+            PackageServiceOptions: {}
+        };
+    };
+
+    const packages = [];
+    if (Array.isArray(pkg1)) {
+        for (const p of pkg1) {
+            const x = toRatePkg(p);
+            if (x) packages.push(x);
+        }
+    } else {
+        const x = toRatePkg(pkg1);
+        if (x) packages.push(x);
+    }
+
+    return {
+        RateRequest: {
+            Request: { TransactionReference: { CustomerContext: 'back-exporta' } },
+            Shipment: {
+                Shipper: { Address: shAddr },
+                ShipTo: { Address: toAddr },
+                Service: { Code: service?.Code || '' },
+                ShipmentRatingOptions: { NegotiatedRatesIndicator: 'Y' },
+                Package: packages.length ? packages : [{
+                    PackagingType: { Code: '02' },
+                    PackageWeight: { UnitOfMeasurement: { Code: 'KGS' }, Weight: '0' },
+                    Dimensions: { UnitOfMeasurement: { Code: 'CM' }, Height: '0', Width: '0', Length: '0' },
+                    PackageServiceOptions: {}
+                }],
+                PickupType: { Code: '01' },
+            }
+        }
+    };
+}
+
+// ====== SHIP payload (REST v2407+) ======
 function mapToUpsShipment(reqBody) {
     const { shipper, shipFrom, shipTo, serviceCode, payment, packages, invoice } = reqBody;
 
-    // Address helper (UPS REST atual usa AddressKeyFormat)
-    const addr = (p) => ({
-        Name: p?.nome || undefined,
-        Phone: { Number: p?.telefone ? String(p.telefone) : undefined },
-        Address: {
-            AddressLine: [joinAddressLine(p?.rua, p?.numero)].filter(Boolean),
-            City: p?.cidade,
-            StateProvinceCode: p?.estado?.toUpperCase(),
-            PostalCode: String(p?.cep || '').replace(/\D/g, ''),
-            CountryCode: p?.pais?.toUpperCase(),
-        },
-    });
+    const addr = (p = {}, role = 'Recipient') => {
+        const name = (p?.nome || p?.name || role || '').toString().trim() || role;
+        const attention = (p?.atencao || p?.attention || name).toString().trim() || name;
+        const phone = onlyDigits(p?.telefone || p?.phone || '');
+        const countryISO2 = iso2Country(p?.pais || p?.country);
+        const state = (p?.estado || p?.state || '').toString().trim().toUpperCase() || undefined;
+        const postal = String(p?.cep || p?.postalCode || p?.zip || '').replace(/\D/g, '') || undefined;
 
-    // Payment: Shipper / Receiver / ThirdParty
+        const line1 = p?.addressLine
+            ? String(p.addressLine)
+            : [String(p?.rua || p?.street || '').trim(), String(p?.numero || p?.number || '').trim()]
+                .filter(Boolean)
+                .join(', ');
+        const line2 = (p?.complemento || p?.address2 || '').toString().trim();
+
+        const lines = [line1, line2].filter(Boolean).map(s => trunc(s, 35));
+        return {
+            Name: trunc(name, 35),
+            AttentionName: trunc(attention, 35),
+            Phone: phone ? { Number: trunc(phone, 15) } : undefined,
+            Address: {
+                AddressLine: lines.length ? lines : [trunc('ADDRESS', 35)],
+                City: trunc((p?.cidade || p?.city || '').toString().trim(), 30),
+                StateProvinceCode: state,
+                PostalCode: postal,
+                CountryCode: countryISO2,
+            },
+        };
+    };
+
     const paymentInformation = (() => {
         const bill = payment?.bill;
         const account = payment?.account || UPS_ACCOUNT_NUMBER || undefined;
-
         if (bill === 'Shipper') {
             return { ShipmentCharge: { Type: '01', BillShipper: { AccountNumber: account } } };
         } else if (bill === 'Receiver') {
             return { ShipmentCharge: { Type: '02', BillReceiver: { AccountNumber: account, Address: { PostalCode: addr(shipTo).Address.PostalCode, CountryCode: addr(shipTo).Address.CountryCode } } } };
-        } else { // ThirdParty
+        } else {
             return { ShipmentCharge: { Type: '03', BillThirdParty: { AccountNumber: account, Address: { PostalCode: addr(shipper).Address.PostalCode, CountryCode: addr(shipper).Address.CountryCode } } } };
         }
     })();
 
-    // Pacotes
     const pkgList = (packages || []).map((p, i) => ({
         Description: p?.reference || `PKG-${i + 1}`,
-        Packaging: { Code: '02' }, // Customer Supplied Package
+        Packaging: { Code: '02' },
         PackageWeight: {
             UnitOfMeasurement: { Code: 'KGS' },
             Weight: String(p?.weightKg ?? 0),
@@ -134,13 +238,11 @@ function mapToUpsShipment(reqBody) {
             : undefined,
     }));
 
-    // Label (PNG 4x6)
     const labelSpec = {
         LabelImageFormat: { Code: 'PNG' },
-        LabelStockSize: { Height: '6', Width: '4' }, // 4x6 em polegadas
+        LabelStockSize: { Height: '6', Width: '4' },
     };
 
-    // Commercial Invoice (opcional)
     const invoiceSec = invoice
         ? {
             InvoiceLineTotal: {
@@ -152,7 +254,6 @@ function mapToUpsShipment(reqBody) {
                     )
                 ),
             },
-            // Conteúdo mínimo por item (simplificado)
             Merchandise: (invoice.items || []).map((it) => ({
                 Description: it.description || 'Item',
                 Quantity: { Value: String(it.quantity || 1), UnitOfMeasurement: { Code: 'PCS' } },
@@ -166,24 +267,20 @@ function mapToUpsShipment(reqBody) {
         }
         : undefined;
 
-    // Shipper Number (obrigatório p/ Bill Shipper)
     const shipperNumber = UPS_ACCOUNT_NUMBER || payment?.account || undefined;
 
-    // Shipment (REST)
     const shipment = {
         ShipmentRequest: {
             Request: { RequestOption: 'nonvalidate' },
             Shipment: {
                 Description: 'Order',
-                Shipper: { ...addr(shipper), ShipperNumber: shipperNumber },
-                ShipFrom: shipFrom ? addr(shipFrom) : addr(shipper),
-                ShipTo: addr(shipTo),
+                Shipper: { ...addr(shipper, 'Shipper'), ShipperNumber: shipperNumber },
+                ShipFrom: shipFrom ? addr(shipFrom, 'ShipFrom') : addr(shipper, 'ShipFrom'),
+                ShipTo: addr(shipTo, 'Recipient'),
                 PaymentInformation: paymentInformation,
-                Service: { Code: serviceCode }, // "07" (Express), "65" (Saver), etc.
+                Service: { Code: serviceCode },
                 Package: pkgList,
-                // Paperless / Invoice (opcional)
                 Invoice: invoiceSec,
-                // Label spec
                 LabelSpecification: labelSpec,
             },
         },
@@ -192,7 +289,7 @@ function mapToUpsShipment(reqBody) {
     return shipment;
 }
 
-// Mapeia payload UPS => sua resposta
+// Aceita vários formatos de retorno de label
 function mapFromUpsShipment(raw) {
     const sr = raw?.ShipmentResponse?.ShipmentResults;
     const pkg = sr?.PackageResults;
@@ -215,20 +312,178 @@ function mapFromUpsShipment(raw) {
         sr?.LabelImage?.LabelImageFormat?.Code ||
         'PNG';
 
+    // Se veio link (LabelLinksIndicator), repassa como "type:url"
+    const labelHref =
+        first?.ShippingLabel?.URL ||
+        first?.LabelImage?.URL ||
+        sr?.LabelImage?.URL ||
+        null;
+
     return {
         ok: true,
         trackingNumbers,
-        label: labelB64 ? { b64: labelB64, type: labelType } : null,
+        label: labelB64
+            ? { b64: labelB64, type: labelType }
+            : (labelHref ? { href: labelHref, type: 'URL' } : null),
         raw,
     };
 }
 
+function translateFrontShipSRToBiz(body) {
+    const SR = body?.ShipmentRequest || {};
+    const S = SR?.Shipment || {};
+
+    // helper: Address UPS -> Endereco (negócio)
+    const toBizAddr = (node, fallbackName = 'N/A') => {
+        const A = node?.Address || {};
+        const addrLines = Array.isArray(A.AddressLine) ? A.AddressLine : (A.AddressLine ? [A.AddressLine] : []);
+        const line1 = (addrLines[0] || '').toString();
+        const line2 = (addrLines[1] || '').toString() || undefined;
+
+        // tenta separar "rua, numero"
+        let rua = line1;
+        let numero = '';
+        const parts = line1.split(',');
+        if (parts.length >= 2) {
+            rua = parts[0].trim();
+            numero = parts.slice(1).join(',').trim();
+        }
+
+        return {
+            nome: (node?.Name || node?.AttentionName || fallbackName || '').toString(),
+            telefone: (node?.Phone?.Number || '').toString(),
+            rua,
+            numero,
+            complemento: line2,
+            cidade: (A.City || '').toString(),
+            estado: (A.StateProvinceCode || '').toString(),
+            cep: cleanZip(A.PostalCode || A.Postalcode || A.Zip || ''),
+            pais: iso2Country(A.CountryCode) || '',
+            cnpjOuTaxId: (node?.TaxIdentificationNumber || '').toString(),
+            email: (node?.EmailAddress || '').toString() || undefined,
+        };
+    };
+
+    const shipperBiz = toBizAddr(S.Shipper, 'Shipper');
+    const shipToBiz = toBizAddr(S.ShipTo, 'Recipient');
+    const shipFromBiz = S.ShipFrom ? toBizAddr(S.ShipFrom, 'ShipFrom') : undefined;
+
+    // payment
+    const charge = S?.PaymentInformation?.ShipmentCharge;
+    const type = (charge?.Type || '').toString();
+    const typeToBill = (t) => (t === '01' ? 'Shipper' : t === '02' ? 'Receiver' : 'ThirdParty');
+    const paymentBiz = {
+        bill: typeToBill(type),
+        account: (charge?.BillShipper?.AccountNumber ||
+            charge?.BillReceiver?.AccountNumber ||
+            charge?.BillThirdParty?.AccountNumber || '').toString() || undefined
+    };
+
+    // packages (array)
+    const srcPkgs = Array.isArray(S.Package) ? S.Package : (S.Package ? [S.Package] : []);
+    const packagesBiz = srcPkgs.map((p, i) => {
+        const W = p?.PackageWeight?.Weight ?? 0;
+        const D = p?.Dimensions || {};
+        return {
+            reference: p?.Description || `PKG-${i + 1}`,
+            weightKg: Number(W) || 0,
+            dimCm: {
+                length: Number(D?.Length ?? 0) || 0,
+                width: Number(D?.Width ?? 0) || 0,
+                height: Number(D?.Height ?? 0) || 0,
+            },
+        };
+    });
+
+    // invoice (opcional) – aproveita InternationalForms
+    const IF = S?.ShipmentServiceOptions?.InternationalForms;
+    const invoiceBiz = IF ? {
+        currency: IF.CurrencyCode || 'USD',
+        items: Array.isArray(IF.Product) ? IF.Product.map((pr) => ({
+            description: pr?.Description || 'Item',
+            quantity: Number(pr?.Unit?.Number ?? 1) || 1,
+            unitPrice: Number(pr?.UnitPrice ?? pr?.Unit?.Value ?? 0) || 0,
+            hscode: pr?.CommodityCode || undefined,
+            countryOfOrigin: pr?.OriginCountryCode || undefined,
+            weightKg: undefined, // se tiver em outro campo, mapeie aqui
+        })) : [],
+    } : null;
+
+    return {
+        shipper: shipperBiz,
+        shipFrom: shipFromBiz,
+        shipTo: shipToBiz,
+        serviceCode: (S?.Service?.Code || '').toString(),
+        payment: paymentBiz,
+        packages: packagesBiz,
+        invoice: invoiceBiz && invoiceBiz.items.length ? invoiceBiz : null,
+    };
+}
 
 module.exports = {
     // ---------------- RATE ----------------
     rate: async (req, res, next) => {
         try {
-            const { shipper = {}, shipTo = {}, pickupDate, serviceCode, packages = [] } = req.body || {};
+            const body = req.body || {};
+
+            // NOVO FORMATO vindo do front: body.ShipmentRequest.{Shipment,...}
+            if (body?.RateRequest) {
+                // usa o RateRequest que veio do front, sem traduzir
+                const rr = body.RateRequest;
+
+                // normalizadores simples para não quebrar por detalhe de formato
+                const fixAddr = (node) => {
+                    if (!node || !node.Address) return;
+                    const A = node.Address;
+
+                    // AddressLine precisa ser array na UPS
+                    if (A.AddressLine && !Array.isArray(A.AddressLine)) {
+                        A.AddressLine = [String(A.AddressLine)];
+                    }
+
+                    // CountryCode não pode faltar
+                    if (!A.CountryCode) {
+                        // tenta inferir de algo já presente; se nada, falha controlada
+                        const cc = iso2Country(A.CountryCode) || undefined;
+                        if (!cc) {
+                            throw Object.assign(new Error("Missing shipper country code."), { http: 400 });
+                        }
+                        A.CountryCode = cc;
+                    } else {
+                        // garante ISO-2
+                        A.CountryCode = iso2Country(A.CountryCode);
+                    }
+                };
+
+                // aplica nos três pontos relevantes
+                fixAddr(rr?.Shipment?.Shipper);
+                fixAddr(rr?.Shipment?.ShipFrom);
+                fixAddr(rr?.Shipment?.ShipTo);
+
+                const raw = await rating.quote({ RateRequest: rr });
+
+                const rs = raw?.RateResponse?.RatedShipment;
+                const items = Array.isArray(rs) ? rs : (rs ? [rs] : []);
+                const services = items.map(it => ({
+                    serviceCode: it?.Service?.Code || null,
+                    serviceName: it?.Service?.Description || null,
+                    total: Number(it?.TotalCharges?.MonetaryValue || 0),
+                    currency: it?.TotalCharges?.CurrencyCode || null,
+                    negotiated: it?.NegotiatedRateCharges?.TotalCharge?.MonetaryValue
+                        ? Number(it.NegotiatedRateCharges.TotalCharge.MonetaryValue)
+                        : null,
+                    delivery: {
+                        date: it?.GuaranteedDelivery?.DeliveryDateTime || null,
+                        businessDays: it?.GuaranteedDelivery?.BusinessDaysInTransit || null,
+                    }
+                }));
+
+                return res.json({ ok: true, services, raw });
+            }
+
+
+            // FORMATO ANTIGO (compatibilidade)
+            const { shipper = {}, shipTo = {}, pickupDate, serviceCode, packages = [] } = body;
 
             const shipperCountry = iso2Country(shipper.country);
             const shipToCountry = iso2Country(shipTo.country);
@@ -305,13 +560,9 @@ module.exports = {
                 }
             };
 
-            // chama UPS
             const raw = await rating.quote(ratePayload);
-
-            // ---- mapeia resposta em formato simples ----
             const rs = raw?.RateResponse?.RatedShipment;
             const items = Array.isArray(rs) ? rs : (rs ? [rs] : []);
-
             const services = items.map(it => ({
                 serviceCode: it?.Service?.Code || null,
                 serviceName: it?.Service?.Description || null,
@@ -331,13 +582,16 @@ module.exports = {
     },
 
     // ---------------- SHIP ----------------
+    // ---------------- SHIP ----------------
     ship: async (req, res) => {
         const t0 = Date.now();
-
         try {
-            const cli = req.body;
+            // aceita os dois formatos: negócio (antigo) ou UPS ShipmentRequest (novo do front)
+            let cli = req.body;
+            if (cli?.ShipmentRequest?.Shipment) {
+                cli = translateFrontShipSRToBiz(cli);
+            }
 
-            // validações mínimas
             const required = ['shipper', 'shipTo', 'serviceCode', 'payment', 'packages'];
             for (const k of required) {
                 if (!cli?.[k]) {
@@ -347,13 +601,10 @@ module.exports = {
             if (!cli.payment?.bill) {
                 return res.status(400).json({ ok: false, error: 'payment.bill é obrigatório' });
             }
-
-            // fallback da conta para Bill Shipper
             if (cli.payment.bill === 'Shipper' && !cli.payment.account) {
                 cli.payment.account = UPS_ACCOUNT_NUMBER;
             }
 
-            // modo stub (teste sem UPS)
             if (UPS_STUB) {
                 return res.json({
                     ok: true,
@@ -361,37 +612,48 @@ module.exports = {
                     trackingNumbers: ['1ZSTUB00000000001'],
                     label: {
                         type: 'PNG',
-                        b64:
-                            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJAgP9N8VwQQAAAABJRU5ErkJggg==', // 1x1 png
+                        b64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJAgP9N8VwQQAAAABJRU5ErkJggg==',
                     },
                     raw: { stub: true },
                 });
             }
 
-            // monta payload UPS
             const upsReq = mapToUpsShipment(cli);
-
-            // chamada UPS (REST)
             const url = `${UPS_BASE}/api/shipments/v2407/ship`;
-            const headers = {
-                'Content-Type': 'application/json',
-                // Se uso OAuth: Authorization
-                ...(UPS_OAUTH_TOKEN ? { Authorization: `Bearer ${UPS_OAUTH_TOKEN}` } : {}),
-                transId: req.headers['x-idempotency-key'] || `tx-${Date.now()}`,
-                transactionSrc: 'exporta-digital',
-            };
+            const transId = req.headers['x-idempotency-key'] || `tx-${Date.now()}`;
+            let token = await getUpsToken();
 
-            const resp = await axios.post(url, upsReq, { headers, timeout: 20000 });
+            const doPost = async (bearer) => axios.post(url, upsReq, {
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "Authorization": `Bearer ${bearer}`,
+                    "transId": transId,
+                    "transactionSrc": "exporta-digital",
+                },
+                timeout: 20000,
+            });
+
+            let resp;
+            try {
+                resp = await doPost(token);
+            } catch (e) {
+                const status = e?.response?.status;
+                if (status === 401) {
+                    token = await getUpsToken(true);
+                    resp = await doPost(token);
+                } else {
+                    throw e;
+                }
+            }
+
             const out = mapFromUpsShipment(resp.data);
-
             return res.status(200).json({ ...out, tookMs: Date.now() - t0 });
         } catch (err) {
-            // LOG detalhado para casos sem response
             if (!err?.response) {
                 console.error('[UPS ship network error]', {
                     code: err?.code,
                     message: err?.message,
-                    // axios v1: toJSON traz config/headers (cuidado para não logar secrets em prod)
                     json: typeof err?.toJSON === 'function' ? err.toJSON() : undefined,
                 });
             } else {
@@ -400,25 +662,23 @@ module.exports = {
                     data: err?.response?.data,
                 });
             }
-
             const { status, message, raw } = normalizeUpsError(err);
             return res.status(status).json({ ok: false, error: message, raw });
         }
     },
 
+
     // ---------------- TRACK ----------------
-    // controller/upsController.js
     track: async (req, res, next) => {
         try {
             const raw =
                 (req.params && req.params.tracking) ||
                 (req.query && (req.query.tn || req.query.tracking)) ||
                 "";
-
             const tn = String(raw).trim().replace(/['"`\s]/g, "").toUpperCase();
             if (!tn) return res.status(400).json({ error: "Tracking vazio." });
 
-            const data = await tracking.getByNumber(tn); // <- agora EXISTE
+            const data = await tracking.getByNumber(tn);
             return res.json(data);
         } catch (e) {
             const http = e?.http || e?.status || 400;
@@ -431,5 +691,4 @@ module.exports = {
             return res.status(http).json({ error: msg, details: e?.details });
         }
     }
-
 };
