@@ -14,7 +14,7 @@ const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./cont
 const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require('./controller/ClientesController.js');
 const { verProdutosLojaShopify, registrarLojaShopify } = require('./controller/ShopifyController.js');
 const { comLoja, garantirInstalada, getAccessTokenForShop } = require('./middleware/shopifyAuth.js');
-const { criarCotacao, listarCotacoes } = require('./controller/CotacaoController.js');
+const { createCotacaoReal, listCotacoes, attachDocs } = require('./controller/CotacaoController.js');
 const { importPedidos, listPedidos } = require('./controller/PedidoImportController.js');
 
 // Módulo de rotas da Shopify (inclui auth/conexao/produtos + upload-minimal + find)
@@ -22,7 +22,8 @@ const shopifyModule = require('./routes/shopifyRoutes.js');
 const upsRoutes = require('./routes/upsRoutes.js');
 
 // Middlewares globais
-app.use(express.json());
+app.use(express.json({ limit: '30mb' }));
+app.use(express.urlencoded({ extended: true, limit: '30mb' }));
 app.use(express.urlencoded({ extended: true })); // necessário p/ ler campos text em multipart/form-data
 const PORT = process.env.PORT || 3001;
 app.use(cookieParser());
@@ -247,10 +248,6 @@ app.get('/shopify/produtos', autenticarShopify, comLoja, garantirInstalada, verP
 app.post('/import-pedidos', autenticarUsuario, vincularCliente, importPedidos);
 app.get('/pedidos', autenticarUsuario, vincularCliente, listPedidos);
 
-// COTAÇÕES (mock da transportadora + listar)
-app.get('/api/cotacoes', autenticarUsuario, vincularCliente, listarCotacoes);
-app.post('/api/cotacoes', autenticarUsuario, vincularCliente, criarCotacao);
-
 app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req,res)=>{
   res.json({
     authHeader: !!req.headers.authorization,
@@ -261,6 +258,12 @@ app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req,res)=>{
 });
 
 // API UPS
+
+app.get('/api/cotacoes', autenticarUsuario, vincularCliente, listCotacoes);
+app.post('/api/cotacoes', autenticarUsuario, vincularCliente, createCotacaoReal);
+
+// >>> NOVA ROTA DE ANEXOS <<<
+app.post('/api/cotacoes/:id/docs', autenticarUsuario, vincularCliente, attachDocs);
 
 // app.use('/api', upsRoutes);
 app.use((err, req, res, next) => {

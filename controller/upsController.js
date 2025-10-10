@@ -1,17 +1,13 @@
 // controller/upsController.js
-const { default: axios } = require('axios');
 const rating = require('../services/ups/rating');
-const shipping = require('../services/ups/shipping');
+const shipping = require('../services/ups/shipping'); // (não usado aqui, mas mantido)
 const tracking = require('../services/ups/tracking');
-const axios = require('axios')
-
+const axios = require('axios');
+const { Cotacao } = require('../models');
 
 // ====== CONFIG ======
 const UPS_BASE = process.env.UPS_BASE_URL_PROD || 'https://onlinetools.ups.com';
-const UPS_OAUTH_TOKEN = process.env.UPS_OAUTH_TOKEN || 'eyJraWQiOiI5NzllNmVhYy1iZmExLTQzZmQtYTliZi05NTBhYzE0OGVkNjMiLCJ0eXAiOiJKV1QiLCJhbGciOiJSUzM4NCJ9.eyJzdWIiOiJqdWxpYWV4cG9ydGFkaWdpdGFsQGdtYWlsLmNvbSIsImNsaWVudGlkIjoiWThTYldsVVVjUGtUZTdOWkVBZ0JHUU03bEdnc09RZ0F2SVUyOHUwVWlucEtVZFc4IiwiaXNzIjoiaHR0cHM6Ly9hcGlzLnVwcy5jb20iLCJ1dWlkIjoiQTgwMzIwNTgtOThGOC0xMTVDLTlGRTEtNkZBOTU5QkVERjUzIiwic2lkIjoiOTc5ZTZlYWMtYmZhMS00M2ZkLWE5YmYtOTUwYWMxNDhlZDYzIiwiYXVkIjoiSW50cmV4IiwiYXQiOiJIVGh4QlRNUDl3U0NEa1d1MmNPTG94bUFwWmF6IiwibmJmIjoxNzU5OTI1OTQ0LCJEaXNwbGF5TmFtZSI6IkludHJleCIsImV4cCI6MTc1OTk0MDM0NCwiaWF0IjoxNzU5OTI1OTQ0LCJqdGkiOiI1MWM5MmJkNC0wNDc5LTRmNjUtODk1YS04MmRiOWQwZTczNTQifQ.UKyfHsHMdjOnE5txdl2Fr94cJOkkuL4chL1Ow7a98s1MgNqrpshyjr-a8nUwL186QzHzhezBfcO1CZc2Qd5KTtKYMYijacm3SvhyZUD4vBu73xpQnN8AN6O5gJCMVdRWcOVlIFUvRAWRsGPOwvMAco-wBJVe2LcGKwT3C87W6Lepeg4No6B4iMJ8rree3t1a7pxixwOep7TIv8kmhfVULhIumUEBWKeUxCk0O0dTLE8dimHg0I0jp82Ib4kMrOCFoJHYPL366CGjGDAmsHvP5M3jnuDmn3Hlsz_CS6p6kgv43HQnY-4GXvb4yC929XFtiVhMI4I7-hI2nhIALqn-UiDvF989lj7kea6g6JPcYRLwgF59J5qB5aInfUFJkRk0DUiiEvWV5Ojja5d78llxRUPRvHLI5ZQjy2nywry5fGUrr6-bnG8YYrvv0fgL5WSK_V4NWQNqm_EjYV5Zu2K-D6bJSsV129fIk1SOTqv86IBikcpHqys6qj8nbL3MH_YymLuar_a7JpmFPUFQO4EhhczMai91lRRcmTeM2_SNy8sTEsrAtaReyRa6tCcpi1oQsgZFa1frIggKAbXeUdmq05Lmjz8_egzc_nQ-lTKXh930-uwIAIoX-RmiV4Sm2MaIK2Cts3rb8DkxihzsKzrIlOBZfy7elfYAC3i_41l9xFs'; // se usar OAuth, injete aqui
-const UPS_ACCOUNT_NUMBER = process.env.UPS_ACCOUNT_NUMBER || 'JE8372'; // ex: "JE8372"
-// use STUB=true para simular resposta e testar o front sem a UPS
-
+const UPS_ACCOUNT_NUMBER = process.env.UPS_ACCOUNT_NUMBER || 'JE8372';
 const UPS_STUB = String(process.env.UPS_STUB || '') === 'true';
 const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || '';
 const UPS_CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || '';
@@ -28,6 +24,15 @@ function unitsForCountry(countryCode) {
     return cc === 'US' ? { w: 'LBS', d: 'IN' } : { w: 'KGS', d: 'CM' };
 }
 
+function labelTypeToMime(t) {
+    const s = String(t || '').toUpperCase();
+    if (s === 'PNG') return 'image/png';
+    if (s === 'GIF') return 'image/gif';
+    if (s === 'ZPL') return 'text/plain';
+    if (s === 'URL') return 'text/uri-list';
+    return 'application/octet-stream';
+}
+
 function iso2Country(c) {
     if (!c) return undefined;
     const x = String(c).trim().toUpperCase();
@@ -42,7 +47,22 @@ function iso2Country(c) {
 }
 function isoState(s) { return String(s || '').trim().toUpperCase(); }
 
-// ====== ERROS (removida a duplicação) ======
+function toYMD(d) {
+    if (!d) return null;
+    if (d instanceof Date) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}${m}${day}`;
+    }
+    const s = String(d).trim();
+    const m = s.match(/^(\d{4})[-\/]?(\d{2})[-\/]?(\d{2})$/);
+    if (m) return `${m[1]}${m[2]}${m[3]}`;
+    const dd = new Date(s);
+    return isNaN(dd.getTime()) ? null : toYMD(dd);
+}
+
+// ====== ERROS ======
 function normalizeUpsError(err) {
     const status = err?.response?.status || 500;
     let message =
@@ -68,7 +88,6 @@ function joinAddressLine(rua, numero) {
 }
 
 let _upsTokenCache = { token: null, expTs: 0 }; // epoch ms
-
 async function getUpsToken(force = false) {
     const now = Date.now();
     if (!force && _upsTokenCache.token && now < _upsTokenCache.expTs - 60_000) {
@@ -77,7 +96,6 @@ async function getUpsToken(force = false) {
     if (!UPS_CLIENT_ID || !UPS_CLIENT_SECRET) {
         throw new Error('UPS OAuth2: defina UPS_CLIENT_ID e UPS_CLIENT_SECRET no .env');
     }
-
     const oauthUrl = `${UPS_BASE}/security/v1/oauth/token`;
     const basic = Buffer.from(`${UPS_CLIENT_ID}:${UPS_CLIENT_SECRET}`).toString('base64');
 
@@ -114,9 +132,8 @@ function translateShipmentRequestToRateRequest(frontSR) {
     const shipper = S?.Shipper || {};
     const shipTo = S?.ShipTo || {};
     const service = S?.Service || {};
-    const pkg1 = S?.Package || S?.Packages; // teu front manda 1 só
+    const pkg1 = S?.Package || S?.Packages;
 
-    // Extrai address minimal
     const addrPick = (node) => {
         const A = node?.Address || {};
         return {
@@ -131,7 +148,6 @@ function translateShipmentRequestToRateRequest(frontSR) {
     const shAddr = addrPick(shipper);
     const toAddr = addrPick(shipTo);
 
-    // Monta pacote(s)
     const toRatePkg = (p) => {
         if (!p) return null;
         const UOMw = p?.PackageWeight?.UnitOfMeasurement?.Code || 'KGS';
@@ -247,31 +263,11 @@ function mapToUpsShipment(reqBody) {
         LabelStockSize: { Height: '6', Width: '4' },
     };
 
-    const invoiceSec = invoice
-        ? {
-            InvoiceLineTotal: {
-                CurrencyCode: invoice.currency || 'USD',
-                MonetaryValue: String(
-                    (invoice.items || []).reduce(
-                        (sum, it) => sum + (Number(it.unitPrice || 0) * Number(it.quantity || 0)),
-                        0
-                    )
-                ),
-            },
-            Merchandise: (invoice.items || []).map((it) => ({
-                Description: it.description || 'Item',
-                Quantity: { Value: String(it.quantity || 1), UnitOfMeasurement: { Code: 'PCS' } },
-                UnitPrice: { CurrencyCode: invoice.currency || 'USD', MonetaryValue: String(it.unitPrice || 0) },
-                CommodityCode: it.hscode,
-                CountryOfOrigin: it.countryOfOrigin || 'BR',
-                Weight: it.weightKg
-                    ? { UnitOfMeasurement: { Code: 'KGS' }, Weight: String(it.weightKg) }
-                    : undefined,
-            })),
-        }
-        : undefined;
-
     const shipperNumber = UPS_ACCOUNT_NUMBER || payment?.account || undefined;
+
+    // Dados da invoice (se vier pelo "biz")
+    const invDate = toYMD(invoice?.date || invoice?.invoiceDate) || toYMD(new Date());
+    const invNumber = (invoice?.number || invoice?.invoiceNumber || `INV-${Date.now()}`).toString();
 
     const shipment = {
         ShipmentRequest: {
@@ -284,7 +280,48 @@ function mapToUpsShipment(reqBody) {
                 PaymentInformation: paymentInformation,
                 Service: { Code: serviceCode },
                 Package: pkgList,
-                Invoice: invoiceSec,
+                // --- Peça a Commercial Invoice (PDF) limpa (sem NAFTA/CoO) ---
+                ShipmentServiceOptions: invoice ? {
+                    InternationalForms: {
+                        FormType: '01',
+                        ImageFormat: { Code: 'PDF' },
+
+                        InvoiceDate: invDate,
+                        InvoiceNumber: invNumber,
+
+                        CurrencyCode: invoice?.currency || 'USD',
+                        TermsOfSale: 'DAP',
+                        ReasonForExport: 'SALE',
+
+                        InvoiceLineTotal: {
+                            CurrencyCode: invoice?.currency || 'USD',
+                            MonetaryValue: String(
+                                (invoice?.items || []).reduce((sum, it) => sum + (Number(it.unitPrice || 0) * Number(it.quantity || 0)), 0)
+                            ),
+                        },
+
+                        Product: (invoice?.items || []).map((it, idx) => ({
+                            Description: it.description || `Item ${idx + 1}`,
+                            CommodityCode: it.hscode || '00000000',
+                            OriginCountryCode: it.countryOfOrigin || 'BR',
+                            Unit: {
+                                UnitOfMeasurement: { Code: 'PCS' },
+                                Number: String(Math.max(1, Number(it.quantity || 1))),  // string
+                                Value: Number(it.unitPrice || 0).toFixed(2),            // "0.00"
+                            },
+                            UnitPrice: Number(it.unitPrice || 0).toFixed(2),
+                        })),
+                        Contacts: {
+                            SoldTo: { ...addr(shipTo, 'Recipient'), Option: '01' },
+                            Producer: {
+                                Option: '01',
+                                CompanyName: addr(shipper, 'Shipper').Name,
+                                Address: addr(shipper, 'Shipper').Address,
+                                Phone: addr(shipper, 'Shipper').Phone,
+                            },
+                        },
+                    }
+                } : undefined,
                 LabelSpecification: labelSpec,
             },
         },
@@ -293,7 +330,7 @@ function mapToUpsShipment(reqBody) {
     return shipment;
 }
 
-// Aceita vários formatos de retorno de label
+// ====== Parse do retorno (label + invoice PDF) ======
 function mapFromUpsShipment(raw) {
     const sr = raw?.ShipmentResponse?.ShipmentResults;
     const pkg = sr?.PackageResults;
@@ -316,12 +353,41 @@ function mapFromUpsShipment(raw) {
         sr?.LabelImage?.LabelImageFormat?.Code ||
         'PNG';
 
-    // Se veio link (LabelLinksIndicator), repassa como "type:url"
     const labelHref =
         first?.ShippingLabel?.URL ||
         first?.LabelImage?.URL ||
         sr?.LabelImage?.URL ||
         null;
+
+    // Invoice em Forms/Form
+    const formsNode = sr?.Form || sr?.Forms || raw?.forms;
+    const forms = Array.isArray(formsNode) ? formsNode : (formsNode ? [formsNode] : []);
+    let invoice = null;
+
+    for (const f of forms) {
+        const img = f?.Image || (Array.isArray(f?.Image) ? f.Image[0] : null) || f?.FormImage || f?.Document || null;
+
+        const formatCode =
+            img?.ImageFormat?.Code ||
+            img?.Format?.Code ||
+            f?.FormType ||
+            null;
+
+        const b64 = img?.GraphicImage || img?.Data || null;
+        const url = img?.URL || img?.Link || null;
+
+        const isPdf = String(formatCode || '').toUpperCase() === 'PDF';
+        if (isPdf) {
+            if (typeof b64 === 'string' && b64.length > 50) {
+                invoice = { mime: 'application/pdf', b64 };
+                break;
+            }
+            if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+                invoice = { mime: 'application/pdf', href: url };
+                break;
+            }
+        }
+    }
 
     return {
         ok: true,
@@ -329,6 +395,7 @@ function mapFromUpsShipment(raw) {
         label: labelB64
             ? { b64: labelB64, type: labelType }
             : (labelHref ? { href: labelHref, type: 'URL' } : null),
+        invoice,
         raw,
     };
 }
@@ -337,14 +404,12 @@ function translateFrontShipSRToBiz(body) {
     const SR = body?.ShipmentRequest || {};
     const S = SR?.Shipment || {};
 
-    // helper: Address UPS -> Endereco (negócio)
     const toBizAddr = (node, fallbackName = 'N/A') => {
         const A = node?.Address || {};
         const addrLines = Array.isArray(A.AddressLine) ? A.AddressLine : (A.AddressLine ? [A.AddressLine] : []);
         const line1 = (addrLines[0] || '').toString();
         const line2 = (addrLines[1] || '').toString() || undefined;
 
-        // tenta separar "rua, numero"
         let rua = line1;
         let numero = '';
         const parts = line1.split(',');
@@ -372,7 +437,6 @@ function translateFrontShipSRToBiz(body) {
     const shipToBiz = toBizAddr(S.ShipTo, 'Recipient');
     const shipFromBiz = S.ShipFrom ? toBizAddr(S.ShipFrom, 'ShipFrom') : undefined;
 
-    // payment
     const charge = S?.PaymentInformation?.ShipmentCharge;
     const type = (charge?.Type || '').toString();
     const typeToBill = (t) => (t === '01' ? 'Shipper' : t === '02' ? 'Receiver' : 'ThirdParty');
@@ -383,7 +447,6 @@ function translateFrontShipSRToBiz(body) {
             charge?.BillThirdParty?.AccountNumber || '').toString() || undefined
     };
 
-    // packages (array)
     const srcPkgs = Array.isArray(S.Package) ? S.Package : (S.Package ? [S.Package] : []);
     const packagesBiz = srcPkgs.map((p, i) => {
         const W = p?.PackageWeight?.Weight ?? 0;
@@ -399,17 +462,18 @@ function translateFrontShipSRToBiz(body) {
         };
     });
 
-    // invoice (opcional) – aproveita InternationalForms
     const IF = S?.ShipmentServiceOptions?.InternationalForms;
     const invoiceBiz = IF ? {
         currency: IF.CurrencyCode || 'USD',
+        date: IF.InvoiceDate || undefined,
+        number: IF.InvoiceNumber || undefined,
         items: Array.isArray(IF.Product) ? IF.Product.map((pr) => ({
             description: pr?.Description || 'Item',
             quantity: Number(pr?.Unit?.Number ?? 1) || 1,
             unitPrice: Number(pr?.UnitPrice ?? pr?.Unit?.Value ?? 0) || 0,
             hscode: pr?.CommodityCode || undefined,
             countryOfOrigin: pr?.OriginCountryCode || undefined,
-            weightKg: undefined, // se tiver em outro campo, mapeie aqui
+            weightKg: undefined,
         })) : [],
     } : null;
 
@@ -430,36 +494,26 @@ module.exports = {
         try {
             const body = req.body || {};
 
-            // NOVO FORMATO vindo do front: body.ShipmentRequest.{Shipment,...}
             if (body?.RateRequest) {
-                // usa o RateRequest que veio do front, sem traduzir
                 const rr = body.RateRequest;
 
-                // normalizadores simples para não quebrar por detalhe de formato
                 const fixAddr = (node) => {
                     if (!node || !node.Address) return;
                     const A = node.Address;
-
-                    // AddressLine precisa ser array na UPS
                     if (A.AddressLine && !Array.isArray(A.AddressLine)) {
                         A.AddressLine = [String(A.AddressLine)];
                     }
-
-                    // CountryCode não pode faltar
                     if (!A.CountryCode) {
-                        // tenta inferir de algo já presente; se nada, falha controlada
                         const cc = iso2Country(A.CountryCode) || undefined;
                         if (!cc) {
-                            throw Object.assign(new Error("Missing shipper country code."), { http: 400 });
+                            throw Object.assign(new Error('Missing shipper country code.'), { http: 400 });
                         }
                         A.CountryCode = cc;
                     } else {
-                        // garante ISO-2
                         A.CountryCode = iso2Country(A.CountryCode);
                     }
                 };
 
-                // aplica nos três pontos relevantes
                 fixAddr(rr?.Shipment?.Shipper);
                 fixAddr(rr?.Shipment?.ShipFrom);
                 fixAddr(rr?.Shipment?.ShipTo);
@@ -484,7 +538,6 @@ module.exports = {
 
                 return res.json({ ok: true, services, raw });
             }
-
 
             // FORMATO ANTIGO (compatibilidade)
             const { shipper = {}, shipTo = {}, pickupDate, serviceCode, packages = [] } = body;
@@ -586,11 +639,101 @@ module.exports = {
     },
 
     // ---------------- SHIP ----------------
-    // ---------------- SHIP ----------------
     ship: async (req, res) => {
         const t0 = Date.now();
         try {
             // aceita os dois formatos: negócio (antigo) ou UPS ShipmentRequest (novo do front)
+            const originalIF = req.body?.ShipmentRequest?.Shipment?.ShipmentServiceOptions?.InternationalForms;
+            console.log('[UPS/SHIP][REQ][IF]:', JSON.stringify(originalIF, null, 2));
+
+            // Sanitizadores locais
+            function padQtyStr(n) {
+                const x = parseInt(String(n ?? '').replace(/\D+/g, ''), 10);
+                if (!x || x < 1) return '1';
+                return String(Math.min(x, 9999999));
+            }
+            function moneyStr(v) {
+                const n = Number(v);
+                return isNaN(n) ? '0.00' : n.toFixed(2);
+            }
+            const fixAddr = (node) => {
+                if (!node || !node.Address) return;
+                const A = node.Address;
+                if (A.StateProvinceCode) A.StateProvinceCode = String(A.StateProvinceCode).toUpperCase();
+                if (A.CountryCode) A.CountryCode = iso2Country(A.CountryCode);
+                if (A.PostalCode) A.PostalCode = cleanZip(A.PostalCode);
+                if (A.AddressLine && !Array.isArray(A.AddressLine)) A.AddressLine = [String(A.AddressLine)];
+                if (Array.isArray(A.AddressLine)) A.AddressLine = A.AddressLine.map(s => String(s).slice(0, 35)).slice(0, 2);
+            };
+            function cleanCiDesc(s, fallback = 'Item') {
+                const out = String(s || '')
+                    .replace(/[^A-Za-z0-9 ]+/g, ' ') // só alfanumérico + espaço
+                    .replace(/\s+/g, ' ')            // colapsa espaços
+                    .trim()
+                    .slice(0, 35);                   // limite UPS
+                return out || fallback;
+            }
+            function sanitizeCommercialInvoice(IFraw) {
+                if (!IFraw || typeof IFraw !== 'object') return null;
+                const IF = { ...IFraw };
+
+                // Força CI em PDF
+                IF.FormType = '01';
+                IF.ImageFormat = { Code: 'PDF' };
+
+                // Remove campos de NAFTA/CoO
+                delete IF.FormGroupIdName;
+                delete IF.BlanketPeriod;
+
+                // Data/número/defaults
+                IF.InvoiceDate = toYMD(IF.InvoiceDate) || toYMD(new Date());
+                IF.InvoiceNumber = String(IF.InvoiceNumber || `INV-${Date.now()}`);
+                IF.CurrencyCode = IF.CurrencyCode || 'USD';
+                IF.TermsOfSale = IF.TermsOfSale || 'DAP';
+                IF.ReasonForExport = IF.ReasonForExport || 'SALE';
+
+                // Contatos
+                IF.Contacts = IF.Contacts || {};
+                IF.Contacts.SoldTo = IF.Contacts.SoldTo || {};
+                IF.Contacts.SoldTo.Option = '01';
+                fixAddr(IF.Contacts.SoldTo);
+                if (IF.Contacts.Producer) {
+                    IF.Contacts.Producer.Option = '01';
+                    fixAddr(IF.Contacts.Producer);
+                }
+
+                // Produtos (formatos estritos)
+                if (Array.isArray(IF.Product)) {
+                    IF.Product = IF.Product.map((p, i) => {
+                        const qty = padQtyStr(p?.Unit?.Number ?? p?.Quantity ?? 1);
+                        const val = moneyStr(p?.Unit?.Value ?? p?.UnitPrice ?? 0);
+                        return {
+                            Description: cleanCiDesc(p?.Description, `Item ${i + 1}`), // <<< aqui
+                            CommodityCode: p?.CommodityCode || '00000000',
+                            OriginCountryCode: iso2Country(p?.OriginCountryCode || 'BR'),
+                            Unit: {
+                                UnitOfMeasurement: { Code: p?.Unit?.UnitOfMeasurement?.Code || 'PCS' },
+                                Number: qty,   // string numérica 1..7 dígitos
+                                Value: val,    // "0.00"
+                            },
+                            UnitPrice: val,
+                        };
+                    });
+                }
+
+                // Total coerente
+                try {
+                    const total = (IF.Product || []).reduce((acc, it) => {
+                        const n = parseInt(it?.Unit?.Number || '1', 10) || 1;
+                        const v = Number(it?.Unit?.Value || it?.UnitPrice || 0) || 0;
+                        return acc + n * v;
+                    }, 0);
+                    IF.InvoiceLineTotal = { CurrencyCode: IF.CurrencyCode, MonetaryValue: moneyStr(total) };
+                } catch { /* noop */ }
+
+                return IF;
+            }
+
             let cli = req.body;
             if (cli?.ShipmentRequest?.Shipment) {
                 cli = translateFrontShipSRToBiz(cli);
@@ -623,6 +766,23 @@ module.exports = {
             }
 
             const upsReq = mapToUpsShipment(cli);
+
+            // Se o front mandou IF, injeta sanitizado (sobrepõe o base)
+            if (originalIF) {
+                const IFok = sanitizeCommercialInvoice(originalIF);
+                if (IFok) {
+                    upsReq.ShipmentRequest.Shipment.ShipmentServiceOptions = {
+                        ...(upsReq.ShipmentRequest.Shipment.ShipmentServiceOptions || {}),
+                        InternationalForms: IFok,
+                    };
+                }
+            }
+
+            // Log final do que vai pra UPS
+            console.log('[UPS/SHIP][UPS_REQ][IF]:', JSON.stringify(
+                upsReq?.ShipmentRequest?.Shipment?.ShipmentServiceOptions?.InternationalForms, null, 2
+            ));
+
             const url = `${UPS_BASE}/api/shipments/v2407/ship`;
             const transId = req.headers['x-idempotency-key'] || `tx-${Date.now()}`;
             let token = await getUpsToken();
@@ -652,6 +812,53 @@ module.exports = {
             }
 
             const out = mapFromUpsShipment(resp.data);
+
+            // >>> SALVAR NO BANCO SE vier cotacaoId:
+            const cotacaoId = req.body?.cotacaoId || req.query?.cotacaoId || null;
+            if (cotacaoId) {
+                try {
+                    const patch = {};
+
+                    // tracking
+                    if (Array.isArray(out.trackingNumbers) && out.trackingNumbers[0]) {
+                        patch.tracking_number = out.trackingNumbers[0];
+                    }
+
+                    // label
+                    if (out.label?.b64 && out.label?.type) {
+                        patch.etiqueta_base64 = out.label.b64;
+                        patch.etiqueta_mime = labelTypeToMime(out.label.type);
+                    } else if (out.label?.href) {
+                        // se a UPS devolver URL (raro), guarda a URL no campo base64 só para não perder
+                        patch.etiqueta_base64 = out.label.href;
+                        patch.etiqueta_mime = 'text/uri-list';
+                    }
+
+                    // invoice (PDF)
+                    if (out.invoice?.b64) {
+                        patch.invoice_base64 = out.invoice.b64;
+                        patch.invoice_mime = out.invoice.mime || 'application/pdf';
+                    } else if (out.invoice?.href) {
+                        // fallback se vier URL da invoice
+                        patch.invoice_base64 = out.invoice.href;
+                        patch.invoice_mime = 'text/uri-list';
+                    }
+
+                    // NÃO mande undefined para o ORM — só atualize se tiver algo:
+                    if (Object.keys(patch).length) {
+                        const row = await Cotacao.findByPk(cotacaoId);
+                        if (row) {
+                            await row.update(patch);
+                        } else {
+                            console.warn('[UPS/SHIP] Cotação não encontrada para salvar anexos:', cotacaoId);
+                        }
+                    }
+                } catch (errSave) {
+                    // não quebre a emissão se o save falhar – só logue
+                    console.error('[UPS/SHIP] Falha ao salvar label/invoice na Cotacao', { cotacaoId, err: errSave?.message });
+                }
+            }
+
             return res.status(200).json({ ...out, tookMs: Date.now() - t0 });
         } catch (err) {
             if (!err?.response) {
@@ -670,7 +877,6 @@ module.exports = {
             return res.status(status).json({ ok: false, error: message, raw });
         }
     },
-
 
     // ---------------- TRACK ----------------
     track: async (req, res, next) => {

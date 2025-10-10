@@ -10,10 +10,11 @@ const corsOpts = cors({
     origin: (origin, cb) => {
         if (!origin) return cb(null, true); // Postman/cURL
         const ok =
-            /^http:\/\/localhost(:\d+)?$/i.test(origin) ||
-            /^http:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin) ||
-            /^http:\/\/\[::1\](:\d+)?$/i.test(origin);
-        return cb(null, ok);
+            /^https?:\/\/localhost(:\d+)?$/i.test(origin) ||
+            /^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin) ||
+            /^https?:\/\/\[::1\](:\d+)?$/i.test(origin) ||
+            /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/i.test(origin);
+        return cb(null, ok)
     },
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: [
