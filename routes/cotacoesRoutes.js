@@ -1,7 +1,8 @@
 // routes/cotacoes.routes.js
 const express = require('express');
 const router = express.Router();
-const { criarCotacao, atualizarCotacao } = require('../services/cotacoes.service');
+// const { criarCotacao, atualizarCotacao } = require('../services/cotacoes');
+const ctrl = require('../controller/CotacaoController');
 
 function requireAuth(req, res, next) {
     const cid = req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId;
@@ -10,44 +11,49 @@ function requireAuth(req, res, next) {
 }
 
 // Cria
-router.post('/clientes/:clienteId/cotacoes', requireAuth, async (req, res) => {
-    try {
-        const { clienteId } = req.params;
-        if (Number(clienteId) !== Number(req.clienteId)) return res.status(403).json({ erro: 'forbidden' });
+// router.post('/clientes/:clienteId/cotacoes', requireAuth, async (req, res) => {
+//     try {
+//         const { clienteId } = req.params;
+//         if (Number(clienteId) !== Number(req.clienteId)) return res.status(403).json({ erro: 'forbidden' });
 
-        const { pedidoImportId, caixaIds } = req.body; // caixaIds = [1,2,3]
-        if (!pedidoImportId) return res.status(400).json({ erro: 'pedidoImportId é obrigatório' });
+//         const { pedidoImportId, caixaIds } = req.body; // caixaIds = [1,2,3]
+//         if (!pedidoImportId) return res.status(400).json({ erro: 'pedidoImportId é obrigatório' });
 
-        const cot = await criarCotacao({
-            clienteId: Number(clienteId),
-            pedidoImportId: Number(pedidoImportId),
-            caixaIds: Array.isArray(caixaIds) ? caixaIds.map(Number) : [],
-        });
+//         const cot = await criarCotacao({
+//             clienteId: Number(clienteId),
+//             pedidoImportId: Number(pedidoImportId),
+//             caixaIds: Array.isArray(caixaIds) ? caixaIds.map(Number) : [],
+//         });
 
-        res.status(201).json(cot); // inclui pedido{} e caixas[]
-    } catch (e) {
-        res.status(500).json({ erro: e.message || 'erro interno' });
-    }
-});
+//         res.status(201).json(cot); // inclui pedido{} e caixas[]
+//     } catch (e) {
+//         res.status(500).json({ erro: e.message || 'erro interno' });
+//     }
+// });
 
-// Atualiza
-router.put('/clientes/:clienteId/cotacoes/:id', requireAuth, async (req, res) => {
-    try {
-        const { clienteId, id } = req.params;
-        if (Number(clienteId) !== Number(req.user.clienteId)) return res.status(403).json({ erro: 'forbidden' });
+// // Atualiza
+// router.put('/clientes/:clienteId/cotacoes/:id', requireAuth, async (req, res) => {
+//     try {
+//         const { clienteId, id } = req.params;
+//         if (Number(clienteId) !== Number(req.user.clienteId)) return res.status(403).json({ erro: 'forbidden' });
 
-        const { pedidoImportId, caixaIds } = req.body;
-        const cot = await atualizarCotacao({
-            cotacaoId: Number(id),
-            clienteId: Number(clienteId),
-            pedidoImportId: pedidoImportId ? Number(pedidoImportId) : undefined,
-            caixaIds: Array.isArray(caixaIds) ? caixaIds.map(Number) : undefined,
-        });
+//         const { pedidoImportId, caixaIds } = req.body;
+//         const cot = await atualizarCotacao({
+//             cotacaoId: Number(id),
+//             clienteId: Number(clienteId),
+//             pedidoImportId: pedidoImportId ? Number(pedidoImportId) : undefined,
+//             caixaIds: Array.isArray(caixaIds) ? caixaIds.map(Number) : undefined,
+//         });
 
-        res.json(cot);
-    } catch (e) {
-        res.status(500).json({ erro: e.message || 'erro interno' });
-    }
-});
+//         res.json(cot);
+//     } catch (e) {
+//         res.status(500).json({ erro: e.message || 'erro interno' });
+//     }
+// });
+
+router.get('/', ctrl.listCotacoes)
+
+router.get('/:id/etiqueta', ctrl.downloadEtiqueta)
+router.get('/:id/invoice', ctrl.downloadInvoice)
 
 module.exports = router;

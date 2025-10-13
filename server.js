@@ -33,7 +33,8 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'authorization'],
   exposedHeaders: ['Authorization'],
-  credentials: false
+  credentials: false,
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use((req, res, next) => {
@@ -258,6 +259,7 @@ app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req,res)=>{
 });
 
 // API UPS
+// app.use('/api/cotacoes', require('./routes/cotacoesRoutes.js'))
 
 app.get('/api/cotacoes', autenticarUsuario, vincularCliente, listCotacoes);
 app.post('/api/cotacoes', autenticarUsuario, vincularCliente, createCotacaoReal);

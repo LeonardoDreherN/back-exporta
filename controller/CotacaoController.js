@@ -1,6 +1,7 @@
 // controllers/cotacoes.controller.js
-const { Op } = require('sequelize');
+const { Op, literal } = require('sequelize');
 const { Cotacao, sequelize } = require('../models');
+const { keepFirstPageFromPdfB64 } = require('../utils/pdfTools');
 
 /**
  * Cria uma cotação idempotente por (cliente_id, pedido_ref)
@@ -14,21 +15,76 @@ const { Cotacao, sequelize } = require('../models');
  *   caixa?: object           // snapshot livre do step 3 (pode ser array ou objeto)
  * }
  */
+
+function toInt(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+}
+
+function guessLabelFilename(mime = '') {
+    if (mime === 'image/png') return 'label.png';
+    if (mime === 'image/gif') return 'label.gif';
+    if (mime === 'text/plain') return 'label.zpl';
+    return 'label.bin';
+}
+
+async function downloadEtiqueta(req, res) {
+    const id = req.params.id;
+    const row = await Cotacao.findByPk(id);
+    if (!row || !row.etiqueta_base64) return res.status(404).json({ error: 'Etiqueta não disponível' });
+
+    const mime = row.etiqueta_mime || 'application/octet-stream';
+    const buf = Buffer.from(row.etiqueta_base64, 'base64');
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Content-Length', buf.length);
+    res.setHeader('Content-Disposition', `attachment; filename="${guessLabelFilename(mime)}"`);
+    return res.send(buf);
+}
+
+
+async function downloadInvoice(req, res) {
+    const id = req.params.id;
+    const row = await Cotacao.findByPk(id);
+    if (!row || !row.invoice_base64) return res.status(404).json({ error: 'Invoice não disponível' });
+
+    const mime = row.invoice_mime || 'application/pdf';
+    let b64 = row.invoice_base64;
+
+    // recorta para 1 página só:
+    if (mime === 'application/pdf') {
+        b64 = await keepFirstPageFromPdfB64(b64);
+    }
+
+    const buf = Buffer.from(b64, 'base64');
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Content-Length', buf.length);
+    res.setHeader('Content-Disposition', 'attachment; filename="invoice.pdf"');
+    return res.send(buf);
+}
+
+module.exports = { keepFirstPageFromPdfB64 };
+
+
 async function createCotacaoReal(req, res) {
     const t = await sequelize.transaction();
     try {
-        const cliente_id = req.clienteId
+        const cliente_id = Number(req.clienteId)
+        if (!cliente_id) {
+            await t.rollback();
+            return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
+        }
         const {
             pedido_ref,
             pais_remetente,
             pais_dest,
             pedido,
             caixa,
+            tracking_number,
         } = req.body || {};
 
-        if (!cliente_id || !pedido_ref) {
+        if (!pedido_ref) {
             await t.rollback();
-            return res.status(400).json({ ok: false, error: 'cliente_id e pedido_ref são obrigatórios' });
+            return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório' });
         }
 
         // findOrCreate garante idempotência pelo índice único (cliente_id, pedido_ref)
@@ -41,6 +97,7 @@ async function createCotacaoReal(req, res) {
                 pais_dest: pais_dest ?? null,
                 pedido: typeof pedido === 'object' && pedido !== null ? pedido : {},
                 caixa: typeof caixa === 'object' && caixa !== null ? caixa : {},
+                tracking_number: tracking_number ?? null,
             },
             transaction: t,
         });
@@ -165,24 +222,117 @@ async function getCotacao(req, res) {
  *  - date_from / date_to: 'YYYY-MM-DD'
  *  - page (1-based), limit
  */
+
+// async function listCotacoes(req, res) {
+//     try {
+//         const tenantId = toInt(req.clienteId); // vindo do middleware de auth
+//         if (!tenantId) {
+//             return res.status(401).json({ ok: false, erro: 'Cliente não autenticado' });
+//         }
+
+//         const {
+//             cliente_id: clienteIdRaw,
+//             pedido_ref,
+//             tracking_number,
+//             date_from,
+//             date_to,
+//             page = 1,
+//             limit = 20,
+//         } = req.query;
+
+//         const qId = (() => {
+//             if (
+//                 clienteIdRaw === '' ||
+//                 clienteIdRaw === undefined ||
+//                 clienteIdRaw === null ||
+//                 clienteIdRaw === 'undefined' ||
+//                 clienteIdRaw === 'null'
+//             ) return null;
+//             return toInt(clienteIdRaw);
+//         })();
+
+//         const isAdmin = !!req.user?.isAdmin; // ajuste conforme seu auth
+//         const effectiveClienteId = (isAdmin && qId) ? qId : tenantId;
+
+//         const where = {
+//             cliente_id: effectiveClienteId,
+//         };
+//         // if (cliente_id) where.cliente_id = Number(cliente_id);
+//         if (pedido_ref) where.pedido_ref = { [Op.iLike]: `%${String(pedido_ref).trim()}%` };
+//         if (tracking_number) where.tracking_number = { [Op.iLike]: `%${String(tracking_number).trim()}%` };
+
+//         if (date_from || date_to) {
+//             where.created_at = {};
+//             if (date_from) where.created_at[Op.gte] = new Date(`${date_from}T00:00:00.000Z`);
+//             if (date_to) where.created_at[Op.lte] = new Date(`${date_to}T23:59:59.999Z`);
+//         }
+
+//         const pageNum = Math.max(1, Number(page) || 1);
+//         const lim = Math.min(100, Math.max(1, Number(limit) || 20));
+//         const offset = (pageNum - 1) * lim;
+
+//         const { rows, count } = await Cotacao.findAndCountAll({
+//             where,
+//             attributes: {
+//                 // NÃO selecione os base64
+//                 exclude: ['etiqueta_base64', 'invoice_base64'],
+//                 // INCLUA FLAGS calculados no SQL (booleans)
+//                 include: [
+//                     [literal(`COALESCE("etiqueta_base64",'') <> ''`), 'has_label'],
+//                     [literal(`COALESCE("invoice_base64",'') <> ''`), 'has_invoice'],
+//                 ],
+//             },
+//             order: [['created_at', 'DESC']],
+//             limit: lim,
+//             offset,
+//         });
+
+//         // como os flags já vêm do SELECT, não precisa mapear via r.get(...)
+//         const itens = rows.map(r => r.get({ plain: true }));
+
+//         return res.json({
+//             ok: true,
+//             cliente_id: cliente_id ? String(cliente_id) : '',
+//             limit: lim,
+//             offset,
+//             itens,
+//             total: count,
+//             // se quiser compat:
+//             // data: itens,
+//         });
+//     } catch (err) {
+//         console.error('listCotacoes error:', err);
+//         return res.status(500).json({ ok: false, erro: 'Erro ao listar cotações' });
+//     }
+// }
+
 async function listCotacoes(req, res) {
     try {
+        const cliente_id = toInt(req.clienteId);
+        if (!cliente_id) return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
+
         const {
-            cliente_id,
             pedido_ref,
             tracking_number,
             date_from,
             date_to,
             page = 1,
             limit = 20,
+            only_with_tracking, // "1" para listar só quem tem tracking
         } = req.query;
 
-        const where = {};
-        if (cliente_id) where.cliente_id = Number(cliente_id);
-        if (pedido_ref) where.pedido_ref = { [Op.iLike]: `%${String(pedido_ref).trim()}%` };
-        if (tracking_number) where.tracking_number = { [Op.iLike]: `%${String(tracking_number).trim()}%` };
+        const where = { cliente_id };
 
-        // filtro por data de criação (created_at)
+        if (pedido_ref && String(pedido_ref).trim()) {
+            where.pedido_ref = { [Op.iLike]: `%${String(pedido_ref).trim()}%` };
+        }
+        if (tracking_number && String(tracking_number).trim()) {
+            where.tracking_number = { [Op.iLike]: `%${String(tracking_number).trim()}%` };
+        }
+        if (only_with_tracking === '1') {
+            where.tracking_number = { [Op.ne]: null };
+        }
+
         if (date_from || date_to) {
             where.created_at = {};
             if (date_from) where.created_at[Op.gte] = new Date(`${date_from}T00:00:00.000Z`);
@@ -195,23 +345,35 @@ async function listCotacoes(req, res) {
 
         const { rows, count } = await Cotacao.findAndCountAll({
             where,
+            attributes: {
+                exclude: ['etiqueta_base64', 'invoice_base64'],
+                include: [
+                    [literal(`COALESCE("etiqueta_base64",'') <> ''`), 'has_label'],
+                    [literal(`COALESCE("invoice_base64",'') <> ''`), 'has_invoice'],
+                ],
+            },
             order: [['created_at', 'DESC']],
             limit: lim,
             offset,
         });
 
+        const itens = rows.map(r => r.get({ plain: true }));
+
         return res.json({
             ok: true,
+            cliente_id,
             page: pageNum,
             limit: lim,
+            offset,
             total: count,
-            data: rows,
+            itens,
         });
     } catch (err) {
-        console.error('listCotacoes error:', err);
-        return res.status(500).json({ ok: false, error: 'Erro ao listar cotações' });
+        console.error('listRemessas error:', err);
+        return res.status(500).json({ ok: false, error: 'Erro ao listar remessas' });
     }
 }
+
 
 /**
  * PATCH /cotacoes/:id
@@ -259,4 +421,6 @@ module.exports = {
     listCotacoes,
     updateCotacao,
     deleteCotacao,
+    downloadEtiqueta,
+    downloadInvoice
 };
