@@ -21,6 +21,10 @@ function toInt(v) {
     return Number.isFinite(n) ? n : null;
 }
 
+function normRef(v) {
+    return String(v || '').trim(); // se quiser: .toUpperCase()
+}
+
 function guessLabelFilename(mime = '') {
     if (mime === 'image/png') return 'label.png';
     if (mime === 'image/gif') return 'label.gif';
@@ -62,9 +66,6 @@ async function downloadInvoice(req, res) {
     return res.send(buf);
 }
 
-module.exports = { keepFirstPageFromPdfB64 };
-
-
 async function createCotacaoReal(req, res) {
     const t = await sequelize.transaction();
     try {
@@ -74,7 +75,7 @@ async function createCotacaoReal(req, res) {
             return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
         }
         const {
-            pedido_ref,
+            pedido_ref: pedido_ref_raw,
             pais_remetente,
             pais_dest,
             pedido,
@@ -82,43 +83,45 @@ async function createCotacaoReal(req, res) {
             tracking_number,
         } = req.body || {};
 
+        const pedido_ref = normRef(pedido_ref_raw);
         if (!pedido_ref) {
             await t.rollback();
             return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório' });
         }
 
-        // findOrCreate garante idempotência pelo índice único (cliente_id, pedido_ref)
-        const [registro, created] = await Cotacao.findOrCreate({
+        const existente = await Cotacao.findOne({
             where: { cliente_id, pedido_ref },
-            defaults: {
-                cliente_id,
-                pedido_ref,
-                pais_remetente: pais_remetente ?? null,
-                pais_dest: pais_dest ?? null,
-                pedido: typeof pedido === 'object' && pedido !== null ? pedido : {},
-                caixa: typeof caixa === 'object' && caixa !== null ? caixa : {},
-                tracking_number: tracking_number ?? null,
-            },
+            attributes: ['id', 'pedido_ref', 'createdAt'],
             transaction: t,
+            lock: t.LOCK.UPDATE, // evita corrida em concorrência alta
         });
 
-        // Se já existia e vieram dados novos, opcionalmente atualiza
-        if (!created) {
-            const patch = {};
-            if (typeof pais_remetente === 'string') patch.pais_remetente = pais_remetente;
-            if (typeof pais_dest === 'string') patch.pais_dest = pais_dest;
-            if (pedido && typeof pedido === 'object') patch.pedido = pedido;
-            if (caixa && typeof caixa === 'object') patch.caixa = caixa;
-
-            if (Object.keys(patch).length) {
-                await registro.update(patch, { transaction: t });
-            }
+        if (existente) {
+            await t.rollback();
+            return res.status(409).json({
+                ok: false,
+                created: false,
+                cotacao_id: existente.id,
+                pedido_ref: existente.pedido_ref,
+                error: 'Já existe uma cotação para este pedido',
+            });
         }
+
+        // findOrCreate garante idempotência pelo índice único (cliente_id, pedido_ref)
+        const registro = await Cotacao.create({
+            cliente_id,
+            pedido_ref,
+            pais_remetente: pais_remetente ?? null,
+            pais_dest: pais_dest ?? null,
+            pedido: (pedido && typeof pedido === 'object') ? pedido : {},
+            caixa: (caixa && typeof caixa === 'object') ? caixa : {},
+            tracking_number: tracking_number ?? null,
+        }, { transaction: t });
 
         await t.commit();
         return res.json({
             ok: true,
-            created,
+            created: true,
             cotacao_id: registro.id,
             pedido_ref: registro.pedido_ref,
         });
@@ -128,14 +131,15 @@ async function createCotacaoReal(req, res) {
         if (err?.name === 'SequelizeUniqueConstraintError') {
             try {
                 const existente = await Cotacao.findOne({
-                    where: { cliente_id: req.body?.cliente_id, pedido_ref: req.body?.pedido_ref },
+                    where: { cliente_id: Number(req.clienteId), pedido_ref: normRef(req.body?.pedido_ref) },
                 });
                 if (existente) {
-                    return res.json({
-                        ok: true,
+                    return res.status(409).json({
+                        ok: false,
                         created: false,
                         cotacao_id: existente.id,
                         pedido_ref: existente.pedido_ref,
+                        error: 'Já existe uma cotação para este pedido',
                     });
                 }
             } catch (_) { }
@@ -201,11 +205,42 @@ async function attachDocs(req, res) {
 /**
  * GET /cotacoes/:id
  */
+
+async function getCotacaoStatusByPedidoRef(req, res) {
+    try {
+        const cliente_id = toInt(req.clienteId);
+        if (!cliente_id) return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
+
+        const pedido_ref = normRef(req.params.pedido_ref);
+        if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref inválido' });
+
+        const existente = await Cotacao.findOne({
+            where: { cliente_id, pedido_ref },
+            attributes: ['id', 'pedido_ref', 'createdAt'],
+        });
+
+        return res.json({
+            ok: true,
+            hasActive: !!existente,
+            cotacaoId: existente?.id || null,
+        });
+    } catch (err) {
+        console.error('getCotacaoStatusByPedidoRef error:', err);
+        return res.status(500).json({ ok: false, error: 'Erro ao checar status da cotação' });
+    }
+}
+
 async function getCotacao(req, res) {
     try {
-        const { id } = req.params;
-        const cot = await Cotacao.findByPk(id);
+        const cliente_id = toInt(req.clienteId);
+        if (!cliente_id) return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
+
+        const id = toInt(req.params.id);
+        if (!id) return res.status(400).json({ ok: false, error: 'id inválido' });
+
+        const cot = await Cotacao.findOne({ where: { id, cliente_id } });
         if (!cot) return res.status(404).json({ ok: false, error: 'Cotação não encontrada' });
+
         return res.json({ ok: true, data: cot });
     } catch (err) {
         console.error('getCotacao error:', err);
@@ -222,89 +257,6 @@ async function getCotacao(req, res) {
  *  - date_from / date_to: 'YYYY-MM-DD'
  *  - page (1-based), limit
  */
-
-// async function listCotacoes(req, res) {
-//     try {
-//         const tenantId = toInt(req.clienteId); // vindo do middleware de auth
-//         if (!tenantId) {
-//             return res.status(401).json({ ok: false, erro: 'Cliente não autenticado' });
-//         }
-
-//         const {
-//             cliente_id: clienteIdRaw,
-//             pedido_ref,
-//             tracking_number,
-//             date_from,
-//             date_to,
-//             page = 1,
-//             limit = 20,
-//         } = req.query;
-
-//         const qId = (() => {
-//             if (
-//                 clienteIdRaw === '' ||
-//                 clienteIdRaw === undefined ||
-//                 clienteIdRaw === null ||
-//                 clienteIdRaw === 'undefined' ||
-//                 clienteIdRaw === 'null'
-//             ) return null;
-//             return toInt(clienteIdRaw);
-//         })();
-
-//         const isAdmin = !!req.user?.isAdmin; // ajuste conforme seu auth
-//         const effectiveClienteId = (isAdmin && qId) ? qId : tenantId;
-
-//         const where = {
-//             cliente_id: effectiveClienteId,
-//         };
-//         // if (cliente_id) where.cliente_id = Number(cliente_id);
-//         if (pedido_ref) where.pedido_ref = { [Op.iLike]: `%${String(pedido_ref).trim()}%` };
-//         if (tracking_number) where.tracking_number = { [Op.iLike]: `%${String(tracking_number).trim()}%` };
-
-//         if (date_from || date_to) {
-//             where.created_at = {};
-//             if (date_from) where.created_at[Op.gte] = new Date(`${date_from}T00:00:00.000Z`);
-//             if (date_to) where.created_at[Op.lte] = new Date(`${date_to}T23:59:59.999Z`);
-//         }
-
-//         const pageNum = Math.max(1, Number(page) || 1);
-//         const lim = Math.min(100, Math.max(1, Number(limit) || 20));
-//         const offset = (pageNum - 1) * lim;
-
-//         const { rows, count } = await Cotacao.findAndCountAll({
-//             where,
-//             attributes: {
-//                 // NÃO selecione os base64
-//                 exclude: ['etiqueta_base64', 'invoice_base64'],
-//                 // INCLUA FLAGS calculados no SQL (booleans)
-//                 include: [
-//                     [literal(`COALESCE("etiqueta_base64",'') <> ''`), 'has_label'],
-//                     [literal(`COALESCE("invoice_base64",'') <> ''`), 'has_invoice'],
-//                 ],
-//             },
-//             order: [['created_at', 'DESC']],
-//             limit: lim,
-//             offset,
-//         });
-
-//         // como os flags já vêm do SELECT, não precisa mapear via r.get(...)
-//         const itens = rows.map(r => r.get({ plain: true }));
-
-//         return res.json({
-//             ok: true,
-//             cliente_id: cliente_id ? String(cliente_id) : '',
-//             limit: lim,
-//             offset,
-//             itens,
-//             total: count,
-//             // se quiser compat:
-//             // data: itens,
-//         });
-//     } catch (err) {
-//         console.error('listCotacoes error:', err);
-//         return res.status(500).json({ ok: false, erro: 'Erro ao listar cotações' });
-//     }
-// }
 
 async function listCotacoes(req, res) {
     try {
@@ -374,7 +326,6 @@ async function listCotacoes(req, res) {
     }
 }
 
-
 /**
  * PATCH /cotacoes/:id
  * Atualiza campos simples e/ou JSONB (sem impor formato)
@@ -422,5 +373,7 @@ module.exports = {
     updateCotacao,
     deleteCotacao,
     downloadEtiqueta,
-    downloadInvoice
+    downloadInvoice,
+    keepFirstPageFromPdfB64,
+    getCotacaoStatusByPedidoRef
 };

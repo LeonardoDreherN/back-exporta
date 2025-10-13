@@ -259,13 +259,8 @@ app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req,res)=>{
 });
 
 // API UPS
-// app.use('/api/cotacoes', require('./routes/cotacoesRoutes.js'))
+app.use('/api/cotacoes', autenticarUsuario, vincularCliente, require('./routes/cotacoesRoutes.js'));
 
-app.get('/api/cotacoes', autenticarUsuario, vincularCliente, listCotacoes);
-app.post('/api/cotacoes', autenticarUsuario, vincularCliente, createCotacaoReal);
-
-// >>> NOVA ROTA DE ANEXOS <<<
-app.post('/api/cotacoes/:id/docs', autenticarUsuario, vincularCliente, attachDocs);
 
 // app.use('/api', upsRoutes);
 app.use((err, req, res, next) => {

@@ -51,9 +51,11 @@ function requireAuth(req, res, next) {
 //     }
 // });
 
-router.get('/', ctrl.listCotacoes)
-
-router.get('/:id/etiqueta', ctrl.downloadEtiqueta)
-router.get('/:id/invoice', ctrl.downloadInvoice)
+router.get('/', requireAuth, ctrl.listCotacoes);
+router.post('/', requireAuth, ctrl.createCotacaoReal);
+router.post('/:id/docs', requireAuth, ctrl.attachDocs);
+router.get('/:id/etiqueta', requireAuth, ctrl.downloadEtiqueta);
+router.get('/:id/invoice', requireAuth, ctrl.downloadInvoice);
+router.get('/status-por-pedido/:pedido_ref', requireAuth, ctrl.getCotacaoStatusByPedidoRef);
 
 module.exports = router;
