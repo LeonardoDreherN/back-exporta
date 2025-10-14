@@ -8,8 +8,7 @@ module.exports = (sequelize) => {
       descricao: { type: DataTypes.STRING, allowNull: false },
       altura: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
       largura: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
-      profundidade: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
-      peso: { type: DataTypes.DECIMAL(10, 3), allowNull: false },
+      comprimento: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
       id_cliente: {
         type: DataTypes.INTEGER,
         allowNull: false,

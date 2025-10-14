@@ -18,33 +18,28 @@ const registrarCaixa = async (req, res) => {
 
     const altura = Number(b.altura);
     const largura = Number(b.largura);
-    const profundidade = Number(b.profundidade);
-    const peso = Number(b.peso);
+    const comprimento = Number(b.comprimento);
 
     const payload = {
       cod_identificacao: b.cod_identificacao,
       descricao: b.descricao,
       altura,
       largura,
-      profundidade,
-      peso,
+      comprimento,
       id_cliente: req.clienteId, // <<< automático do middleware
     };
 
-    const obrigatorios = ['cod_identificacao', 'descricao', 'altura', 'largura', 'profundidade', 'peso'];
+    const obrigatorios = ['cod_identificacao', 'descricao', 'altura', 'largura', 'comprimento'];
     const faltando = obrigatorios.filter(k => payload[k] === undefined || payload[k] === null || payload[k] === '');
     if (faltando.length) {
       return res.status(400).json({ erro: 'Campos obrigatórios faltando', campos: faltando });
     }
 
-    if (![altura, largura, profundidade, peso].every(isPosNumber)) {
-      return res.status(400).json({ erro: "Dimensões e peso devem ser números positivos" });
+    if (![altura, largura, comprimento].every(isPosNumber)) {
+      return res.status(400).json({ erro: "Dimensões devem ser números positivos" });
     }
-    if (altura > MAX_DIM || largura > MAX_DIM || profundidade > MAX_DIM) {
+    if (altura > MAX_DIM || largura > MAX_DIM || comprimento > MAX_DIM) {
       return res.status(400).json({ erro: `Dimensões inválidas (0 < valor ≤ ${MAX_DIM} cm)` });
-    }
-    if (peso >= MAX_PESO_NUMERIC) { // evita 22003 no NUMERIC(10,3)
-      return res.status(400).json({ erro: "Peso inválido (máx. 9.999.999,999 kg)" });
     }
 
     const novaCaixa = await db.sequelize.transaction(async (t) => {
@@ -59,8 +54,7 @@ const registrarCaixa = async (req, res) => {
         descricao: novaCaixa.descricao,
         altura: novaCaixa.altura,
         largura: novaCaixa.largura,
-        profundidade: novaCaixa.profundidade,
-        peso: novaCaixa.peso,
+        comprimento: novaCaixa.comprimento,
         id_cliente: novaCaixa.id_cliente,
       }
     });
@@ -76,7 +70,7 @@ const verCaixas = async (req, res) => {
   try {
     const caixas = await db.Caixa.findAll({
       where: { id_cliente: req.clienteId },
-      attributes: ["id", "cod_identificacao", "descricao", "altura", "largura", "profundidade", "peso", "id_cliente"],
+      attributes: ["id", "cod_identificacao", "descricao", "altura", "largura", "comprimento", "id_cliente"],
       order: [["id", "DESC"]],
     });
 
@@ -134,8 +128,7 @@ const editarCaixa = async (req, res) => {
       descricao,
       altura,
       largura,
-      profundidade,
-      peso,
+      comprimento,
     } = req.body;
 
     const updateData = {};
@@ -149,7 +142,7 @@ const editarCaixa = async (req, res) => {
 
     const a = altura !== undefined ? Number(altura) : undefined;
     const l = largura !== undefined ? Number(largura) : undefined;
-    const p = profundidade !== undefined ? Number(profundidade) : undefined;
+    const p = comprimento !== undefined ? Number(comprimento) : undefined;
     const kg = peso !== undefined ? Number(peso) : undefined;
 
     if (altura !== undefined) {
@@ -166,19 +159,12 @@ const editarCaixa = async (req, res) => {
       }
       updateData.largura = l;
     }
-    if (profundidade !== undefined) {
-      const p = Number(profundidade);
+    if (comprimento !== undefined) {
+      const p = Number(comprimento);
       if (!isPosNumber(p) || p > MAX_DIM) {
-        return res.status(400).json({ erro: `Profundidade inválida (0 < profundidade ≤ ${MAX_DIM} cm)` });
+        return res.status(400).json({ erro: `Profundidade inválida (0 < comprimento ≤ ${MAX_DIM} cm)` });
       }
-      updateData.profundidade = p;
-    }
-    if (peso !== undefined) {
-      const kg = Number(peso);
-      if (!isPosNumber(kg) || kg >= 10000000) {
-        return res.status(400).json({ erro: "Peso inválido (máx. 9.999.999,999 kg)" });
-      }
-      updateData.peso = kg;
+      updateData.comprimento = p;
     }
 
     await caixa.update(updateData);
