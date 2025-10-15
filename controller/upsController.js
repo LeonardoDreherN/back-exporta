@@ -81,11 +81,11 @@ function normalizeUpsError(err) {
 }
 
 // Concatena rua + número
-function joinAddressLine(rua, numero) {
-    const a = String(rua || '').trim();
-    const b = String(numero || '').trim();
-    return [a, b].filter(Boolean).join(', ');
-}
+// function joinAddressLine(rua, numero) {
+//     const a = String(rua || '').trim();
+//     const b = String(numero || '').trim();
+//     return [a, b].filter(Boolean).join(', ');
+// }
 
 let _upsTokenCache = { token: null, expTs: 0 }; // epoch ms
 async function getUpsToken(force = false) {
@@ -199,6 +199,10 @@ function translateShipmentRequestToRateRequest(frontSR) {
 function mapToUpsShipment(reqBody) {
     const { shipper, shipFrom, shipTo, serviceCode, payment, packages, invoice } = reqBody;
 
+    const shipperTax = onlyDigits(
+        shipper?.cnpjOuTaxId || shipper?.taxId || shipper?.tax_id || shipper?.ein || shipper?.vat || ""
+    ).slice(0, 14);
+
     const addr = (p = {}, role = 'Recipient') => {
         const name = (p?.nome || p?.name || role || '').toString().trim() || role;
         const attention = (p?.atencao || p?.attention || name).toString().trim() || name;
@@ -274,8 +278,8 @@ function mapToUpsShipment(reqBody) {
             Request: { RequestOption: 'nonvalidate' },
             Shipment: {
                 Description: 'Order',
-                Shipper: { ...addr(shipper, 'Shipper'), ShipperNumber: shipperNumber },
-                ShipFrom: shipFrom ? addr(shipFrom, 'ShipFrom') : addr(shipper, 'ShipFrom'),
+                Shipper: { ...addr(shipper, 'Shipper'), ShipperNumber: shipperNumber, TaxIdentificationNumber: shipperTax || undefined },
+                ShipFrom: { ...(shipFrom ? addr(shipFrom, 'ShipFrom') : addr(shipper, 'ShipFrom')), TaxIdentificationNumber: shipperTax || undefined },
                 ShipTo: addr(shipTo, 'Recipient'),
                 PaymentInformation: paymentInformation,
                 Service: { Code: serviceCode },
@@ -292,6 +296,11 @@ function mapToUpsShipment(reqBody) {
                         CurrencyCode: invoice?.currency || 'USD',
                         TermsOfSale: 'DAP',
                         ReasonForExport: 'SALE',
+
+                        TaxInformation: {
+                            TaxIDType: 'TAXID',          // para BR use TAXID (não use EIN)
+                            TaxIDNumber: shipperTax || undefined,
+                        },
 
                         InvoiceLineTotal: {
                             CurrencyCode: invoice?.currency || 'USD',
@@ -312,12 +321,14 @@ function mapToUpsShipment(reqBody) {
                             UnitPrice: Number(it.unitPrice || 0).toFixed(2),
                         })),
                         Contacts: {
+                            SoldFrom: { ...addr(shipper, 'Shipper'), Option: '01', TaxIdentificationNumber: shipperTax || undefined },
                             SoldTo: { ...addr(shipTo, 'Recipient'), Option: '01' },
                             Producer: {
                                 Option: '01',
                                 CompanyName: addr(shipper, 'Shipper').Name,
                                 Address: addr(shipper, 'Shipper').Address,
                                 Phone: addr(shipper, 'Shipper').Phone,
+                                TaxIdentificationNumber: shipperTax || undefined,
                             },
                         },
                     }
@@ -673,7 +684,7 @@ module.exports = {
                     .slice(0, 35);                   // limite UPS
                 return out || fallback;
             }
-            function sanitizeCommercialInvoice(IFraw) {
+            function sanitizeCommercialInvoice(IFraw, shipperTax) {
                 if (!IFraw || typeof IFraw !== 'object') return null;
                 const IF = { ...IFraw };
 
@@ -691,16 +702,23 @@ module.exports = {
                 IF.CurrencyCode = IF.CurrencyCode || 'USD';
                 IF.TermsOfSale = IF.TermsOfSale || 'DAP';
                 IF.ReasonForExport = IF.ReasonForExport || 'SALE';
+                IF.TaxInformation = {
+                    TaxIDType: 'TAXID',
+                    TaxIDNumber: onlyDigits((IF.TaxInformation?.TaxIDNumber || shipperTax || '')).slice(0, 14) || undefined
+                };
 
                 // Contatos
                 IF.Contacts = IF.Contacts || {};
-                IF.Contacts.SoldTo = IF.Contacts.SoldTo || {};
-                IF.Contacts.SoldTo.Option = '01';
-                fixAddr(IF.Contacts.SoldTo);
-                if (IF.Contacts.Producer) {
-                    IF.Contacts.Producer.Option = '01';
-                    fixAddr(IF.Contacts.Producer);
-                }
+                IF.Contacts.SoldFrom = IF.Contacts.SoldFrom || {};
+                IF.Contacts.SoldFrom.Option = '01';
+                IF.Contacts.SoldFrom.TaxIdentificationNumber =
+                    onlyDigits((IF.Contacts.SoldFrom.TaxIdentificationNumber || shipperTax || '')).slice(0, 14) || undefined;
+                fixAddr(IF.Contacts.SoldFrom);
+                IF.Contacts.SoldFrom = IF.Contacts.SoldFrom || {};
+                IF.Contacts.SoldFrom.Option = '01';
+                IF.Contacts.SoldFrom.TaxIdentificationNumber =
+                    onlyDigits((IF.Contacts.SoldFrom.TaxIdentificationNumber || shipperTax || '')).slice(0, 14) || undefined;
+                fixAddr(IF.Contacts.SoldFrom);
 
                 // Produtos (formatos estritos)
                 if (Array.isArray(IF.Product)) {
@@ -769,6 +787,7 @@ module.exports = {
 
             // Se o front mandou IF, injeta sanitizado (sobrepõe o base)
             if (originalIF) {
+                const currentTax = upsReq?.ShipmentRequest?.Shipment?.Shipper?.TaxIdentificationNumber || '';
                 const IFok = sanitizeCommercialInvoice(originalIF);
                 if (IFok) {
                     upsReq.ShipmentRequest.Shipment.ShipmentServiceOptions = {
