@@ -10,9 +10,3 @@ const cors = {
 export function OPTIONS() {
     return new Response(null, { status: 204, headers: cors });
 }
-
-// export async function GET() {
-//     try{
-
-//     }
-// }
