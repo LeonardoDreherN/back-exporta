@@ -123,6 +123,67 @@ async function getUpsToken(force = false) {
     return token;
 }
 
+function pickFreightFromRate(rateRaw) {
+    const rs = rateRaw?.RateResponse?.RatedShipment;
+    const first = Array.isArray(rs) ? rs[0] : rs;
+    if (!first) return null;
+
+    const neg = first?.NegotiatedRateCharges?.TotalCharge;
+    const list = first?.TotalCharges;
+
+    const chosen = neg?.MonetaryValue ? neg : list;
+    if (!chosen?.MonetaryValue) return null;
+
+    return {
+        value: String(chosen.MonetaryValue),
+        currency: String(chosen.CurrencyCode || 'USD'),
+    };
+}
+
+function buildRateRequestFromCli(cli) {
+    const toAddr = (p) => ({
+        Address: {
+            PostalCode: String(p?.cep || p?.postalCode || p?.zip || '').replace(/\D/g, ''),
+            CountryCode: iso2Country(p?.pais || p?.country),
+            StateProvinceCode: (p?.estado || p?.state || undefined),
+            City: (p?.cidade || p?.city || undefined),
+            AddressLine: [[String(p?.rua || p?.street || ''), String(p?.numero || p?.number || '')].filter(Boolean).join(', ')].filter(Boolean),
+        }
+    });
+
+    const pkgList = (cli?.packages || []).map((p) => ({
+        PackagingType: { Code: '02' },
+        PackageWeight: { UnitOfMeasurement: { Code: 'KGS' }, Weight: String(p?.weightKg ?? 0) },
+        Dimensions: p?.dimCm ? {
+            UnitOfMeasurement: { Code: 'CM' },
+            Length: String(p.dimCm.length ?? 0),
+            Width: String(p.dimCm.width ?? 0),
+            Height: String(p.dimCm.height ?? 0),
+        } : undefined,
+        PackageServiceOptions: {}
+    }));
+
+    return {
+        RateRequest: {
+            Request: { TransactionReference: { CustomerContext: 'back-exporta:ship-autofreight' } },
+            Shipment: {
+                Shipper: toAddr(cli?.shipper),
+                ShipTo: toAddr(cli?.shipTo),
+                Service: { Code: String(cli?.serviceCode || '') },
+                ShipmentRatingOptions: { NegotiatedRatesIndicator: 'Y' },
+                Package: pkgList.length ? pkgList : [{
+                    PackagingType: { Code: '02' },
+                    PackageWeight: { UnitOfMeasurement: { Code: 'KGS' }, Weight: '0' },
+                    Dimensions: { UnitOfMeasurement: { Code: 'CM' }, Length: '0', Width: '0', Height: '0' },
+                    PackageServiceOptions: {}
+                }],
+                PickupType: { Code: '01' },
+            }
+        }
+    };
+}
+
+
 /**
  * Traduz o NOVO payload do front (ShipmentRequest-like) para um RateRequest da UPS Rating.
  * Ignora InternationalForms/Contacts (não usados em Rating).
@@ -283,6 +344,7 @@ function mapToUpsShipment(reqBody) {
                 ShipTo: addr(shipTo, 'Recipient'),
                 PaymentInformation: paymentInformation,
                 Service: { Code: serviceCode },
+                RateInformation: { NegotiatedRatesIndicator: 'Y' },
                 Package: pkgList,
                 // --- Peça a Commercial Invoice (PDF) limpa (sem NAFTA/CoO) ---
                 ShipmentServiceOptions: invoice ? {
@@ -629,6 +691,16 @@ module.exports = {
             };
 
             const raw = await rating.quote(ratePayload);
+
+            console.log("[DBG][BACK/RATE] RatedShipment[0]:",
+                JSON.stringify(
+                    Array.isArray(raw?.RateResponse?.RatedShipment)
+                        ? raw.RateResponse.RatedShipment[0]
+                        : raw?.RateResponse?.RatedShipment,
+                    null, 2
+                )
+            );
+
             const rs = raw?.RateResponse?.RatedShipment;
             const items = Array.isArray(rs) ? rs : (rs ? [rs] : []);
             const services = items.map(it => ({
@@ -707,6 +779,11 @@ module.exports = {
                     TaxIDNumber: onlyDigits((IF.TaxInformation?.TaxIDNumber || shipperTax || '')).slice(0, 14) || undefined
                 };
 
+                const fcRaw = IFraw?.FreightCharges;
+                if (fcRaw && (fcRaw.MonetaryValue != null && fcRaw.MonetaryValue !== '')) {
+                    const val = moneyStr(fcRaw.MonetaryValue);
+                    IF.FreightCharges = { CurrencyCode: fcRaw.CurrencyCode || IF.CurrencyCode || 'USD', MonetaryValue: val };
+                }
                 // Contatos
                 IF.Contacts = IF.Contacts || {};
                 IF.Contacts.SoldFrom = IF.Contacts.SoldFrom || {};
@@ -725,6 +802,7 @@ module.exports = {
                     IF.Product = IF.Product.map((p, i) => {
                         const qty = padQtyStr(p?.Unit?.Number ?? p?.Quantity ?? 1);
                         const val = moneyStr(p?.Unit?.Value ?? p?.UnitPrice ?? 0);
+                        console.log('[DBG] IF sanitized:', JSON.stringify(IF, null, 2));
                         return {
                             Description: cleanCiDesc(p?.Description, `Item ${i + 1}`), // <<< aqui
                             CommodityCode: p?.CommodityCode || '00000000',
@@ -755,6 +833,28 @@ module.exports = {
             let cli = req.body;
             if (cli?.ShipmentRequest?.Shipment) {
                 cli = translateFrontShipSRToBiz(cli);
+            }
+
+            let rateReq;
+
+            if (req.body?.RateRequest) {
+                // (caso raro: se o front já tiver mandado um RateRequest específico)
+                rateReq = { RateRequest: req.body.RateRequest };
+            } else if (req.body?.ShipmentRequest) {
+                // traduz o ShipmentRequest "novo" para RateRequest
+                rateReq = translateShipmentRequestToRateRequest(req.body.ShipmentRequest);
+            } else {
+                // monta a partir do formato "negócio" (cli)
+                rateReq = buildRateRequestFromCli(cli);
+            }
+
+            // chama a UPS Rating (negotiated preferido)
+            let freightFromRate = null;
+            try {
+                const rateRaw = await rating.quote(rateReq);
+                freightFromRate = pickFreightFromRate(rateRaw);
+            } catch (e) {
+                console.warn('[UPS/SHIP] Falha ao recalcular Rate para FreightCharges (seguindo sem frete na CI).', e?.message);
             }
 
             const required = ['shipper', 'shipTo', 'serviceCode', 'payment', 'packages'];
@@ -795,6 +895,20 @@ module.exports = {
                         InternationalForms: IFok,
                     };
                 }
+            }
+
+            const IFnode = (
+                upsReq?.ShipmentRequest?.Shipment?.ShipmentServiceOptions?.InternationalForms ||
+                (upsReq.ShipmentRequest.Shipment.ShipmentServiceOptions = { InternationalForms: {} }, upsReq.ShipmentRequest.Shipment.ShipmentServiceOptions.InternationalForms)
+            );
+
+            // Se já veio FreightCharges do front, mantemos.
+            // Caso contrário, usamos o valor do Rate (preferindo negotiated).
+            if (!IFnode.FreightCharges && freightFromRate?.value) {
+                IFnode.FreightCharges = {
+                    CurrencyCode: freightFromRate.currency || (IFnode.CurrencyCode || 'USD'),
+                    MonetaryValue: String(freightFromRate.value),
+                };
             }
 
             // Log final do que vai pra UPS
