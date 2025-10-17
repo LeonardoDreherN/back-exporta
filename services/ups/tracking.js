@@ -86,4 +86,70 @@ async function getByNumber(trackingNumber) {
 // Alias útil caso seu controller chame outro nome
 const byNumber = getByNumber;
 
-module.exports = { getByNumber, byNumber };
+function fromUPS(evt = {}) {
+    const code = String(evt.statusCode || '').toUpperCase();
+    const text = [evt.statusDescription, evt.description, evt.activity]
+        .filter(Boolean)
+        .join(' ')
+        .toUpperCase();
+
+    if (code === 'D' || text.includes('DELIVER')) return 'ENTREGUE';
+    if (
+        code === 'I' ||
+        text.includes('IN TRANSIT') ||
+        text.includes('PICKUP') ||
+        text.includes('DEPART') ||
+        text.includes('ARRIV') ||
+        text.includes('CLEARING') ||
+        text.includes('RELEASE')
+    ) return 'EM_TRANSITO';
+
+    return 'CRIADO';
+}
+
+function normalize(carrier, evt) {
+    if (carrier === 'UPS') return fromUPS(evt);
+    return 'CRIADO';
+}
+
+function normalizeUpsStatusFromTimeline(events) {
+    if (!Array.isArray(events) || events.length === 0) return "CRIADO";
+
+    for (const ev of events) {
+        const code = String(ev?.statusCode || "").toUpperCase();
+        const text = [ev?.statusDescription, ev?.description, ev?.activity]
+            .filter(Boolean).join(" ").toUpperCase();
+        if (code === "D" || text.includes("DELIVERED") || text.includes("PROOF OF DELIVERY")) {
+            return "ENTREGUE";
+        }
+    }
+
+    const transitKeywords = [
+        "IN TRANSIT", "OUT FOR DELIVERY", "PICKUP SCAN", "ORIGIN SCAN",
+        "DEPARTED FROM FACILITY", "ARRIVED AT FACILITY", "DEPARTURE SCAN", "ARRIVAL SCAN",
+        "WE HAVE YOUR PACKAGE", "ON THE WAY",
+        "PENDING RELEASE FROM A GOVERNMENT AGENCY", "RELEASED BY THE GOVERNMENT AGENCY",
+        "CLEARING AGENCY", "AWAITING FINAL RELEASE", "SUBMIT FOR CLEARANCE",
+        "IMPORT SCAN", "EXPORT SCAN", "BROKERAGE", "CONTACT WITH THE SENDER"
+    ];
+
+    for (const ev of events) {
+        const code = String(ev?.statusCode || "").toUpperCase();
+        const text = [ev?.statusDescription, ev?.description, ev?.activity]
+            .filter(Boolean).join(" ").toUpperCase();
+        if (code === "I") return "EM_TRANSITO";
+        if (transitKeywords.some(k => text.includes(k))) return "EM_TRANSITO";
+    }
+
+    const createdKeywords = [
+        "LABEL", "SHIPPER CREATED A LABEL", "HAS NOT RECEIVED THE PACKAGE", "RECEIVED THE INFORMATION NEEDED"
+    ];
+    for (const ev of events) {
+        const text = [ev?.statusDescription, ev?.description, ev?.activity]
+            .filter(Boolean).join(" ").toUpperCase();
+        if (createdKeywords.some(k => text.includes(k))) return "CRIADO";
+    }
+    return "CRIADO";
+}
+
+module.exports = { getByNumber, byNumber, normalize, normalizeUpsStatusFromTimeline };

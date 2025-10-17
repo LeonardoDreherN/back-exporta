@@ -16,15 +16,22 @@ const { verProdutosLojaShopify, registrarLojaShopify } = require('./controller/S
 const { comLoja, garantirInstalada, getAccessTokenForShop } = require('./middleware/shopifyAuth.js');
 const { createCotacaoReal, listCotacoes, attachDocs } = require('./controller/CotacaoController.js');
 const { importPedidos, listPedidos } = require('./controller/PedidoImportController.js');
+const cron = require('node-cron');
+const { poll } = require('./jobs/poolTracking.js');
+
+cron.schedule('*/15 * * * *', poll)
 
 // Módulo de rotas da Shopify (inclui auth/conexao/produtos + upload-minimal + find)
 const shopifyModule = require('./routes/shopifyRoutes.js');
 const upsRoutes = require('./routes/upsRoutes.js');
+const sse = require('./routes/SSE.js');
 
 // Middlewares globais
 app.use(express.json({ limit: '30mb' }));
 app.use(express.urlencoded({ extended: true, limit: '30mb' }));
 app.use(express.urlencoded({ extended: true })); // necessário p/ ler campos text em multipart/form-data
+app.use('/sse', sse.router)
+
 const PORT = process.env.PORT || 3001;
 app.use(cookieParser());
 
@@ -278,3 +285,5 @@ db.sequelize.sync()
   .catch((err) => {
     console.error('Erro ao sincronizar com o banco:', err);
   });
+
+  module.exports = { app, sse };

@@ -2,6 +2,9 @@
 const { Op, literal } = require('sequelize');
 const { Cotacao, sequelize } = require('../models');
 const { keepFirstPageFromPdfB64 } = require('../utils/pdfTools');
+const { normalizeUpsStatusFromTimeline } = require('../services/ups/tracking')
+const tracking = require("../services/ups/tracking");
+const { sse } = require('../server');
 
 /**
  * Cria uma cotação idempotente por (cliente_id, pedido_ref)
@@ -69,45 +72,23 @@ async function downloadInvoice(req, res) {
 async function createCotacaoReal(req, res) {
     const t = await sequelize.transaction();
     try {
-        const cliente_id = Number(req.clienteId)
-        if (!cliente_id) {
-            await t.rollback();
-            return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
-        }
-        const {
-            pedido_ref: pedido_ref_raw,
-            pais_remetente,
-            pais_dest,
-            pedido,
-            caixa,
-            tracking_number,
-        } = req.body || {};
+        const cliente_id = Number(req.clienteId);
+        if (!cliente_id) { await t.rollback(); return res.status(401).json({ ok: false, error: 'Cliente não autenticado' }); }
 
+        const { pedido_ref: pedido_ref_raw, pais_remetente, pais_dest, pedido, caixa, tracking_number, carrier } = req.body || {};
         const pedido_ref = normRef(pedido_ref_raw);
-        if (!pedido_ref) {
-            await t.rollback();
-            return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório' });
-        }
+        if (!pedido_ref) { await t.rollback(); return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório' }); }
 
         const existente = await Cotacao.findOne({
             where: { cliente_id, pedido_ref },
             attributes: ['id', 'pedido_ref', 'createdAt'],
-            transaction: t,
-            lock: t.LOCK.UPDATE, // evita corrida em concorrência alta
+            transaction: t, lock: t.LOCK.UPDATE,
         });
-
         if (existente) {
             await t.rollback();
-            return res.status(409).json({
-                ok: false,
-                created: false,
-                cotacao_id: existente.id,
-                pedido_ref: existente.pedido_ref,
-                error: 'Já existe uma cotação para este pedido',
-            });
+            return res.status(409).json({ ok: false, created: false, cotacao_id: existente.id, pedido_ref: existente.pedido_ref, error: 'Já existe uma cotação para este pedido' });
         }
 
-        // findOrCreate garante idempotência pelo índice único (cliente_id, pedido_ref)
         const registro = await Cotacao.create({
             cliente_id,
             pedido_ref,
@@ -116,32 +97,19 @@ async function createCotacaoReal(req, res) {
             pedido: (pedido && typeof pedido === 'object') ? pedido : {},
             caixa: (caixa && typeof caixa === 'object') ? caixa : {},
             tracking_number: tracking_number ?? null,
+            carrier: carrier ?? 'UPS',                 // guarde a transportadora
+            status_norm: 'CRIADO',                     // default
+            last_tracking_at: null,
         }, { transaction: t });
 
         await t.commit();
-        return res.json({
-            ok: true,
-            created: true,
-            cotacao_id: registro.id,
-            pedido_ref: registro.pedido_ref,
-        });
+        return res.json({ ok: true, created: true, cotacao_id: registro.id, pedido_ref: registro.pedido_ref });
     } catch (err) {
         await t.rollback();
-        // Se for corrida e estourar UNIQUE, devolve o existente
         if (err?.name === 'SequelizeUniqueConstraintError') {
             try {
-                const existente = await Cotacao.findOne({
-                    where: { cliente_id: Number(req.clienteId), pedido_ref: normRef(req.body?.pedido_ref) },
-                });
-                if (existente) {
-                    return res.status(409).json({
-                        ok: false,
-                        created: false,
-                        cotacao_id: existente.id,
-                        pedido_ref: existente.pedido_ref,
-                        error: 'Já existe uma cotação para este pedido',
-                    });
-                }
+                const existente = await Cotacao.findOne({ where: { cliente_id: Number(req.clienteId), pedido_ref: normRef(req.body?.pedido_ref) } });
+                if (existente) return res.status(409).json({ ok: false, created: false, cotacao_id: existente.id, pedido_ref: existente.pedido_ref, error: 'Já existe uma cotação para este pedido' });
             } catch (_) { }
         }
         console.error('createCotacaoReal error:', err);
@@ -149,43 +117,22 @@ async function createCotacaoReal(req, res) {
     }
 }
 
-/**
- * Anexa/atualiza documentos e tracking
- * Body aceita combinação de:
- * {
- *   etiqueta_base64?: string,
- *   etiqueta_mime?:   string,   // 'application/pdf' | 'image/png' ...
- *   invoice_base64?:  string,
- *   invoice_mime?:    string,   // 'application/pdf'
- *   tracking_number?: string
- * }
- */
 async function attachDocs(req, res) {
     try {
         const { id } = req.params;
-        const {
-            etiqueta_base64,
-            etiqueta_mime,
-            invoice_base64,
-            invoice_mime,
-            tracking_number,
-        } = req.body || {};
-
+        const { etiqueta_base64, etiqueta_mime, invoice_base64, invoice_mime, tracking_number, carrier } = req.body || {};
         const cot = await Cotacao.findByPk(id);
         if (!cot) return res.status(404).json({ ok: false, error: 'Cotação não encontrada' });
 
         const patch = {};
         if (typeof etiqueta_base64 === 'string') patch.etiqueta_base64 = etiqueta_base64;
         if (typeof etiqueta_mime === 'string') patch.etiqueta_mime = etiqueta_mime;
-
         if (typeof invoice_base64 === 'string') patch.invoice_base64 = invoice_base64;
         if (typeof invoice_mime === 'string') patch.invoice_mime = invoice_mime;
-
         if (typeof tracking_number === 'string') patch.tracking_number = tracking_number;
+        if (typeof carrier === 'string') patch.carrier = carrier;
 
-        if (!Object.keys(patch).length) {
-            return res.status(400).json({ ok: false, error: 'Nada para atualizar' });
-        }
+        if (!Object.keys(patch).length) return res.status(400).json({ ok: false, error: 'Nada para atualizar' });
 
         await cot.update(patch);
 
@@ -202,10 +149,6 @@ async function attachDocs(req, res) {
     }
 }
 
-/**
- * GET /cotacoes/:id
- */
-
 async function getCotacaoStatusByPedidoRef(req, res) {
     try {
         const cliente_id = toInt(req.clienteId);
@@ -219,11 +162,7 @@ async function getCotacaoStatusByPedidoRef(req, res) {
             attributes: ['id', 'pedido_ref', 'createdAt'],
         });
 
-        return res.json({
-            ok: true,
-            hasActive: !!existente,
-            cotacaoId: existente?.id || null,
-        });
+        return res.json({ ok: true, hasActive: !!existente, cotacaoId: existente?.id || null });
     } catch (err) {
         console.error('getCotacaoStatusByPedidoRef error:', err);
         return res.status(500).json({ ok: false, error: 'Erro ao checar status da cotação' });
@@ -248,42 +187,26 @@ async function getCotacao(req, res) {
     }
 }
 
-/**
- * GET /cotacoes
- * Query params suportados:
- *  - cliente_id: number
- *  - pedido_ref: string (like)
- *  - tracking_number: string (like)
- *  - date_from / date_to: 'YYYY-MM-DD'
- *  - page (1-based), limit
- */
-
 async function listCotacoes(req, res) {
     try {
         const cliente_id = toInt(req.clienteId);
         if (!cliente_id) return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
 
         const {
-            pedido_ref,
-            tracking_number,
-            date_from,
-            date_to,
-            page = 1,
-            limit = 20,
-            only_with_tracking, // "1" para listar só quem tem tracking
+            pedido_ref, tracking_number, date_from, date_to,
+            page = 1, limit = 20,
+            only_with_tracking, // "1"
+            refresh,            // "1" força refresh
         } = req.query;
 
         const where = { cliente_id };
-
         if (pedido_ref && String(pedido_ref).trim()) {
             where.pedido_ref = { [Op.iLike]: `%${String(pedido_ref).trim()}%` };
         }
         if (tracking_number && String(tracking_number).trim()) {
             where.tracking_number = { [Op.iLike]: `%${String(tracking_number).trim()}%` };
         }
-        if (only_with_tracking === '1') {
-            where.tracking_number = { [Op.ne]: null };
-        }
+        if (only_with_tracking === '1') where.tracking_number = { [Op.ne]: null };
 
         if (date_from || date_to) {
             where.created_at = {};
@@ -302,6 +225,9 @@ async function listCotacoes(req, res) {
                 include: [
                     [literal(`COALESCE("etiqueta_base64",'') <> ''`), 'has_label'],
                     [literal(`COALESCE("invoice_base64",'') <> ''`), 'has_invoice'],
+                    // ⬇️ garanta que o front receba:
+                    'status_norm',
+                    'last_tracking_at',
                 ],
             },
             order: [['created_at', 'DESC']],
@@ -309,37 +235,65 @@ async function listCotacoes(req, res) {
             offset,
         });
 
-        const itens = rows.map(r => r.get({ plain: true }));
+        // ---------- auto refresh de status ----------
+        const now = Date.now();
+        const forceRefresh = String(refresh) === '1';
+        const REFRESH_COOLDOWN_MIN = 5;
 
-        return res.json({
-            ok: true,
-            cliente_id,
-            page: pageNum,
-            limit: lim,
-            offset,
-            total: count,
-            itens,
-        });
+        const itens = await Promise.all(rows.map(async (r) => {
+            const plain = r.get({ plain: true });
+            const statusNorm = plain.status_norm || 'CRIADO';
+            const tn = plain.tracking_number;
+
+            // só atualiza quem tem tracking e não está finalizado
+            if (!tn || statusNorm === 'ENTREGUE') return plain;
+
+            const lastAt = plain.last_tracking_at ? new Date(plain.last_tracking_at).getTime() : 0;
+            const elapsedMin = (now - lastAt) / 60000;
+            if (!forceRefresh && lastAt && elapsedMin < REFRESH_COOLDOWN_MIN) return plain;
+
+            try {
+                const carrier = plain.carrier || 'UPS';
+                const timeline = await tracking.getTimeline(carrier, tn); // ← implemente no seu serviço
+                if (!Array.isArray(timeline) || timeline.length === 0) return plain;
+
+                const novo = normalizeUpsStatusFromTimeline(timeline);
+                const newestEvt = timeline[0]; // assuma que vem ordenado do mais novo pro mais antigo
+                const eventTime = new Date(newestEvt.eventTime || newestEvt.activityDateTime || now);
+
+                const isNewer = !plain.last_tracking_at || eventTime > new Date(plain.last_tracking_at);
+                const changed = statusNorm !== novo;
+
+                if ((isNewer || changed) && novo) {
+                    await r.update({
+                        status_norm: novo,
+                        last_tracking_at: eventTime,
+                        tracking_raw: newestEvt, // ou guarde a timeline inteira, se preferir
+                    });
+                    plain.status_norm = novo;
+                    plain.last_tracking_at = eventTime;
+                    sse.broadcastStatusUpdate({ cotacao_id: r.id, status_norm: novo });
+                }
+            } catch (e) {
+                console.error('tracking refresh failed for', r.id, e?.message || e);
+            }
+            return plain;
+        }));
+        // -------------------------------------------
+
+        return res.json({ ok: true, cliente_id, page: pageNum, limit: lim, offset, total: count, itens });
     } catch (err) {
         console.error('listRemessas error:', err);
         return res.status(500).json({ ok: false, error: 'Erro ao listar remessas' });
     }
 }
 
-/**
- * PATCH /cotacoes/:id
- * Atualiza campos simples e/ou JSONB (sem impor formato)
- */
 async function updateCotacao(req, res) {
     try {
         const { id } = req.params;
         const body = req.body || {};
         const cot = await Cotacao.findByPk(id);
         if (!cot) return res.status(404).json({ ok: false, error: 'Cotação não encontrada' });
-
-        // Protege chaves únicas caso não queira permitir troca:
-        // delete body.pedido_ref; delete body.cliente_id;
-
         await cot.update(body);
         return res.json({ ok: true, data: cot });
     } catch (err) {
@@ -348,15 +302,11 @@ async function updateCotacao(req, res) {
     }
 }
 
-/**
- * DELETE /cotacoes/:id
- */
 async function deleteCotacao(req, res) {
     try {
         const { id } = req.params;
         const cot = await Cotacao.findByPk(id);
         if (!cot) return res.status(404).json({ ok: false, error: 'Cotação não encontrada' });
-
         await cot.destroy();
         return res.json({ ok: true, deleted: true });
     } catch (err) {

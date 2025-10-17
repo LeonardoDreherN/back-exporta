@@ -36,4 +36,34 @@ router.post('/rating', corsOpts, ctrl.rate);
 router.post('/shipping', corsOpts, ctrl.ship);
 router.get('/tracking/:tracking', corsOpts, ctrl.track);
 
+async function upsertStatus(trackingNumber, carrier, evt){
+    const row = await Cotacao.findOnde({ where: {tracking_number: trackingNumber}})
+
+    if(!row) return;
+
+    const novo = normalize(carrier, evt);
+    const t = new Date(evt.eventTime || Date.now());
+    const newer = !row.last_tracking_at || t > row.last_tracking_at;
+
+    if(newer || row.status_norm !== novo){
+        await row.update({
+            status_norm: novo,
+            last_tracking_at: t,
+            tracking_raw: evt,
+        });
+    }
+}
+
+router.post('/webhook/ups-tracking', express.json(), async (req, res) => {
+    const body = req.body
+    const trackingNumber = body?.trackingNumber || body?.trackNumber;
+    const evt = {
+        statusCode: body?.statusCode,
+        statusDescription: body?.statusDescription,
+        eventTime: body?.eventTime,
+    }
+    await upsertStatus(trackingNumber, 'UPS', evt);
+    res.sendStatus(200);
+})
+
 module.exports = router;
