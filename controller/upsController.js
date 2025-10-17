@@ -7,7 +7,7 @@ const { Cotacao } = require('../models');
 
 // ====== CONFIG ======
 const UPS_BASE = process.env.UPS_BASE_URL_PROD || 'https://onlinetools.ups.com';
-const UPS_ACCOUNT_NUMBER = process.env.UPS_ACCOUNT_NUMBER || 'JE8372';
+const UPS_ACCOUNT_NUMBER = process.env.UPS_ACCOUNT_NUMBER || "K9E842";
 const UPS_STUB = String(process.env.UPS_STUB || '') === 'true';
 const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || '';
 const UPS_CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || '';
