@@ -29,7 +29,7 @@ const registrarCliente = async (req, res) => {
         const required = [
             "emailPrincipal", "senha", "tipoConta", "emailAssociado", "razaoSocial",
             "enderecoPais", "enderecoCEP", "enderecoRua", "enderecoNumero",
-            "enderecoCidade", "enderecoEstado", "cnpj", "cnaePrincipal", "telefoneCelular"
+            "enderecoCidade", "enderecoEstado", "cnpj", "cnaePrincipal", "telefoneCelular", "plano"
         ];
         const missing = required.filter(k => !b[k] && b[k] !== 0);
         if (missing.length) {
@@ -109,6 +109,7 @@ const registrarCliente = async (req, res) => {
             cnpj: b.cnpj,
             cnaePrincipal: b.cnaePrincipal,
             telefoneCelular: b.telefoneCelular,
+            plano: b.plano
         };
 
 
@@ -223,7 +224,8 @@ const verClienteAtual = async (req, res) => {
                 "enderecoNumero",
                 "enderecoComplemento",
                 "enderecoCidade",
-                "enderecoEstado"
+                "enderecoEstado",
+                "plano"
             ]
         });
 
