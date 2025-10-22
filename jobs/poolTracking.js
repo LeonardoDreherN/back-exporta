@@ -3,7 +3,7 @@ const { Cotacao, Sequelize } = require('../models');
 const { normalize } = require('../services/ups/tracking');
 const tracking = require('../services/ups/tracking'); // implemente getLatestEvent
 
-async function poll() {
+async function pool() {
     const { Op } = Sequelize;
     const pendentes = await Cotacao.findAll({
         where: { status_norm: { [Op.in]: ['CRIADO', 'EM_TRANSITO'] }, tracking_number: { [Op.ne]: null } },
@@ -28,9 +28,11 @@ async function poll() {
                 });
             }
         } catch (err) {
-            console.error('poll tracking error', c.id, err?.message || err);
+            console.error('pool tracking error', c.id, err?.message || err);
         }
     }
 }
 
-module.exports = { poll };
+
+
+module.exports = { pool };

@@ -6,10 +6,20 @@ router.get('/status', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000'); // ou a URL do seu front
     res.flushHeaders?.();
 
     clients.add(res);
-    req.on('close', () => clients.delete(res));
+
+    // ping a cada 15s pra evitar timeouts de proxy
+    const iv = setInterval(() => {
+        res.write(`event: ping\ndata: "ok"\n\n`);
+    }, 15000);
+
+    req.on('close', () => {
+        clearInterval(iv);
+        clients.delete(res);
+    });
 });
 
 function broadcastStatusUpdate(payload) {

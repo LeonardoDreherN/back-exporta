@@ -21,13 +21,13 @@ module.exports = (sequelize) => {
     cnpj: { type: DataTypes.STRING, allowNull: false, unique: true }, // único
     cnaePrincipal: { type: DataTypes.STRING, allowNull: false },
     telefoneCelular: { type: DataTypes.STRING, allowNull: false },
-    plano: {
-      type: DataTypes.STRING,
-      allowNull: false,
-      defaultValue: 'basico',
-      validate: {
-        isIn: [['basico', 'premium', 'gold']]
-      }
-    }
+    // plano: {
+    //   type: DataTypes.STRING,
+    //   allowNull: false,
+    //   defaultValue: 'basico',
+    //   validate: {
+    //     isIn: [['basico', 'premium', 'gold']]
+    //   }
+    // }
   });
 }
