@@ -17,9 +17,9 @@ const { comLoja, garantirInstalada, getAccessTokenForShop } = require('./middlew
 const { createCotacaoReal, listCotacoes, attachDocs } = require('./controller/CotacaoController.js');
 const { importPedidos, listPedidos } = require('./controller/PedidoImportController.js');
 const cron = require('node-cron');
-const { poll } = require('./jobs/poolTracking.js');
+const { pool } = require('./jobs/poolTracking.js');
 
-cron.schedule('*/15 * * * *', poll)
+cron.schedule('*/15 * * * *', pool)
 
 // Módulo de rotas da Shopify (inclui auth/conexao/produtos + upload-minimal + find)
 const shopifyModule = require('./routes/shopifyRoutes.js');
@@ -286,4 +286,4 @@ db.sequelize.sync()
     console.error('Erro ao sincronizar com o banco:', err);
   });
 
-  module.exports = { app, sse };
+  module.exports = { app };

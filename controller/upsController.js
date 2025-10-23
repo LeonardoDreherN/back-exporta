@@ -887,8 +887,11 @@ module.exports = {
 
             // Se o front mandou IF, injeta sanitizado (sobrepõe o base)
             if (originalIF) {
-                const currentTax = upsReq?.ShipmentRequest?.Shipment?.Shipper?.TaxIdentificationNumber || '';
-                const IFok = sanitizeCommercialInvoice(originalIF);
+                const shipperTax = onlyDigits(
+                    upsReq?.ShipmentRequest?.Shipment?.Shipper?.TaxIdentificationNumber || ''
+                ).slice(0, 14);
+
+                const IFok = sanitizeCommercialInvoice(originalIF, shipperTax);
                 if (IFok) {
                     upsReq.ShipmentRequest.Shipment.ShipmentServiceOptions = {
                         ...(upsReq.ShipmentRequest.Shipment.ShipmentServiceOptions || {}),

@@ -31,6 +31,9 @@ module.exports = (sequelize) => {
         },
         last_tracking_at: DataTypes.DATE,
         tracking_raw: DataTypes.JSONB,
+        plano_aplicado: { type: DataTypes.STRING, allowNull: true },
+        preco_base: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
+        preco_final: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
     }, {
         tableName: 'cotacoes',
         underscored: true,

@@ -1,8 +1,12 @@
-// routes/cotacoes.routes.js
+// routes/cotacoesRoutes.js
 const express = require('express');
 const router = express.Router();
-// const { criarCotacao, atualizarCotacao } = require('../services/cotacoes');
-const ctrl = require('../controller/CotacaoController');
+
+const db = require('../models');
+const { sequelize } = db;
+const { Cliente, PlanoLogs } = db;
+
+const ctrl = require('../controller/CotacaoController'); // ← caminho atual
 
 function requireAuth(req, res, next) {
     const cid = req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId;
@@ -10,52 +14,62 @@ function requireAuth(req, res, next) {
     next();
 }
 
-// Cria
-// router.post('/clientes/:clienteId/cotacoes', requireAuth, async (req, res) => {
-//     try {
-//         const { clienteId } = req.params;
-//         if (Number(clienteId) !== Number(req.clienteId)) return res.status(403).json({ erro: 'forbidden' });
+async function attachClientePlano(req, _res, next) {
+    try {
+        const cid = req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId;
+        if (!cid) return next();
+        const cli = await Cliente.findByPk(cid, { attributes: ['id', 'plano'] });
+        req.cliente = { id: cli?.id ?? cid, plano: cli?.plano ?? 'basico' };
+        next();
+    } catch (e) { next(e); }
+}
 
-//         const { pedidoImportId, caixaIds } = req.body; // caixaIds = [1,2,3]
-//         if (!pedidoImportId) return res.status(400).json({ erro: 'pedidoImportId é obrigatório' });
+router.use(attachClientePlano);
 
-//         const cot = await criarCotacao({
-//             clienteId: Number(clienteId),
-//             pedidoImportId: Number(pedidoImportId),
-//             caixaIds: Array.isArray(caixaIds) ? caixaIds.map(Number) : [],
-//         });
-
-//         res.status(201).json(cot); // inclui pedido{} e caixas[]
-//     } catch (e) {
-//         res.status(500).json({ erro: e.message || 'erro interno' });
-//     }
-// });
-
-// // Atualiza
-// router.put('/clientes/:clienteId/cotacoes/:id', requireAuth, async (req, res) => {
-//     try {
-//         const { clienteId, id } = req.params;
-//         if (Number(clienteId) !== Number(req.user.clienteId)) return res.status(403).json({ erro: 'forbidden' });
-
-//         const { pedidoImportId, caixaIds } = req.body;
-//         const cot = await atualizarCotacao({
-//             cotacaoId: Number(id),
-//             clienteId: Number(clienteId),
-//             pedidoImportId: pedidoImportId ? Number(pedidoImportId) : undefined,
-//             caixaIds: Array.isArray(caixaIds) ? caixaIds.map(Number) : undefined,
-//         });
-
-//         res.json(cot);
-//     } catch (e) {
-//         res.status(500).json({ erro: e.message || 'erro interno' });
-//     }
-// });
-
+// CRUD principal
 router.get('/', requireAuth, ctrl.listCotacoes);
 router.post('/', requireAuth, ctrl.createCotacaoReal);
 router.post('/:id/docs', requireAuth, ctrl.attachDocs);
 router.get('/:id/etiqueta', requireAuth, ctrl.downloadEtiqueta);
 router.get('/:id/invoice', requireAuth, ctrl.downloadInvoice);
 router.get('/status-por-pedido/:pedido_ref', requireAuth, ctrl.getCotacaoStatusByPedidoRef);
+
+// Ajuste de plano do cliente (opcional manter aqui)
+router.patch('/clientes/:id/plano', async (req, res) => {
+    const { id } = req.params;
+    const { plano, motivo } = req.body;
+
+    if (!['basico', 'premium', 'gold', 'parceiro'].includes(plano)) {
+        return res.status(400).json({ error: 'plano inválido' });
+    }
+
+    const t = await sequelize.transaction();
+    try {
+        const cliente = await Cliente.findByPk(id, { transaction: t });
+        if (!cliente) { await t.rollback(); return res.status(404).send(); }
+
+        const old = cliente.plano;
+        await cliente.update({ plano }, { transaction: t });
+
+        if (PlanoLogs) {
+            await PlanoLogs.create({
+                cliente_id: cliente.id,
+                old_plano: old,
+                new_plano: plano,
+                motivo: motivo || null,
+                changed_by: req.user?.id || null
+            }, { transaction: t });
+        }
+
+        if (global.redis) await global.redis.del(`quote:cliente:${cliente.id}`);
+
+        await t.commit();
+        return res.status(204).send();
+    } catch (err) {
+        await t.rollback();
+        console.error('[PATCH /clientes/:id/plano]', err);
+        return res.status(500).json({ error: 'erro interno' });
+    }
+});
 
 module.exports = router;

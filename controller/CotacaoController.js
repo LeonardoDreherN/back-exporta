@@ -1,38 +1,57 @@
 // controllers/cotacoes.controller.js
 const { Op, literal } = require('sequelize');
-const { Cotacao, sequelize } = require('../models');
+const { Cotacao, Cliente, sequelize } = require('../models');
 const { keepFirstPageFromPdfB64 } = require('../utils/pdfTools');
-const { normalizeUpsStatusFromTimeline } = require('../services/ups/tracking')
-const tracking = require("../services/ups/tracking");
-const { sse } = require('../server');
-
-/**
- * Cria uma cotação idempotente por (cliente_id, pedido_ref)
- * Payload esperado (JSONB em formato livre):
- * {
- *   cliente_id: number,
- *   pedido_ref: string,
- *   pais_remetente?: string, // ISO2
- *   pais_dest?: string,      // ISO2
- *   pedido?: object,         // snapshot livre do step 1
- *   caixa?: object           // snapshot livre do step 3 (pode ser array ou objeto)
- * }
- */
+const { normalizeUpsStatusFromTimeline } = require('../services/ups/tracking');
+const tracking = require('../services/ups/tracking');
+const { aplicarPlano } = require('../utils/regrasPlanos');
+const { cotarCarrier } = require('../services/carriers');
+const { sse } = require('../server'); // usa a mesma instância criada no app.js
 
 function toInt(v) {
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
 }
-
 function normRef(v) {
-    return String(v || '').trim(); // se quiser: .toUpperCase()
+    return String(v || '').trim();
 }
-
 function guessLabelFilename(mime = '') {
     if (mime === 'image/png') return 'label.png';
     if (mime === 'image/gif') return 'label.gif';
     if (mime === 'text/plain') return 'label.zpl';
     return 'label.bin';
+}
+
+function toNumSafe(v) {
+    if (v == null) return undefined;
+    const n = Number(String(v).replace(',', '.'));
+    return Number.isFinite(n) ? n : undefined;
+}
+
+function extractPrecoFromUpsRaw(raw) {
+    if (!raw) return undefined;
+    const rated = Array.isArray(raw?.RateResponse?.RatedShipment)
+        ? raw.RateResponse.RatedShipment[0]
+        : raw?.RateResponse?.RatedShipment;
+
+    if (!rated) return undefined;
+
+    // Prioriza negociado
+    const neg = rated?.NegotiatedRates?.NetSummaryCharges?.GrandTotal?.MonetaryValue;
+    const tot = rated?.TotalCharges?.MonetaryValue;
+    return toNumSafe(neg ?? tot);
+}
+
+function inferFonteBase(carrierResp, overrideUsado) {
+    if (overrideUsado) return 'override';
+    if (carrierResp?.raw?.RateResponse?.RatedShipment?.NegotiatedRates
+        || (Array.isArray(carrierResp?.raw?.RateResponse?.RatedShipment)
+            && carrierResp.raw.RateResponse.RatedShipment.some(r => r?.NegotiatedRates))) {
+        return 'negotiated';
+    }
+    if (carrierResp?.published != null) return 'published';
+    if (carrierResp?.amount != null) return 'amount';
+    return 'total';
 }
 
 async function downloadEtiqueta(req, res) {
@@ -48,7 +67,6 @@ async function downloadEtiqueta(req, res) {
     return res.send(buf);
 }
 
-
 async function downloadInvoice(req, res) {
     const id = req.params.id;
     const row = await Cotacao.findByPk(id);
@@ -56,8 +74,6 @@ async function downloadInvoice(req, res) {
 
     const mime = row.invoice_mime || 'application/pdf';
     let b64 = row.invoice_base64;
-
-    // recorta para 1 página só:
     if (mime === 'application/pdf') {
         b64 = await keepFirstPageFromPdfB64(b64);
     }
@@ -72,13 +88,23 @@ async function downloadInvoice(req, res) {
 async function createCotacaoReal(req, res) {
     const t = await sequelize.transaction();
     try {
-        const cliente_id = Number(req.clienteId);
+        // autenticacao/cliente
+        const cliente_id = Number(req.cliente?.id ?? req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId);
         if (!cliente_id) { await t.rollback(); return res.status(401).json({ ok: false, error: 'Cliente não autenticado' }); }
 
-        const { pedido_ref: pedido_ref_raw, pais_remetente, pais_dest, pedido, caixa, tracking_number, carrier } = req.body || {};
+        const {
+            pedido_ref: pedido_ref_raw,
+            pais_remetente, pais_dest,
+            pedido, caixa, tracking_number, carrier,
+            rate_payload,          // opcional: payload completo da UPS
+            preco_base,            // opcional: override do front
+            freightValueNum        // opcional: compat com front
+        } = req.body || {};
+
         const pedido_ref = normRef(pedido_ref_raw);
         if (!pedido_ref) { await t.rollback(); return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório' }); }
 
+        // idempotência por pedido_ref
         const existente = await Cotacao.findOne({
             where: { cliente_id, pedido_ref },
             attributes: ['id', 'pedido_ref', 'createdAt'],
@@ -86,33 +112,129 @@ async function createCotacaoReal(req, res) {
         });
         if (existente) {
             await t.rollback();
-            return res.status(409).json({ ok: false, created: false, cotacao_id: existente.id, pedido_ref: existente.pedido_ref, error: 'Já existe uma cotação para este pedido' });
+            return res.status(409).json({
+                ok: false, created: false,
+                cotacao_id: existente.id,
+                pedido_ref: existente.pedido_ref,
+                error: 'Já existe uma cotação para este pedido'
+            });
         }
+
+        // ======== Determinar precoBase ========
+        let precoBase = null;
+        let carrierResp = null;
+
+        // A) Front mandou o valor já calculado (aceita "42,55")
+        const precoBaseOverride = toNumSafe(preco_base ?? freightValueNum);
+        const overrideUsado = Number.isFinite(precoBaseOverride);
+
+        if (overrideUsado) {
+            precoBase = precoBaseOverride;
+        } else if (rate_payload) {
+            // B) Sem override: usar payload para cotar
+            try {
+                carrierResp = await cotarCarrier({ payload: rate_payload });
+
+                // tenta campos do adaptador
+                precoBase =
+                    toNumSafe(carrierResp?.precoBase) ??
+                    toNumSafe(carrierResp?.negotiated) ??
+                    toNumSafe(carrierResp?.published) ??
+                    toNumSafe(carrierResp?.amount);
+
+                // fallback para RAW da UPS
+                if (!Number.isFinite(precoBase)) {
+                    const raw = carrierResp?.raw || carrierResp;
+                    precoBase = extractPrecoFromUpsRaw(raw);
+                }
+            } catch (e) {
+                await t.rollback();
+                const status = e?.response?.status || 502;
+                const upstream = e?.upstream || e?.response?.data;
+                const msg = upstream?.message || upstream?.error_description || upstream?.error || e.message || 'Falha ao cotar com o carrier';
+                return res.status(status).json({ ok: false, error: msg, upstream });
+            }
+        } else {
+            // C) Nem override, nem payload
+            await t.rollback();
+            return res.status(400).json({
+                ok: false,
+                error: 'Envie preco_base (ou freightValueNum) OU rate_payload para cotação.'
+            });
+        }
+
+        if (!Number.isFinite(precoBase)) {
+            await t.rollback();
+            return res.status(400).json({ ok: false, error: 'Carrier não retornou preço' });
+        }
+
+        // ===== Plano do cliente e cálculo
+        const cli = await Cliente.findByPk(cliente_id, { attributes: ['id','plano','emailPrincipal','codigo'], transaction: t });
+        const plano = cli?.plano || (console.log('[COTACAO] cliente sem plano definido, usando básico'), 'basico');
+
+        // console.log('[COTACAO] plano do cliente =', plano, 'precoBase =', precoBase);
+
+        // aplicarPlano deve receber (precoBase, plano) — ajuste se sua assinatura for diferente
+        const pricing = aplicarPlano(precoBase, plano);
+
+        // fonte da base (auditoria)
+        const fonte_base = inferFonteBase(carrierResp, overrideUsado);
+
+        // guarda pedido com pricing (mantém objeto original + pricing)
+        const pedidoJson = (pedido && typeof pedido === 'object') ? { ...pedido } : {};
+        pedidoJson.pricing = {
+            plano_aplicado: pricing.plano_aplicado,
+            preco_base: pricing.preco_base,
+            preco_final: pricing.preco_final,
+            ajuste: pricing.ajuste,
+            carrier: carrier ?? 'UPS',
+            fonte_base,
+            carrier_raw: carrierResp || null,
+        };
+
+        // persistência
+        console.log('[COTACAO][PLANO]', {
+            cliente_id,
+            cliente_debug: { id: cli?.id, email: cli?.emailPrincipal, codigo: cli?.codigo, plano: cli?.plano },
+            preco_base: pricing.preco_base,
+            preco_final: pricing.preco_final,
+            ajuste: pricing.ajuste
+        });
 
         const registro = await Cotacao.create({
             cliente_id,
             pedido_ref,
+            debug: {
+                cliente_id,
+                plano_reportado: plano,
+                preco_base_usado: pricing.preco_base
+            },
+            plano_aplicado: pricing.plano_aplicado,
+            preco_base: pricing.preco_base,
+            preco_final: pricing.preco_final,
             pais_remetente: pais_remetente ?? null,
             pais_dest: pais_dest ?? null,
-            pedido: (pedido && typeof pedido === 'object') ? pedido : {},
+            pedido: pedidoJson,
             caixa: (caixa && typeof caixa === 'object') ? caixa : {},
             tracking_number: tracking_number ?? null,
-            carrier: carrier ?? 'UPS',                 // guarde a transportadora
-            status_norm: 'CRIADO',                     // default
+            carrier: carrier ?? 'UPS',
+            status_norm: 'CRIADO',
             last_tracking_at: null,
         }, { transaction: t });
 
         await t.commit();
-        return res.json({ ok: true, created: true, cotacao_id: registro.id, pedido_ref: registro.pedido_ref });
+        return res.json({
+            ok: true,
+            created: true,
+            cotacao_id: registro.id,
+            pedido_ref: registro.pedido_ref,
+            // opcional expor valores já calculados:
+            preco_final: pricing.preco_final,
+            plano_aplicado: pricing.plano_aplicado
+        });
     } catch (err) {
-        await t.rollback();
-        if (err?.name === 'SequelizeUniqueConstraintError') {
-            try {
-                const existente = await Cotacao.findOne({ where: { cliente_id: Number(req.clienteId), pedido_ref: normRef(req.body?.pedido_ref) } });
-                if (existente) return res.status(409).json({ ok: false, created: false, cotacao_id: existente.id, pedido_ref: existente.pedido_ref, error: 'Já existe uma cotação para este pedido' });
-            } catch (_) { }
-        }
-        console.error('createCotacaoReal error:', err);
+        try { await t.rollback(); } catch (_) { }
+        console.error('[COTACAO][ERROR]', err?.message, err?.stack);
         return res.status(500).json({ ok: false, error: 'Erro ao criar cotação' });
     }
 }
@@ -195,11 +317,12 @@ async function listCotacoes(req, res) {
         const {
             pedido_ref, tracking_number, date_from, date_to,
             page = 1, limit = 20,
-            only_with_tracking, // "1"
-            refresh,            // "1" força refresh
+            only_with_tracking,
+            refresh,
         } = req.query;
 
         const where = { cliente_id };
+
         if (pedido_ref && String(pedido_ref).trim()) {
             where.pedido_ref = { [Op.iLike]: `%${String(pedido_ref).trim()}%` };
         }
@@ -209,9 +332,9 @@ async function listCotacoes(req, res) {
         if (only_with_tracking === '1') where.tracking_number = { [Op.ne]: null };
 
         if (date_from || date_to) {
-            where.created_at = {};
-            if (date_from) where.created_at[Op.gte] = new Date(`${date_from}T00:00:00.000Z`);
-            if (date_to) where.created_at[Op.lte] = new Date(`${date_to}T23:59:59.999Z`);
+            where.createdAt = {};
+            if (date_from) where.createdAt[Op.gte] = new Date(`${date_from}T00:00:00.000Z`);
+            if (date_to) where.createdAt[Op.lte] = new Date(`${date_to}T23:59:59.999Z`);
         }
 
         const pageNum = Math.max(1, Number(page) || 1);
@@ -223,19 +346,18 @@ async function listCotacoes(req, res) {
             attributes: {
                 exclude: ['etiqueta_base64', 'invoice_base64'],
                 include: [
-                    [literal(`COALESCE("etiqueta_base64",'') <> ''`), 'has_label'],
-                    [literal(`COALESCE("invoice_base64",'') <> ''`), 'has_invoice'],
-                    // ⬇️ garanta que o front receba:
+                    [literal(`COALESCE(etiqueta_base64, '') <> ''`), 'has_label'],
+                    [literal(`COALESCE(invoice_base64, '') <> ''`), 'has_invoice'],
                     'status_norm',
                     'last_tracking_at',
                 ],
             },
-            order: [['created_at', 'DESC']],
+            order: [['createdAt', 'DESC']],
             limit: lim,
             offset,
         });
 
-        // ---------- auto refresh de status ----------
+        // refresh leve de tracking
         const now = Date.now();
         const forceRefresh = String(refresh) === '1';
         const REFRESH_COOLDOWN_MIN = 5;
@@ -244,8 +366,6 @@ async function listCotacoes(req, res) {
             const plain = r.get({ plain: true });
             const statusNorm = plain.status_norm || 'CRIADO';
             const tn = plain.tracking_number;
-
-            // só atualiza quem tem tracking e não está finalizado
             if (!tn || statusNorm === 'ENTREGUE') return plain;
 
             const lastAt = plain.last_tracking_at ? new Date(plain.last_tracking_at).getTime() : 0;
@@ -254,11 +374,11 @@ async function listCotacoes(req, res) {
 
             try {
                 const carrier = plain.carrier || 'UPS';
-                const timeline = await tracking.getTimeline(carrier, tn); // ← implemente no seu serviço
+                const timeline = await tracking.getTimeline(carrier, tn);
                 if (!Array.isArray(timeline) || timeline.length === 0) return plain;
 
                 const novo = normalizeUpsStatusFromTimeline(timeline);
-                const newestEvt = timeline[0]; // assuma que vem ordenado do mais novo pro mais antigo
+                const newestEvt = timeline[0];
                 const eventTime = new Date(newestEvt.eventTime || newestEvt.activityDateTime || now);
 
                 const isNewer = !plain.last_tracking_at || eventTime > new Date(plain.last_tracking_at);
@@ -268,22 +388,23 @@ async function listCotacoes(req, res) {
                     await r.update({
                         status_norm: novo,
                         last_tracking_at: eventTime,
-                        tracking_raw: newestEvt, // ou guarde a timeline inteira, se preferir
+                        tracking_raw: newestEvt,
                     });
                     plain.status_norm = novo;
                     plain.last_tracking_at = eventTime;
-                    sse.broadcastStatusUpdate({ cotacao_id: r.id, status_norm: novo });
+                    if (sse?.broadcastStatusUpdate) {
+                        sse.broadcastStatusUpdate({ cotacao_id: r.id, status_norm: novo });
+                    }
                 }
             } catch (e) {
                 console.error('tracking refresh failed for', r.id, e?.message || e);
             }
             return plain;
         }));
-        // -------------------------------------------
 
         return res.json({ ok: true, cliente_id, page: pageNum, limit: lim, offset, total: count, itens });
     } catch (err) {
-        console.error('listRemessas error:', err);
+        console.error('listCotacoes error:', err);
         return res.status(500).json({ ok: false, error: 'Erro ao listar remessas' });
     }
 }
