@@ -38,14 +38,45 @@ router.post('/rating', corsOpts, ctrl.rate);
 router.post('/shipping', corsOpts, ctrl.ship);
 router.get('/tracking/:tracking', corsOpts, ctrl.track);
 
+router.post('/shipping', corsOpts, async (req, res, next) => {
+    const b = req.body || {};
+    const isLight = b && (b.rate_result || b.ship_result || b.status);
+    if (!isLight) return ctrl.ship(req, res, next);
+
+    const tracking_number =
+        b.ship_result?.trackingNumbers?.[0] ||
+        b.tracking_number || null;
+
+    return res.status(201).json({
+        ok: true,
+        id: Date.now(),
+        carrier: b.carrier || 'UPS',
+        status: b.status || 'created',
+        tracking_number,
+        rate_result: b.rate_result || null,
+        ship_result: b.ship_result || null,
+        track_result: b.track_result || null,
+        message: 'Remessa registrada (light)',
+    });
+});
+
+// Mock “puro” para registrar remessas leves
 router.post('/shipments', corsOpts, async (req, res) => {
     try {
-        // se já tiver lógica real, chame-a aqui; por enquanto, mock que responde 200
-        // console.log('[UPS] /shipments payload:', req.body);
-        return res.json({
+        const b = req.body || {};
+        const tracking_number =
+            b.ship_result?.trackingNumbers?.[0] ||
+            b.tracking_number || null;
+
+        return res.status(201).json({
             ok: true,
-            carrier: 'UPS',
-            tracking_number: '1ZTEST1234567890',
+            id: Date.now(),
+            carrier: b.carrier || 'UPS',
+            status: b.status || 'created',
+            tracking_number,
+            rate_result: b.rate_result || null,
+            ship_result: b.ship_result || null,
+            track_result: b.track_result || null,
             message: 'Remessa criada (mock)',
         });
     } catch (err) {
@@ -63,7 +94,7 @@ async function upsertStatus(trackingNumber, carrier, evt) {
 
     let novo = normalize(carrier, evt);
     if (!novo || novo === 'CRIADO') novo = 'CRIADO';
-    
+
     const t = new Date(evt.eventTime || Date.now());
     const newer = !row.last_tracking_at || t > row.last_tracking_at;
 
