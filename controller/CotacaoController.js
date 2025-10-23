@@ -33,13 +33,27 @@ function extractPrecoFromUpsRaw(raw) {
     const rated = Array.isArray(raw?.RateResponse?.RatedShipment)
         ? raw.RateResponse.RatedShipment[0]
         : raw?.RateResponse?.RatedShipment;
-
     if (!rated) return undefined;
 
-    // Prioriza negociado
-    const neg = rated?.NegotiatedRates?.NetSummaryCharges?.GrandTotal?.MonetaryValue;
-    const tot = rated?.TotalCharges?.MonetaryValue;
-    return toNumSafe(neg ?? tot);
+    const toNum = (v) => {
+        if (v == null) return undefined;
+        const n = Number(String(v).replace(',', '.'));
+        return Number.isFinite(n) ? n : undefined;
+    };
+
+    const negRest = toNum(rated?.NegotiatedRateCharges?.TotalCharge?.MonetaryValue);
+    if (Number.isFinite(negRest)) return negRest;
+
+    const negLegacy = toNum(rated?.NegotiatedRates?.NetSummaryCharges?.GrandTotal?.MonetaryValue);
+    if (Number.isFinite(negLegacy)) return negLegacy;
+
+    const transport = toNum(rated?.TransportationCharges?.MonetaryValue);
+    if (Number.isFinite(transport)) return transport;
+
+    const total = toNum(rated?.TotalCharges?.MonetaryValue);
+    if (Number.isFinite(total)) return total;
+
+    return undefined;
 }
 
 function inferFonteBase(carrierResp, overrideUsado) {
