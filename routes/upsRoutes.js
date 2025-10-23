@@ -2,6 +2,7 @@
 const express = require('express');
 const cors = require('cors');
 const ctrl = require('../controller/upsController');
+const { Cotacao } = require('../models');
 
 const router = express.Router();
 
@@ -30,22 +31,43 @@ const corsOpts = cors({
 router.options('/rating', corsOpts, (_req, res) => res.sendStatus(204));
 router.options('/shipping', corsOpts, (_req, res) => res.sendStatus(204));
 router.options('/tracking/:tracking', corsOpts, (_req, res) => res.sendStatus(204));
+router.options('/shipments', corsOpts, (_req, res) => res.sendStatus(204));
 
 // Rotas
 router.post('/rating', corsOpts, ctrl.rate);
 router.post('/shipping', corsOpts, ctrl.ship);
 router.get('/tracking/:tracking', corsOpts, ctrl.track);
 
-async function upsertStatus(trackingNumber, carrier, evt){
-    const row = await Cotacao.findOnde({ where: {tracking_number: trackingNumber}})
+router.post('/shipments', corsOpts, async (req, res) => {
+    try {
+        // se já tiver lógica real, chame-a aqui; por enquanto, mock que responde 200
+        // console.log('[UPS] /shipments payload:', req.body);
+        return res.json({
+            ok: true,
+            carrier: 'UPS',
+            tracking_number: '1ZTEST1234567890',
+            message: 'Remessa criada (mock)',
+        });
+    } catch (err) {
+        console.error('[UPS] erro /shipments:', err);
+        res.status(500).json({ ok: false, error: String(err?.message || err) });
+    }
+});
 
-    if(!row) return;
+async function upsertStatus(trackingNumber, carrier, evt) {
+    const row = await Cotacao.findOne({ where: { tracking_number: trackingNumber } })
+    if (!row) return;
 
-    const novo = normalize(carrier, evt);
+    const hasAnySignal = evt.statusCode || evt.statusDescription || evt.eventTime;
+    if (!hasAnySignal) return;
+
+    let novo = normalize(carrier, evt);
+    if (!novo || novo === 'CRIADO') novo = 'CRIADO';
+    
     const t = new Date(evt.eventTime || Date.now());
     const newer = !row.last_tracking_at || t > row.last_tracking_at;
 
-    if(newer || row.status_norm !== novo){
+    if (newer || row.status_norm !== novo) {
         await row.update({
             status_norm: novo,
             last_tracking_at: t,

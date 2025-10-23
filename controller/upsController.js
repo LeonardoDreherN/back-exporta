@@ -167,8 +167,9 @@ function buildRateRequestFromCli(cli) {
         RateRequest: {
             Request: { TransactionReference: { CustomerContext: 'back-exporta:ship-autofreight' } },
             Shipment: {
-                Shipper: toAddr(cli?.shipper),
-                ShipTo: toAddr(cli?.shipTo),
+                Shipper: toAddr(cli?.shipper, 'Shipper'),
+                ShipFrom: toAddr(cli?.shipper, 'ShipFrom'),
+                ShipTo: toAddr(cli?.shipTo, 'ShipTo'),
                 Service: { Code: String(cli?.serviceCode || '') },
                 ShipmentRatingOptions: { NegotiatedRatesIndicator: 'Y' },
                 Package: pkgList.length ? pkgList : [{
@@ -587,9 +588,9 @@ module.exports = {
                     }
                 };
 
-                fixAddr(rr?.Shipment?.Shipper);
-                fixAddr(rr?.Shipment?.ShipFrom);
-                fixAddr(rr?.Shipment?.ShipTo);
+                fixAddr(rr?.Shipment?.Shipper, 'Shipper');
+                fixAddr(rr?.Shipment?.ShipFrom, 'ShipFrom');
+                fixAddr(rr?.Shipment?.ShipTo, 'ShipTo');
 
                 const raw = await rating.quote({ RateRequest: rr });
 
@@ -661,6 +662,7 @@ module.exports = {
                     Request: { TransactionReference: { CustomerContext: 'back-exporta' } },
                     Shipment: {
                         Shipper: {
+                            ShipperNumber: UPS_ACCOUNT_NUMBER || undefined,
                             Address: {
                                 PostalCode: safeShipper.postalCode,
                                 CountryCode: safeShipper.country,
@@ -743,8 +745,20 @@ module.exports = {
                 if (!node || !node.Address) return;
                 const A = node.Address;
                 if (A.StateProvinceCode) A.StateProvinceCode = String(A.StateProvinceCode).toUpperCase();
-                if (A.CountryCode) A.CountryCode = iso2Country(A.CountryCode);
                 if (A.PostalCode) A.PostalCode = cleanZip(A.PostalCode);
+                if (A.CountryCode) {
+                    A.CountryCode = iso2Country(A.CountryCode);
+                } else {
+                    const fallback =
+                        role === 'Shipper' || role === 'ShipFrom' ? 'BR'
+                            : role === 'ShipTo' ? 'US'
+                                : undefined;
+
+                    if (!fallback) {
+                        throw Object.assign(new Error(`Missing ${role.toLowerCase()} country code.`), { http: 400 });
+                    }
+                    A.CountryCode = fallback;
+                }
                 if (A.AddressLine && !Array.isArray(A.AddressLine)) A.AddressLine = [String(A.AddressLine)];
                 if (Array.isArray(A.AddressLine)) A.AddressLine = A.AddressLine.map(s => String(s).slice(0, 35)).slice(0, 2);
             };

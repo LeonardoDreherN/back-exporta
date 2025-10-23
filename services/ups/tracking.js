@@ -166,23 +166,47 @@ async function getLatestEvent(carrier, trackingNumber) {
 
 /** Normalização simples para status_norm */
 function fromUPS(evt = {}) {
-    const code = String(evt.statusCode || '').toUpperCase();
+    const code = String(evt.statusCode || evt.status?.type || '').toUpperCase();
     const text = [evt.statusDescription, evt.description, evt.activity]
         .filter(Boolean)
         .join(' ')
         .toUpperCase();
 
-    if (code === 'D' || text.includes('DELIVER')) return 'ENTREGUE';
-    if (
-        code === 'I' ||
-        text.includes('IN TRANSIT') ||
-        text.includes('PICKUP') ||
-        text.includes('DEPART') ||
-        text.includes('ARRIV') ||
-        text.includes('CLEARING') ||
-        text.includes('RELEASE')
-    ) return 'EM_TRANSITO';
+    // --- 1) Sinais fortes de "ainda criado / label criada" (prioridade máxima)
+    const createdHints = [
+        'LABEL',                          // "Label created", "Shipping label created"
+        'SHIPPER CREATED A LABEL',
+        'BILLING INFORMATION RECEIVED',   // comum na UPS
+        'HAS NOT RECEIVED THE PACKAGE',   // UPS ainda não recebeu o pacote fisicamente
+        'RECEIVED THE INFORMATION NEEDED' // só info, sem manuseio físico
+    ];
+    if (createdHints.some(k => text.includes(k))) return 'CRIADO';
 
+    // --- 2) Entregue
+    if (code === 'D' || text.includes('DELIVER')) return 'ENTREGUE';
+
+    // --- 3) Em trânsito (mais restrito)
+    // Preferimos um código "I" OU scans físicos inequívocos
+    if (code === 'I') return 'EM_TRANSITO';
+
+    const transitHints = [
+        'ORIGIN SCAN',
+        'DEPARTURE SCAN',
+        'ARRIVAL SCAN',
+        'IN TRANSIT',
+        'OUT FOR DELIVERY',
+        'WE HAVE YOUR PACKAGE',
+        'PENDING RELEASE FROM A GOVERNMENT AGENCY',
+        'RELEASED BY THE GOVERNMENT AGENCY',
+        'CLEARING AGENCY',
+        'AWAITING FINAL RELEASE',
+        'IMPORT SCAN',
+        'EXPORT SCAN',
+        'BROKERAGE'
+    ];
+    if (transitHints.some(k => text.includes(k))) return 'EM_TRANSITO';
+
+    // --- 4) fallback
     return 'CRIADO';
 }
 
@@ -203,15 +227,29 @@ function normalizeUpsStatusFromTimeline(events) {
         }
     }
 
-    const transitKeywords = [
-        'IN TRANSIT', 'OUT FOR DELIVERY', 'PICKUP SCAN', 'ORIGIN SCAN',
-        'DEPARTED FROM FACILITY', 'ARRIVED AT FACILITY', 'DEPARTURE SCAN', 'ARRIVAL SCAN',
-        'WE HAVE YOUR PACKAGE', 'ON THE WAY',
-        'PENDING RELEASE FROM A GOVERNMENT AGENCY', 'RELEASED BY THE GOVERNMENT AGENCY',
-        'CLEARING AGENCY', 'AWAITING FINAL RELEASE', 'SUBMIT FOR CLEARANCE',
-        'IMPORT SCAN', 'EXPORT SCAN', 'BROKERAGE', 'CONTACT WITH THE SENDER'
+    const createdKeywords = [
+        'LABEL',
+        'SHIPPER CREATED A LABEL',
+        'BILLING INFORMATION RECEIVED',
+        'HAS NOT RECEIVED THE PACKAGE',
+        'RECEIVED THE INFORMATION NEEDED'
     ];
 
+    const transitKeywords = [
+        'ORIGIN SCAN',
+        'DEPARTURE SCAN',
+        'ARRIVAL SCAN',
+        'IN TRANSIT',
+        'OUT FOR DELIVERY',
+        'WE HAVE YOUR PACKAGE',
+        'PENDING RELEASE FROM A GOVERNMENT AGENCY',
+        'RELEASED BY THE GOVERNMENT AGENCY',
+        'CLEARING AGENCY',
+        'AWAITING FINAL RELEASE',
+        'IMPORT SCAN',
+        'EXPORT SCAN',
+        'BROKERAGE'
+    ];
     for (const ev of events) {
         const code = String(ev?.statusCode || '').toUpperCase();
         const text = [ev?.statusDescription, ev?.description, ev?.activity]
@@ -219,10 +257,7 @@ function normalizeUpsStatusFromTimeline(events) {
         if (code === 'I') return 'EM_TRANSITO';
         if (transitKeywords.some(k => text.includes(k))) return 'EM_TRANSITO';
     }
-
-    const createdKeywords = [
-        'LABEL', 'SHIPPER CREATED A LABEL', 'HAS NOT RECEIVED THE PACKAGE', 'RECEIVED THE INFORMATION NEEDED'
-    ];
+    
     for (const ev of events) {
         const text = [ev?.statusDescription, ev?.description, ev?.activity]
             .filter(Boolean).join(' ').toUpperCase();
@@ -231,8 +266,69 @@ function normalizeUpsStatusFromTimeline(events) {
     return 'CRIADO';
 }
 
+async function getTimelineArrayUPS(trackingNumber) {
+    const json = await getByNumber(trackingNumber);
+
+    // agrega todas as atividades possíveis (variação singular/plural do payload da UPS)
+    const acts = [];
+    const shipments = json?.trackResponse?.shipments || json?.trackResponse?.shipment || [];
+    const list = Array.isArray(shipments) ? shipments : [shipments];
+
+    for (const sh of list) {
+        const pkgs = sh?.packages || sh?.package || [];
+        const pkgList = Array.isArray(pkgs) ? pkgs : [pkgs];
+
+        for (const p of pkgList) {
+            if (Array.isArray(p?.activity)) acts.push(...p.activity);
+        }
+    }
+
+    // sem eventos -> retorna array vazio (controller vai ignorar)
+    if (!acts.length) return [];
+
+    // normaliza cada atividade em um formato único
+    const norm = acts.map(a => {
+        let dt = null;
+        if (a?.dateTime) {
+            dt = new Date(a.dateTime);
+        } else if (a?.date && a?.time) {
+            const y = a.date.slice(0, 4), m = a.date.slice(4, 6), d = a.date.slice(6, 8);
+            const hh = (a.time || '').slice(0, 2) || '00';
+            const mm = (a.time || '').slice(2, 4) || '00';
+            const ss = (a.time || '').slice(4, 6) || '00';
+            dt = new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}Z`);
+        }
+
+        const eventTime = dt ? dt.toISOString() : null;
+
+        return {
+            statusCode: a?.statusCode || a?.status?.type || a?.status?.code || '',
+            statusDescription: a?.statusDescription || a?.status?.description || '',
+            description: a?.description || '',
+            activity: a?.activity || a?.statusDescription || '',
+            dateTime: a?.dateTime || null,
+            eventTime,
+            raw: a,
+        };
+    });
+
+    // ordena: mais novo primeiro
+    norm.sort((a, b) => (Date.parse(b.eventTime || 0) - Date.parse(a.eventTime || 0)));
+    return norm;
+}
+
 // Alias para compatibilidade com código antigo que ainda chama getTimeline()
-const getTimeline = getLatestEvent;
+async function getTimeline(carrier, trackingNumber) {
+    if (carrier === 'UPS') return getTimelineArrayUPS(trackingNumber);
+    // outras carriers no futuro:
+    return [];
+}
+
+// (mantém o getLatestEvent se quiser usar em outros fluxos)
+async function getLatestEvent(carrier, trackingNumber) {
+    const arr = await getTimeline(carrier, trackingNumber);
+    return Array.isArray(arr) && arr.length ? arr[0] : null;
+}
 
 module.exports = {
     getByNumber,

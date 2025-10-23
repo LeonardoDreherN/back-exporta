@@ -169,7 +169,7 @@ async function createCotacaoReal(req, res) {
         }
 
         // ===== Plano do cliente e cálculo
-        const cli = await Cliente.findByPk(cliente_id, { attributes: ['id','plano','emailPrincipal','codigo'], transaction: t });
+        const cli = await Cliente.findByPk(cliente_id, { attributes: ['id', 'plano', 'emailPrincipal', 'codigo'], transaction: t });
         const plano = cli?.plano || (console.log('[COTACAO] cliente sem plano definido, usando básico'), 'basico');
 
         // console.log('[COTACAO] plano do cliente =', plano, 'precoBase =', precoBase);
@@ -366,21 +366,61 @@ async function listCotacoes(req, res) {
             const plain = r.get({ plain: true });
             const statusNorm = plain.status_norm || 'CRIADO';
             const tn = plain.tracking_number;
-            if (!tn || statusNorm === 'ENTREGUE') return plain;
+
+            // ❌ Sem tracking -> não tenta normalizar.
+            if (!tn) return plain;
+
+            // Evita refresh agressivo em cotações recém-criadas
+            const createdAtMs = new Date(plain.createdAt).getTime();
+            const nowMs = Date.now();
+            const ageMin = (nowMs - createdAtMs) / 60000;
 
             const lastAt = plain.last_tracking_at ? new Date(plain.last_tracking_at).getTime() : 0;
-            const elapsedMin = (now - lastAt) / 60000;
-            if (!forceRefresh && lastAt && elapsedMin < REFRESH_COOLDOWN_MIN) return plain;
+            const elapsedMin = (nowMs - lastAt) / 60000;
+
+            const forceRefresh = String(refresh) === '1';
+            const REFRESH_COOLDOWN_MIN = 5;
+
+            // 🔒 Quarentena de 30min para cotação “CRIADO” sem tracking visto ainda (evita falso trânsito)
+            if (!forceRefresh && statusNorm === 'CRIADO' && !lastAt && ageMin < 30) {
+                return plain; // mantém CRIADO
+            }
+
+            if (!forceRefresh && lastAt && elapsedMin < REFRESH_COOLDOWN_MIN) {
+                return plain; // respeita cooldown
+            }
 
             try {
                 const carrier = plain.carrier || 'UPS';
                 const timeline = await tracking.getTimeline(carrier, tn);
                 if (!Array.isArray(timeline) || timeline.length === 0) return plain;
 
-                const novo = normalizeUpsStatusFromTimeline(timeline);
+                // ✅ Mais conservador: só troca para EM_TRANSITO se houver scan físico OU status I
                 const newestEvt = timeline[0];
-                const eventTime = new Date(newestEvt.eventTime || newestEvt.activityDateTime || now);
+                const txt = [newestEvt.statusDescription, newestEvt.description, newestEvt.activity]
+                    .filter(Boolean).join(' ').toUpperCase();
+                const code = String(newestEvt.statusCode || '').toUpperCase();
 
+                const physicalScanHints = [
+                    'ORIGIN SCAN',
+                    'DEPARTURE SCAN',
+                    'ARRIVAL SCAN',
+                    'OUT FOR DELIVERY',
+                    'IMPORT SCAN',
+                    'EXPORT SCAN'
+                ];
+
+                let novo = normalizeUpsStatusFromTimeline(timeline);
+
+                if (novo === 'EM_TRANSITO') {
+                    const hasPhysical = code === 'I' || physicalScanHints.some(k => txt.includes(k));
+                    if (!hasPhysical) {
+                        // Mantém CRIADO enquanto só houver “billing info received/label created”
+                        novo = 'CRIADO';
+                    }
+                }
+
+                const eventTime = new Date(newestEvt.eventTime || newestEvt.activityDateTime || nowMs);
                 const isNewer = !plain.last_tracking_at || eventTime > new Date(plain.last_tracking_at);
                 const changed = statusNorm !== novo;
 
@@ -392,6 +432,7 @@ async function listCotacoes(req, res) {
                     });
                     plain.status_norm = novo;
                     plain.last_tracking_at = eventTime;
+
                     if (sse?.broadcastStatusUpdate) {
                         sse.broadcastStatusUpdate({ cotacao_id: r.id, status_norm: novo });
                     }
@@ -399,6 +440,7 @@ async function listCotacoes(req, res) {
             } catch (e) {
                 console.error('tracking refresh failed for', r.id, e?.message || e);
             }
+
             return plain;
         }));
 
