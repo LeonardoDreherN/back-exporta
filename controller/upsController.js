@@ -357,7 +357,7 @@ function mapToUpsShipment(reqBody) {
                         InvoiceNumber: invNumber,
 
                         CurrencyCode: invoice?.currency || 'USD',
-                        TermsOfSale: 'DAP',
+                        TermsOfShipment: 'DAP',
                         ReasonForExport: 'SALE',
 
                         TaxInformation: {

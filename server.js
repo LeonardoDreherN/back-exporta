@@ -72,7 +72,6 @@ app.use('/api/ups', upsRoutes);
 // Saúde
 app.get('/health', (_, res) => res.send('ok'));
 
-
 // --- Rota raiz (embedded landing com App Bridge) ---
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
 app.get('/', (req, res) => {
