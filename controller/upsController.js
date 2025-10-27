@@ -259,7 +259,7 @@ function translateShipmentRequestToRateRequest(frontSR) {
 
 // ====== SHIP payload (REST v2407+) ======
 function mapToUpsShipment(reqBody) {
-    const { shipper, shipFrom, shipTo, serviceCode, payment, packages, invoice } = reqBody;
+    const { shipper, shipFrom, shipTo, serviceCode, payment, packages, invoice, triangulacao } = reqBody;
 
     const shipperTax = onlyDigits(
         shipper?.cnpjOuTaxId || shipper?.taxId || shipper?.tax_id || shipper?.ein || shipper?.vat || ""
@@ -357,7 +357,7 @@ function mapToUpsShipment(reqBody) {
                         InvoiceNumber: invNumber,
 
                         CurrencyCode: invoice?.currency || 'USD',
-                        TermsOfShipment: 'DAP',
+                        TermsOfShipment: triangulacao,
                         ReasonForExport: 'SALE',
 
                         TaxInformation: {
@@ -786,7 +786,7 @@ module.exports = {
                 IF.InvoiceDate = toYMD(IF.InvoiceDate) || toYMD(new Date());
                 IF.InvoiceNumber = String(IF.InvoiceNumber || `INV-${Date.now()}`);
                 IF.CurrencyCode = IF.CurrencyCode || 'USD';
-                IF.TermsOfSale = IF.TermsOfSale || 'DAP';
+                IF.TermsOfShipment = IF.TermsOfShipment || 'DAP';
                 IF.ReasonForExport = IF.ReasonForExport || 'SALE';
                 IF.TaxInformation = {
                     TaxIDType: 'TAXID',
