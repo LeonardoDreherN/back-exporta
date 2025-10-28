@@ -9,7 +9,7 @@ const path = require('path');
 const cookieParser = require('cookie-parser');
 const cfg = require('./config/ups.js')
 
-const { autenticarUsuario, vincularCliente, autenticarShopify } = require('./middleware/auth.js');
+const { autenticarUsuario, vincularCliente, autenticarShopify, csrfRequired } = require('./middleware/auth.js');
 const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js');
 const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require('./controller/ClientesController.js');
 const { verProdutosLojaShopify, registrarLojaShopify } = require('./controller/ShopifyController.js');

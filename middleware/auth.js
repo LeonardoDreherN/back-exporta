@@ -3,14 +3,13 @@ const jwt = require("jsonwebtoken");
 const db = require("../models");
 
 function extrairToken(req) {
+  if (req.cookies?.token) return req.cookies.token;
+  if (req.cookies?.access_token) return req.cookies.access_token;
+  
   // 1) Authorization: Bearer xxx
   const auth = req.headers.authorization || "";
   const m = auth.match(/^Bearer\s+(.+)$/i);
   if (m) return m[1];
-
-  // 2) (opcional) cookie httpOnly: token
-  if (req.cookies?.token) return req.cookies.token;
-  if (req.cookies?.access_token) return req.cookies.token;
 
   return null;
 }
