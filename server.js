@@ -30,6 +30,7 @@ const sse = require('./routes/SSE.js');
 app.use(express.json({ limit: '30mb' }));
 app.use(express.urlencoded({ extended: true, limit: '30mb' }));
 app.use(express.urlencoded({ extended: true })); // necessário p/ ler campos text em multipart/form-data
+app.use(cookieParser())
 app.use('/sse', sse.router)
 
 const PORT = process.env.PORT || 3001;
@@ -40,8 +41,8 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'authorization'],
   exposedHeaders: ['Authorization'],
-  credentials: false,
-  allowedHeaders: ['Content-Type', 'Authorization']
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token']
 }));
 
 app.use((req, res, next) => {
@@ -64,6 +65,7 @@ const { validateCNPJ } = require('./utils/cnpj');
 const { validateCNAE } = require('./utils/cnae.js');
 const { verProdutos, registrarProduto, editarProduto, excluirProduto } = require('./controller/ProdutoController.js');
 const { getAccessScopesLive } = require('./utils/scopes.js');
+const { refresh, logout } = require('./routes/authRoutes.js');
 
 // Monta TODAS as rotas da Shopify sob /shopify (NÃO duplicar)
 app.use('/shopify', shopifyModule);
@@ -209,6 +211,23 @@ app.post('/registrarClientes', registrarCliente);
 app.post('/login', loginCliente);
 app.get('/verClientes', verClientes);
 app.get('/verClienteAtual', autenticarUsuario, verClienteAtual);
+
+app.post('/auth/refresh', refresh)
+app.post('/auth/logout', logout)
+// app.post('/auth/logout', (req, res) => {
+//   const opts = { path: '/' }; // precisa bater com o path usado no set
+
+//   // cookies atuais
+//   res.clearCookie('access_token', opts);
+//   res.clearCookie('refresh_token', opts);
+//   res.clearCookie('csrf_token', opts);
+//   res.clearCookie('token', opts);
+
+//   // cookie legado (se você criou na transição)
+//   res.clearCookie('token', opts);
+
+//   return res.json({ ok: true });
+// });
 
 // --- VALIDADORES ---
 app.get('/validate/cnpj', async (req, res) => {

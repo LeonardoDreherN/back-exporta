@@ -10,6 +10,7 @@ function extrairToken(req) {
 
   // 2) (opcional) cookie httpOnly: token
   if (req.cookies?.token) return req.cookies.token;
+  if (req.cookies?.access_token) return req.cookies.token;
 
   return null;
 }
@@ -18,7 +19,8 @@ function logAuthDebug(req, stage, extra = {}) {
   if (process.env.AUTH_DEBUG === '1') {
     console.log(`[auth:${stage}]`, {
       hasAuthHeader: !!req.headers.authorization,
-      hasCookie: !!req.cookies?.token,
+      hasAccessCookie: !!req.cookies?.access_token,
+      hasLegacyCookie: !!req.cookies?.token,
       clienteId: req.clienteId,
       usuario: req.usuario?.id,
       ...extra,
@@ -131,4 +133,13 @@ const vincularCliente = async (req, res, next) => {
   }
 };
 
-module.exports = { autenticarShopify, vincularCliente, autenticarUsuario };
+function csrfRequired(req, res, next){
+  // Só exige em métodos que mudam estado
+  if (!/^(POST|PUT|PATCH|DELETE)$/i.test(req.method)) return next();
+  const header = req.get('x-csrf-token');
+  const cookie = req.cookies?.csrf_token;
+  if (header && cookie && header === cookie) return next();
+  return res.status(403).json({ erro: 'CSRF inválido' });
+};
+
+module.exports = { autenticarShopify, vincularCliente, autenticarUsuario, csrfRequired };

@@ -4,9 +4,10 @@ const db = require("../models/index.js");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { validateCNPJ, onlyDigits } = require("../utils/cnpj.js");
-const { UniqueConstraintError, ValidationError } = require("sequelize");
+const { UniqueConstraintError, ValidationError, Op } = require("sequelize");
 const { validateCNAE } = require("../utils/cnae.js");
 const { validateEmailFormat } = require("../utils/email.js");
+require('dotenv').config()
 
 async function gerarCodigoUnico() {
     // ajuste seu prefixo/regra
@@ -158,45 +159,96 @@ const verClientes = async (req, res) => {
     }
 };
 
+const ACCESS_TOKEN = 15 * 60
+const REFRESH_TOKEN = 7 * 24 * 60 * 60
+
+const jwt_secret = process.env.JWT_SECRET
+const jwt_refresh = process.env.JWT_REFRESH_SECRET
+
+function signAccess(payload) {
+    return jwt.sign(payload, jwt_secret, { expiresIn: ACCESS_TOKEN });
+}
+function signRefresh(payload) {
+    // jti para permitir rotação/blacklist
+    return jwt.sign({ jti: crypto.randomUUID(), ...payload }, jwt_refresh, { expiresIn: REFRESH_TOKEN });
+}
+
+const cookieBase = {
+    httpOnly: true,
+    secure: false, // true em prod
+    sameSite: 'lax',
+    path: '/',
+};
+
+
 const loginCliente = async (req, res) => {
     const { emailPrincipal, senha } = req.body;
 
     try {
-        const cliente = await db.Cliente.findOne({ where: { emailPrincipal } });
+        // Busca case-insensitive (Postgres iLike). Em MySQL/MariaDB normalmente já é case-insensitive pelo collation.
+        const cliente = await db.Cliente.findOne({
+            where: { emailPrincipal: { [Op.iLike]: emailPrincipal } }
+        });
 
-        // Se o cliente não existe OU a senha não corresponde, retorna erro 401
-        // bcrypt.compare() compara a senha em texto puro com o hash salvo
-        if (!cliente || !(await bcrypt.compare(senha, cliente.senha))) {
-            return res.status(401).json({ erro: "Credenciais inválidas" });
+        // DEBUG temporário (remova depois):
+        console.log('[LOGIN] body.email =', emailPrincipal);
+        console.log('[LOGIN] found =', !!cliente, 'dbEmail =', cliente?.emailPrincipal);
+        console.log('[LOGIN] hash prefix =', cliente?.senha?.slice(0, 4)); // espera $2a/$2b
+
+        if (!cliente) return res.status(401).json({ erro: 'Credenciais inválidas' });
+
+        // Suporte a legado: se senha no BD não é bcrypt, aceita 1x e migra
+        let ok = false;
+        if (cliente.senha?.startsWith('$2')) {
+            ok = await bcrypt.compare(senha, cliente.senha);
+        } else {
+            ok = (senha === cliente.senha);
+            if (ok) {
+                const novoHash = await bcrypt.hash(senha, 10);
+                await cliente.update({ senha: novoHash });
+                console.log('[LOGIN] senha migrada para bcrypt');
+            }
         }
 
-        // Se a senha estiver correta, gera o token JWT
-        const token = jwt.sign(
-            {
-                id: cliente.id,
-                clienteId: cliente.id,
-                emailPrincipal: cliente.emailPrincipal,
-                razaoSocial: cliente.razaoSocial
-            },
-            process.env.JWT_SECRET,
-            { expiresIn: "12h" }
-        );
+        if (!ok) return res.status(401).json({ erro: 'Credenciais inválidas' });
 
-        res.json({
-            mensagem: "Login bem-sucedido",
+        const payload = {
+            sub: cliente.id,
+            id: cliente.id,
+            clienteId: cliente.id,
+            emailPrincipal: cliente.emailPrincipal,
+            razaoSocial: cliente.razaoSocial,
+            scope: ['user'],
+        };
+
+        const access = signAccess(payload);
+        const refresh = signRefresh(payload);
+
+        res.cookie('access_token', access, { ...cookieBase, maxAge: ACCESS_TOKEN * 1000 });
+        res.cookie('refresh_token', refresh, { ...cookieBase, maxAge: REFRESH_TOKEN * 1000 });
+        // compat com trechos legados:
+        res.cookie('token', access, { ...cookieBase, maxAge: ACCESS_TOKEN * 1000 });
+
+        const csrfToken = crypto.randomUUID();
+        res.cookie('csrf_token', csrfToken, {
+            httpOnly: false,
+            secure: false,
+            sameSite: 'lax',
+            path: '/',
+            maxAge: REFRESH_TOKEN * 1000,
+        });
+
+        return res.json({
+            mensagem: 'Login bem-sucedido',
             cliente: {
                 id: cliente.id,
                 emailPrincipal: cliente.emailPrincipal,
-                razaoSocial: cliente.razaoSocial
+                razaoSocial: cliente.razaoSocial,
             },
-            token
         });
     } catch (err) {
-        console.error("Erro no login:", err);
-        res.status(500).json({
-            erro: "Erro interno do servidor",
-            detalhes: err.message
-        });
+        console.error('Erro no login:', err);
+        return res.status(500).json({ erro: 'Erro interno do servidor' });
     }
 };
 

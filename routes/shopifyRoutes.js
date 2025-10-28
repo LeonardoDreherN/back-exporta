@@ -274,7 +274,7 @@ router.get("/conexao", autenticarUsuario, async (req, res) => {
         });
 
         return res.json({
-            connected: !!shopRow?.accessToken,
+            // connected: !!shopRow?.accessToken,
             loja: { shopDomain: info.shopDomain },
         });
     } catch (e) {
