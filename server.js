@@ -6,8 +6,9 @@ dotenv.config();
 const db = require('./models/index.js');
 const cors = require('cors');
 const path = require('path');
-const cookieParser = require('cookie-parser');
 const cfg = require('./config/ups.js')
+const uploadRouter = require('./routes/upload.js');
+const compression = require('compression');
 
 const { autenticarUsuario, vincularCliente, autenticarShopify, csrfRequired } = require('./middleware/auth.js');
 const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js');
@@ -26,24 +27,29 @@ const shopifyModule = require('./routes/shopifyRoutes.js');
 const upsRoutes = require('./routes/upsRoutes.js');
 const sse = require('./routes/SSE.js');
 
-// Middlewares globais
-app.use(express.json({ limit: '30mb' }));
-app.use(express.urlencoded({ extended: true, limit: '30mb' }));
-app.use(express.urlencoded({ extended: true })); // necessário p/ ler campos text em multipart/form-data
-app.use(cookieParser())
-app.use('/sse', sse.router)
-
-const PORT = process.env.PORT || 3001;
-app.use(cookieParser());
+const allowlist = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
 
 app.use(cors({
-  origin: 'http://localhost:3000',
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'authorization'],
-  exposedHeaders: ['Authorization'],
+  origin(origin, cb) {
+    // Permite tools sem Origin (curl/Postman) e o próprio server-side
+    if (!origin) return cb(null, true);
+    const ok = allowlist.includes(origin);
+    // se não estiver na lista, NÃO seta ACAO (navegador bloqueia)
+    return cb(null, ok ? origin : false);
+  },
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token']
+  methods: ['GET','POST','PUT','PATCH','DELETE'],
+  allowedHeaders: ['Content-Type','Authorization','x-csrf-token'],
+  exposedHeaders: ['Authorization'],
 }));
+
+// Pré-flight padronizado
+// app.options('*', cors());
+
+const PORT = process.env.PORT || 3001;
 
 app.use((req, res, next) => {
   res.setHeader(
@@ -66,6 +72,20 @@ const { validateCNAE } = require('./utils/cnae.js');
 const { verProdutos, registrarProduto, editarProduto, excluirProduto } = require('./controller/ProdutoController.js');
 const { getAccessScopesLive } = require('./utils/scopes.js');
 const { refresh, logout } = require('./routes/authRoutes.js');
+const { applySecurity } = require('./bootstrap/security.js');
+const { applyLogging, errorHandler } = require('./bootstrap/loggin.js');
+
+// Middlewares globais
+app.use(express.json({ limit: '30mb' }));
+app.use(express.urlencoded({ extended: true, limit: '30mb' }));
+app.use('/sse', sse.router)
+
+app.use("/exports", express.static(path.join(__dirname, "exports"), { maxAge: "1h", etag: true }));
+app.use("/upload", uploadRouter)
+
+app.use(compression({ threshold: 0 }));
+applySecurity(app);
+applyLogging(app);
 
 // Monta TODAS as rotas da Shopify sob /shopify (NÃO duplicar)
 app.use('/shopify', shopifyModule);
@@ -212,22 +232,20 @@ app.post('/login', loginCliente);
 app.get('/verClientes', verClientes);
 app.get('/verClienteAtual', autenticarUsuario, verClienteAtual);
 
+app.get('/me', autenticarUsuario, async (req, res) => {
+  const u = req.usuario;
+  // Se quiser buscar a razão social do cliente no DB:
+  // const cliente = await db.Cliente.findByPk(u.clienteId);
+  return res.json({
+    id: u.id,
+    email: u.email,
+    clienteId: u.clienteId,
+    roles: u.roles || [],
+    razaoSocial: null, // ou cliente?.razaoSocial
+  });
+});
 app.post('/auth/refresh', refresh)
 app.post('/auth/logout', logout)
-// app.post('/auth/logout', (req, res) => {
-//   const opts = { path: '/' }; // precisa bater com o path usado no set
-
-//   // cookies atuais
-//   res.clearCookie('access_token', opts);
-//   res.clearCookie('refresh_token', opts);
-//   res.clearCookie('csrf_token', opts);
-//   res.clearCookie('token', opts);
-
-//   // cookie legado (se você criou na transição)
-//   res.clearCookie('token', opts);
-
-//   return res.json({ ok: true });
-// });
 
 // --- VALIDADORES ---
 app.get('/validate/cnpj', async (req, res) => {
@@ -253,25 +271,25 @@ app.get('/validate/cnae', async (req, res) => {
 });
 
 // --- CAIXAS ---
-app.post('/registrarCaixa', autenticarUsuario, vincularCliente, registrarCaixa);
+app.post('/registrarCaixa', autenticarUsuario, vincularCliente, csrfRequired, registrarCaixa);
 app.get('/verCaixas', autenticarUsuario, vincularCliente, verCaixas); // VINCULAR
-app.delete('/excluirCaixa/:id', autenticarUsuario, vincularCliente, excluirCaixa);
-app.put('/editarCaixa/:id', autenticarUsuario, vincularCliente, editarCaixa);
+app.delete('/excluirCaixa/:id', autenticarUsuario, vincularCliente, csrfRequired, excluirCaixa);
+app.put('/editarCaixa/:id', autenticarUsuario, vincularCliente, csrfRequired, editarCaixa);
 
 // --- PRODUTOS (sua plataforma) ---
 app.get('/verProdutos', autenticarUsuario, verProdutos);
-app.post('/registrarProduto', autenticarUsuario, vincularCliente, registrarProduto);
-app.delete('/excluirProduto/:id', autenticarUsuario, excluirProduto);
-app.put('/editarProduto/:id', autenticarUsuario, editarProduto);
+app.post('/registrarProduto', autenticarUsuario, vincularCliente, csrfRequired, registrarProduto);
+app.delete('/excluirProduto/:id', autenticarUsuario, csrfRequired, excluirProduto);
+app.put('/editarProduto/:id', autenticarUsuario, csrfRequired, editarProduto);
 
 // --- SHOPIFY: conectar loja (sua plataforma) ---
-app.post('/conectarLoja', autenticarUsuario, vincularCliente, registrarLojaShopify);
+app.post('/conectarLoja', autenticarUsuario, vincularCliente, csrfRequired, registrarLojaShopify);
 
 // Rotas de produtos da Shopify (existentes)
 app.get('/shopify/produtos', autenticarShopify, comLoja, garantirInstalada, verProdutosLojaShopify);
 
 // PEDIDOS (import/list)
-app.post('/import-pedidos', autenticarUsuario, vincularCliente, importPedidos);
+app.post('/import-pedidos', autenticarUsuario, vincularCliente, csrfRequired, importPedidos);
 app.get('/pedidos', autenticarUsuario, vincularCliente, listPedidos);
 
 app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req,res)=>{
@@ -293,6 +311,10 @@ app.use((err, req, res, next) => {
   const status = err?.response?.status || err?.status || 500;
   res.status(status).json({ ok:false, error: err?.response?.data || { message: err.message } });
 });
+
+app.get("/healthz", (_, res) => res.json({ ok: true, ts: Date.now() }));
+app.use((_req, res) => res.status(404).json({ error: "Not Found" }));
+app.use(errorHandler);
 
 // Start
 db.sequelize.sync()
