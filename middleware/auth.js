@@ -81,6 +81,7 @@ function autenticarUsuario(req, res, next) {
       clienteId: clienteId ? Number(clienteId) : null,
       email: decoded.email ?? decoded.emailPrincipal ?? null,
       roles: decoded.roles ?? [],
+      razaoSocial: decoded.razaoSocial ?? null,
       // payload: decoded, // opcional
     };
 

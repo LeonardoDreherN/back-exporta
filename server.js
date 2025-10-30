@@ -241,7 +241,7 @@ app.get('/me', autenticarUsuario, async (req, res) => {
     email: u.email,
     clienteId: u.clienteId,
     roles: u.roles || [],
-    razaoSocial: null, // ou cliente?.razaoSocial
+    razaoSocial: u.razaoSocial, // ou cliente?.razaoSocial
   });
 });
 app.post('/auth/refresh', refresh)
