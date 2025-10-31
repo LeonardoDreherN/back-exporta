@@ -143,7 +143,6 @@ const editarCaixa = async (req, res) => {
     const a = altura !== undefined ? Number(altura) : undefined;
     const l = largura !== undefined ? Number(largura) : undefined;
     const p = comprimento !== undefined ? Number(comprimento) : undefined;
-    const kg = peso !== undefined ? Number(peso) : undefined;
 
     if (altura !== undefined) {
       const a = Number(altura);
