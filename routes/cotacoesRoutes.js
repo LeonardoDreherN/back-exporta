@@ -29,10 +29,13 @@ router.use(attachClientePlano);
 // CRUD principal
 router.get('/', requireAuth, ctrl.listCotacoes);
 router.post('/', requireAuth, ctrl.createCotacaoReal);
+router.get('/:id/details', requireAuth, ctrl.getCotacaoDetails);
+router.get('/status-por-pedido/:pedido_ref', requireAuth, ctrl.getCotacaoStatusByPedidoRef);
+router.get('/:id', requireAuth, ctrl.getCotacao);
 router.post('/:id/docs', requireAuth, ctrl.attachDocs);
 router.get('/:id/etiqueta', requireAuth, ctrl.downloadEtiqueta);
 router.get('/:id/invoice', requireAuth, ctrl.downloadInvoice);
-router.get('/status-por-pedido/:pedido_ref', requireAuth, ctrl.getCotacaoStatusByPedidoRef);
+
 
 // Ajuste de plano do cliente (opcional manter aqui)
 router.patch('/clientes/:id/plano', async (req, res) => {

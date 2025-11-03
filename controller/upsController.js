@@ -128,18 +128,14 @@ function pickFreightFromRate(rateRaw) {
     const first = Array.isArray(rs) ? rs[0] : rs;
     if (!first) return null;
 
-    const neg = first?.NegotiatedRateCharges?.TotalCharge;
-    const list = first?.TotalCharges;
-
-    const chosen = neg?.MonetaryValue ? neg : list;
-    if (!chosen?.MonetaryValue) return null;
+    const preferred = first?.NegotiatedRateCharges?.TotalCharge || first?.TotalCharges;
+    if (!preferred?.MonetaryValue) return null;
 
     return {
-        value: String(chosen.MonetaryValue),
-        currency: String(chosen.CurrencyCode || 'USD'),
+        value: String(preferred.MonetaryValue),
+        currency: String(preferred.CurrencyCode || 'USD'),
     };
 }
-
 function buildRateRequestFromCli(cli) {
     const toAddr = (p) => ({
         Address: {
