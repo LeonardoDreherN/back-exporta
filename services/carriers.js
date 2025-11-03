@@ -16,10 +16,8 @@ async function cotarCarrier(args = {}) {
         };
     }
 
-    // Preferimos receber o payload completo do endpoint de Rate da UPS:
     const payload = args.payload || args.rate_payload || args.upsPayload;
     if (!payload) {
-        // Mantemos explícito para não gerar cotações inconsistentes
         const err = new Error('cotarCarrier requer payload de rate (args.payload)');
         err.code = 'NO_RATE_PAYLOAD';
         throw err;
@@ -27,9 +25,8 @@ async function cotarCarrier(args = {}) {
 
     let resp;
     try {
-        resp = await rating.quote(payload);
+        resp = await rating.quote(payload); // { RateResponse | rateResponse | ... }
     } catch (e) {
-        // Propaga erro com máximo contexto
         const up = e?.response?.data || e?.upstream;
         const msg =
             up?.response?.errors?.[0]?.message ||
@@ -42,18 +39,24 @@ async function cotarCarrier(args = {}) {
         throw err;
     }
 
-    const negotiated = Number(
-        resp?.RatedShipment?.NegotiatedRateCharges?.TotalCharge?.MonetaryValue ??
-        resp?.rateResponse?.ratedShipment?.[0]?.negotiatedRateCharges?.totalCharge?.monetaryValue
-    );
+    // tenta ler negociado/publicado nos dois formatos
+    const rs = (resp?.RateResponse || resp?.rateResponse || {}).RatedShipment ||
+        (resp?.RateResponse || resp?.rateResponse || {}).ratedShipment ||
+        null;
+    const first = Array.isArray(rs) ? rs[0] : rs;
 
-    const published = Number(
-        resp?.RatedShipment?.TotalCharges?.MonetaryValue ??
-        resp?.rateResponse?.ratedShipment?.[0]?.totalCharges?.monetaryValue
-    );
+    const negCharge =
+        first?.NegotiatedRateCharges?.TotalCharge?.MonetaryValue ??
+        first?.negotiatedRateCharges?.totalCharge?.monetaryValue;
+    const pubCharge =
+        first?.TotalCharges?.MonetaryValue ??
+        first?.totalCharges?.monetaryValue;
 
-    const amount = Number.isFinite(negotiated) ? negotiated :
-        Number.isFinite(published) ? published : NaN;
+    const negotiated = Number(negCharge);
+    const published = Number(pubCharge);
+    const amount = Number.isFinite(negotiated)
+        ? negotiated
+        : (Number.isFinite(published) ? published : NaN);
 
     if (!Number.isFinite(amount)) {
         const err = new Error('Carrier não retornou preço (negotiated/published ausentes)');
@@ -62,12 +65,12 @@ async function cotarCarrier(args = {}) {
     }
 
     return {
-        precoBase: amount,
+        precoBase: amount,   // valor total negociado/publicado (mantido por compat)
         negotiated: Number.isFinite(negotiated) ? negotiated : null,
         published: Number.isFinite(published) ? published : null,
-        amount,
+        amount: amount,
         carrier: 'UPS',
-        raw: resp,
+        raw: resp,           // mantenha bruto para o controller extrair os detalhes
     };
 }
 

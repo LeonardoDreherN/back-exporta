@@ -34,6 +34,7 @@ module.exports = (sequelize) => {
         plano_aplicado: { type: DataTypes.STRING, allowNull: true },
         preco_base: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
         preco_final: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
+        surcharges: { type: DataTypes.JSONB, allowNull: true, defaultValue: null }
     }, {
         tableName: 'cotacoes',
         underscored: true,

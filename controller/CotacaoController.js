@@ -1,5 +1,5 @@
 // controllers/cotacoes.controller.js
-const { Op, literal } = require('sequelize');
+const { Op, literal, Transaction } = require('sequelize');
 const { Cotacao, Cliente, sequelize } = require('../models');
 const { keepFirstPageFromPdfB64 } = require('../utils/pdfTools');
 const { normalizeUpsStatusFromTimeline } = require('../services/ups/tracking');
@@ -7,7 +7,10 @@ const tracking = require('../services/ups/tracking');
 const { aplicarPlano } = require('../utils/regrasPlanos');
 const { cotarCarrier } = require('../services/carriers');
 const { sse } = require('../server'); // usa a mesma instância criada no app.js
-const { extractUpsBreakdown } = require('../utils/extractUpsBreakdown');
+const { extractUpsBreakdown, extractFromRawUps } = require('../utils/extractUpsBreakdown');
+const { base } = require('../config/ups');
+
+const up = (s) => (typeof s === 'string' ? s.toUpperCase() : s);
 
 function toInt(v) {
     const n = Number(v);
@@ -127,7 +130,8 @@ async function createCotacaoReal(req, res) {
         const existente = await Cotacao.findOne({
             where: { cliente_id, pedido_ref },
             attributes: ['id', 'pedido_ref', 'createdAt'],
-            transaction: t, lock: t.LOCK.UPDATE,
+            transaction: t,
+            lock: Transaction.LOCK.UPDATE,
         });
         if (existente) {
             await t.rollback();
@@ -139,10 +143,10 @@ async function createCotacaoReal(req, res) {
             });
         }
 
-        // ===== Determinar precoBase (TransportationCharges) =====
-        let precoBase = null;        // BASE SEM taxas (TransportationCharges)
+        // ===== Determinar precoBase (BASE SEM taxas) =====
+        let precoBase = null;        // BASE (BaseServiceCharge negotiated/publicado)
         let carrierResp = null;
-        let breakdown = null;        // { currency, base, serviceOptions?, itemized[], total }
+        let breakdown = null;        // { currency, base, serviceOptions, itemized[], total }
 
         const precoBaseOverride = toNumSafe(preco_base ?? freightValueNum);
         const overrideUsado = Number.isFinite(precoBaseOverride);
@@ -150,20 +154,29 @@ async function createCotacaoReal(req, res) {
         if (overrideUsado) {
             // Usuário enviou a BASE manualmente
             precoBase = precoBaseOverride;
+
+            if (rate_payload) {
+                try {
+                    const rateRaw = rate_payload?.RateResponse || rate_payload?.rateResponse || rate_payload?.raw || rate_payload;
+                    breakdown = extractUpsBreakdown(rateRaw);
+                } catch (_) { /* ignora */ }
+            }
         } else if (rate_payload) {
             try {
-                // Chama seu adaptador de carriers (UPS)
+                // Chama adaptador
                 carrierResp = await cotarCarrier({ payload: rate_payload });
 
-                // Extrai breakdown real da UPS (Transportation, ServiceOptions, Itemized, Total)
-                const raw = carrierResp?.raw || carrierResp || rate_payload;
-                breakdown = extractUpsBreakdown(raw);
+                // Extrai breakdown real da UPS
+                const rateRaw =
+                    carrierResp?.raw?.RateResponse || carrierResp?.raw?.rateResponse
+                        ? carrierResp.raw
+                        : rate_payload;
+                breakdown = extractUpsBreakdown(rateRaw);
 
-                // BASE = TransportationCharges (ou adaptadores/fallbacks)
+                // BASE preferida = breakdown.base (BaseServiceCharge negotiated/publicado)
                 precoBase =
-                    toNumSafe(breakdown?.base) ??                      // TransportationCharges
-                    toNumSafe(carrierResp?.precoBase) ??               // se seu adaptador preencher isso
-                    toNumSafe(carrierResp?.TransportationCharges) ??   // fallback defensivo
+                    toNumSafe(breakdown?.base) ??
+                    toNumSafe(carrierResp?.precoBase) ??
                     0;
             } catch (e) {
                 await t.rollback();
@@ -185,22 +198,22 @@ async function createCotacaoReal(req, res) {
             return res.status(400).json({ ok: false, error: 'Carrier não retornou preço base' });
         }
 
-        // Consolida valores vindos da UPS para cálculo das taxas reais
-        const upsBase = toNumSafe(precoBase) ?? 0;  // SEM taxas (TransportationCharges)
+        // Consolida valores UPS
+        const upsBase = toNumSafe(precoBase) ?? 0;  // BASE (BaseServiceCharge)
         const upsTotal =
-            toNumSafe(breakdown?.total) ??            // NegotiatedRateCharges.TotalCharge OU TotalCharges
+            toNumSafe(breakdown?.total) ??
             toNumSafe(carrierResp?.negotiated) ??
             toNumSafe(carrierResp?.published) ??
             toNumSafe(carrierResp?.amount) ??
-            upsBase;
+            (
+                (Number.isFinite(breakdown?.base) ? toNumSafe(breakdown.base) : 0) +
+                (Number.isFinite(breakdown?.serviceOptions) ? toNumSafe(breakdown.serviceOptions) : 0) +
+                (Array.isArray(breakdown?.itemized) ? breakdown.itemized.reduce((a, b) => a + (toNumSafe(b.value) || 0), 0) : 0)
+            ) ?? upsBase;
 
-        // Taxas reais do carrier (ex.: combustível, remoto, internacional, etc.)
         const upsTaxesTotal = Math.max(0, upsTotal - upsBase);
 
-        // ===== Aplicar plano do cliente sobre a BASE (sem taxas) =====
-        // Compatível com diferentes formatos de retorno do aplicarPlano:
-        // - number (preço ajustado)
-        // - { preco_final | preco | baseComAjuste | valor, ajuste?, plano_aplicado? }
+        // ===== Aplicar plano =====
         function aplicarPlanoSafely(base, planoDoCliente) {
             let ajustado = base;
             let ajuste = 0;
@@ -223,9 +236,7 @@ async function createCotacaoReal(req, res) {
                         plano_aplicado = ret.plano_aplicado ?? plano_aplicado;
                     }
                 }
-            } catch (e) {
-                // Em caso de erro no aplicarPlano, segue com base sem ajuste
-            }
+            } catch (_) { /* segue com base */ }
             return {
                 preco_final: Number.isFinite(ajustado) ? ajustado : base,
                 ajuste: Number.isFinite(ajuste) ? ajuste : 0,
@@ -234,34 +245,49 @@ async function createCotacaoReal(req, res) {
         }
 
         const pricingBase = aplicarPlanoSafely(upsBase, plano);
-
-        // Preço final ao cliente = (BASE ajustada PELO PLANO) + (TAXAS reais da UPS)
         const precoFinalCliente = (toNumSafe(pricingBase?.preco_final) ?? upsBase) + upsTaxesTotal;
 
-        // ===== Monta JSON de pedido com breakdown (apenas taxas reais) =====
+        // ===== Monta o objeto de surcharges salvo (para UI)
         const pedidoJson = (pedido && typeof pedido === 'object') ? { ...pedido } : {};
+        const currency =
+            breakdown?.currency ??
+            pedido?.moeda ??
+            'USD';
 
-        // Mapeia SÓ quando houver breakdown real da UPS (para mostrar combustíveis, remoto etc.)
-        let savedSurcharges = null;
-        if (breakdown && (Number.isFinite(breakdown.base) || Number.isFinite(breakdown.total))) {
-            const svc = Number(breakdown.serviceOptions) || 0;
-            const items = Array.isArray(breakdown.itemized)
-                ? breakdown.itemized.map(it => ({
-                    code: String(it.code ?? it.Code ?? '').toUpperCase(),
-                    label: it.label ?? it.Description ?? it.code ?? 'Surcharge',
-                    value: Number(it.value ?? it.MonetaryValue ?? 0) || 0,
-                }))
-                : [];
+        const svc = Number(breakdown?.serviceOptions) || 0;
+        const items = Array.isArray(breakdown?.itemized)
+            ? breakdown.itemized.map(it => ({
+                code: up(it.code ?? it.Code ?? ''),
+                label: it.label ?? it.Description ?? it.code ?? 'Surcharge',
+                value: Number(it.value ?? it.MonetaryValue ?? 0) || 0,
+            }))
+            : [];
 
-            savedSurcharges = {
-                currency: breakdown.currency || 'USD',
-                base: upsBase,            // TransportationCharges
-                serviceOptions: svc,      // ServiceOptionsCharges
-                itemized: items,          // Combustível, remoto, etc.
-                total: Number(breakdown.total) || (upsBase + svc + items.reduce((a, b) => a + (b.value || 0), 0)),
-            };
+        let totalCalc =
+            Number(breakdown?.total) ||
+            (upsBase + svc + items.reduce((a, b) => a + (b.value || 0), 0));
+
+        const hasRealItemized = items.length > 0;
+        const consolidatedItems = [...items];
+        if (!hasRealItemized) {
+            const diff = Math.max(0, totalCalc - upsBase - svc);
+            if (diff > 0.009) {
+                consolidatedItems.unshift({
+                    code: 'UPS-SUR',
+                    label: 'UPS surcharges (consolidado)',
+                    value: diff,
+                });
+            }
         }
-        // Sempre salve o raw para auditoria e possíveis reprocessamentos
+
+        const savedSurcharges = {
+            currency: currency || 'USD',
+            base: upsBase,                 // BaseServiceCharge (sem taxas)
+            serviceOptions: svc,
+            itemized: consolidatedItems,   // taxas negociadas/publicadas ou consolidado
+            total: totalCalc,              // negociado se houver
+        };
+
         const carrierRawToSave =
             (carrierResp && (carrierResp.raw || carrierResp)) ||
             rate_payload ||
@@ -269,26 +295,17 @@ async function createCotacaoReal(req, res) {
 
         pedidoJson.pricing = {
             plano_aplicado: pricingBase.plano_aplicado,
-            preco_base: upsBase,                 // BASE pura (TransportationCharges)
+            preco_base: upsBase,                 // BASE (BaseServiceCharge)
             preco_final: precoFinalCliente,      // BASE com plano + TAXAS UPS
-            ajuste: pricingBase.ajuste,          // markup do plano (não exibir no UI)
+            ajuste: pricingBase.ajuste,          // markup do plano
             carrier: carrier ?? 'UPS',
             fonte_base: overrideUsado ? 'OVERRIDE' : 'UPS',
-            carrier_raw: carrierRawToSave,
-            // só taxas reais da UPS:
+            currency,
             surcharges: savedSurcharges,
             carrier_total: upsTotal,
-            ups_taxes_total: upsTaxesTotal,
+            ups_taxes_total: Math.max(0, upsTotal - upsBase),
+            carrier_raw: carrierRawToSave,
         };
-
-        console.log('[COTACAO][PLANO]', {
-            cliente_id,
-            cliente_debug: { id: cli?.id, email: cli?.emailPrincipal, codigo: cli?.codigo, plano: cli?.plano },
-            preco_base: upsBase,
-            preco_final_cliente: precoFinalCliente,
-            ajuste: pricingBase.ajuste,
-            ups_taxes_total: upsTaxesTotal
-        });
 
         // ===== Persistência =====
         const registro = await Cotacao.create({
@@ -305,12 +322,16 @@ async function createCotacaoReal(req, res) {
             pais_remetente: pais_remetente ?? null,
             pais_dest: pais_dest ?? null,
             pedido: pedidoJson,
+            surcharges: pedidoJson?.pricing?.surcharges || null,
             caixa: (caixa && typeof caixa === 'object') ? caixa : {},
             tracking_number: tracking_number ?? null,
             carrier: carrier ?? 'UPS',
             status_norm: 'CRIADO',
             last_tracking_at: null,
         }, { transaction: t });
+
+        console.log('[DBG][RATE keys]', Object.keys((carrierResp?.raw || rate_payload) || {}));
+        console.log('[DBG][EXTRACT]', extractUpsBreakdown(carrierResp?.raw || rate_payload));
 
         await t.commit();
         return res.json({
@@ -579,17 +600,59 @@ async function getCotacaoDetails(req, res) {
 
         const pedido = cot.pedido || {};
         const pricing = pedido.pricing || {};
-        const sur = pricing.surcharges || null;
 
-        const itemized = Array.isArray(sur?.itemized)
+        // 1) PRIORIDADE: usar surcharges salvas
+        let sur = pricing.surcharges || null;
+
+        // 2) Se não houver salvo, tenta reconstruir a partir do carrier_raw
+        if (!sur) {
+            const raw = pricing.carrier_raw || pedido.carrier_raw || null;
+            const b = raw ? extractUpsBreakdown(raw) : null;
+
+            if (b && (Number.isFinite(b.base) || Number.isFinite(b.total))) {
+                const svc = Number(b.serviceOptions) || 0;
+                const items = Array.isArray(b.itemized) ? b.itemized.map(it => ({
+                    code: up(it?.code || it?.Code || ''),
+                    label: it?.label || it?.Description || it?.code || 'Surcharge',
+                    value: Number(it?.value ?? it?.MonetaryValue ?? 0) || 0,
+                })) : [];
+
+                let total = Number(b.total) ||
+                    (Number(b.base) || 0) + svc + items.reduce((a, x) => a + (x.value || 0), 0);
+
+                const finalItems = [...items];
+                if (finalItems.length === 0) {
+                    const diff = Math.max(0, total - (Number(b.base) || 0) - svc);
+                    if (diff > 0.009) {
+                        finalItems.unshift({ code: 'UPS-SUR', label: 'UPS surcharges (consolidado)', value: diff });
+                    }
+                }
+
+                sur = {
+                    currency: b.currency || 'USD',
+                    base: Number(b.base) || 0,
+                    serviceOptions: svc,
+                    itemized: finalItems,
+                    total,
+                };
+            }
+        }
+
+        const currency = sur?.currency || pricing?.currency || 'USD';
+        const base = Number(pricing?.preco_base ?? cot.preco_base ?? sur?.base ?? 0);
+        const total = Number(pricing?.preco_final ?? cot.preco_final ?? sur?.total ?? 0);
+
+        let itemized = Array.isArray(sur?.itemized)
             ? sur.itemized.map(i => ({
-                code: String(i?.code ?? i?.Code ?? '').toUpperCase() || undefined,
+                code: up(i?.code ?? i?.Code ?? '') || undefined,
                 label: i?.label ?? i?.Description ?? i?.code ?? 'Surcharge',
                 value: Number(i?.value ?? i?.MonetaryValue ?? 0) || 0,
             }))
             : [];
 
-        // inclui markup do plano (se existir) como taxa separada
+        const svc = Number(sur?.serviceOptions || 0);
+        if (svc) itemized.unshift({ code: 'SVC', label: 'Service options (UPS)', value: svc });
+
         const planAdj = Number(pricing?.ajuste || 0);
         if (planAdj) {
             const planLabel = pricing?.plano_aplicado
@@ -598,14 +661,17 @@ async function getCotacaoDetails(req, res) {
             itemized.push({ code: 'PLAN', label: planLabel, value: planAdj });
         }
 
-        const currency = sur?.currency || pricing?.currency || 'USD';
-        const base = Number(pricing?.preco_base ?? cot.preco_base ?? sur?.base ?? 0);
-        const total = Number(pricing?.preco_final ?? cot.preco_final ?? sur?.total ?? 0);
-        const serviceOptions = Number(sur?.serviceOptions || 0) || undefined;
+        if (itemized.filter(i => i.code !== 'PLAN' && i.code !== 'SVC').length === 0) {
+            const already = planAdj + (svc || 0);
+            const diff = (total || 0) - (base || 0) - already;
+            if (diff > 0.009) {
+                itemized.unshift({ code: 'UPS-SUR', label: 'UPS surcharges (consolidado)', value: diff });
+            }
+        }
 
         return res.json({
             ok: true,
-            data: { id: cot.id, pedido_ref: cot.pedido_ref, currency, base, total, serviceOptions, itemized },
+            data: { id: cot.id, pedido_ref: cot.pedido_ref, currency, base, total, serviceOptions: svc || undefined, itemized },
         });
     } catch (err) {
         console.error('[GET /cotacoes/:id/details]', err);

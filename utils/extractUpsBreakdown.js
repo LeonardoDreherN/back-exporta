@@ -1,97 +1,123 @@
-// utils/extractUpsBreakdown.js
+// utils/upsBreakdown.js
+function n(v) {
+    const x = Number(typeof v === 'string' ? v.replace(',', '.') : v);
+    return Number.isFinite(x) ? x : 0;
+}
+const toArr = (v) => (Array.isArray(v) ? v : v ? [v] : []);
 
-function toNum(v) {
-    if (v === null || v === undefined) return 0;
-    const s = String(v).replace(/\./g, '').replace(',', '.');
-    const n = Number(s);
-    return Number.isFinite(n) ? n : 0;
+// pick tolerante a PascalCase/camelCase
+function pick(o, keys = []) {
+    if (!o || typeof o !== 'object') return undefined;
+    for (const k of keys) if (o[k] !== undefined) return o[k];
+    return undefined;
 }
 
-/**
- * Extrai informações detalhadas do retorno da UPS:
- * - base (TransportationCharges)
- * - total (TotalCharges ou NegotiatedRateCharges.TotalCharge)
- * - currency
- * - serviceOptions (ServiceOptionsCharges)
- * - itemized[] (lista de taxas, incluindo combustível, remoto, etc.)
- */
+// normaliza itemized (remove zeros)
+function normalizeItemized(itemized) {
+    return toArr(itemized)
+        .map((it) => ({
+            code: String(pick(it, ['Code', 'code']) || '').toUpperCase(),
+            label:
+                pick(it, ['Description', 'description']) ||
+                pick(it, ['Code', 'code']) ||
+                'Surcharge',
+            value: n(pick(it, ['MonetaryValue', 'monetaryValue'])),
+            currency: pick(it, ['CurrencyCode', 'currencyCode']),
+        }))
+        .filter((x) => x.value > 0);
+}
+
+// acha primeiro RatedShipment em qualquer nível
+function findFirstRatedShipment(node) {
+    if (!node || typeof node !== 'object') return null;
+
+    const rsDirect = pick(node, ['RatedShipment', 'ratedShipment']);
+    if (rsDirect) return Array.isArray(rsDirect) ? rsDirect[0] : rsDirect;
+
+    const inner = pick(node, ['RateResponse', 'rateResponse']);
+    if (inner) {
+        const rs = pick(inner, ['RatedShipment', 'ratedShipment']);
+        if (rs) return Array.isArray(rs) ? rs[0] : rs;
+    }
+
+    for (const k of Object.keys(node)) {
+        const v = node[k];
+        if (v && typeof v === 'object') {
+            const hit = findFirstRatedShipment(v);
+            if (hit) return hit;
+        }
+    }
+    return null;
+}
+
 function extractUpsBreakdown(raw) {
     if (!raw) return null;
 
-    // Encontra RatedShipment em diferentes formatos de payload
-    const rated =
-        raw?.RateResponse?.RatedShipment?.[0] ||
-        raw?.RatedShipment?.[0] ||
-        raw?.ShipmentRating?.RatedShipment?.[0] ||
-        raw;
+    // aceita: objeto inteiro, .RateResponse, .rateResponse, .raw, etc.
+    const candidate =
+        raw?.RateResponse || raw?.rateResponse || raw?.raw || raw;
+    const rs = findFirstRatedShipment(candidate);
+    if (!rs) return null;
 
-    if (!rated) return null;
+    // negotiated block (3 fontes possíveis)
+    const neg =
+        pick(rs, ['NegotiatedRateCharges', 'negotiatedRateCharges']) ||
+        // alguns retornos colocam dentro do RatedPackage[0]
+        pick(rs?.RatedPackage?.[0], ['NegotiatedCharges', 'negotiatedCharges']) ||
+        null;
 
-    // Preferir negotiated quando disponível
-    const negotiated = rated?.NegotiatedRateCharges || rated?.NegotiatedRates || null;
+    // leitores tolerantes
+    const money = (o) => n(pick(o || {}, ['MonetaryValue', 'monetaryValue']));
+    const ccode = (o) => pick(o || {}, ['CurrencyCode', 'currencyCode']);
 
-    const totalBlock =
-        (negotiated && (negotiated.TotalCharge || negotiated.TotalCharges)) ||
-        rated?.TotalCharges ||
-        rated?.TotalCharge ||
-        {};
+    // published
+    const rsBase = money(pick(rs, ['BaseServiceCharge', 'baseServiceCharge']));
+    const rsTransp = money(pick(rs, ['TransportationCharges', 'transportationCharges']));
+    const rsSvc = money(pick(rs, ['ServiceOptionsCharges', 'serviceOptionsCharges']));
+    const rsTotal = money(pick(rs, ['TotalCharges', 'totalCharges'])) ||
+        money(pick(rs, ['RatedShipmentTotalCharges', 'ratedShipmentTotalCharges']));
 
-    const baseBlock =
-        rated?.TransportationCharges ||
-        rated?.BaseServiceCharge ||
-        {};
+    // negotiated
+    const negBase = money(pick(neg, ['BaseServiceCharge', 'baseServiceCharge']));
+    const negTransp = money(pick(neg, ['TransportationCharges', 'transportationCharges']));
+    const negSvc = money(pick(neg, ['ServiceOptionsCharges', 'serviceOptionsCharges']));
+    const negTotal = money(pick(neg, ['TotalCharge', 'totalCharge']));
 
-    const svcBlock =
-        rated?.ServiceOptionsCharges ||
-        (negotiated && negotiated.ServiceOptionsCharges) ||
-        {};
-
+    // currency (prioriza negotiated > total > transp)
     const currency =
-        totalBlock?.CurrencyCode ||
-        baseBlock?.CurrencyCode ||
-        svcBlock?.CurrencyCode ||
-        rated?.CurrencyCode ||
+        ccode(pick(neg, ['TotalCharge', 'totalCharge'])) ||
+        ccode(pick(rs, ['TotalCharges', 'totalCharges'])) ||
+        ccode(pick(rs, ['TransportationCharges', 'transportationCharges'])) ||
         'USD';
 
-    const base = toNum(baseBlock?.MonetaryValue);
-    const total = toNum(totalBlock?.MonetaryValue);
-    const serviceOptions = toNum(svcBlock?.MonetaryValue);
+    // base prioriza BaseServiceCharge negociado -> Base publicada -> Transportation
+    const base =
+        negBase || rsBase || negTransp || rsTransp || 0;
 
-    // Itemizados (Negotiated > Standard)
-    const rawItems =
-        (negotiated && negotiated.ItemizedCharges) ||
-        rated?.ItemizedCharges ||
-        (rated?.ServiceOptionsCharges && rated.ServiceOptionsCharges.ItemizedCharges) ||
-        [];
+    const serviceOptions = negSvc || rsSvc || 0;
 
-    const itemized = (Array.isArray(rawItems) ? rawItems : [])
-        .map((i) => {
-            const code = String(i?.Code ?? '').trim();
-            const desc = String(i?.Description ?? '').trim();
-            const val = toNum(i?.MonetaryValue);
-            return {
-                code: code || (/(fuel|combust[ií]vel|fsc)/i.test(desc) ? 'FUEL' : undefined),
-                label: desc || code || 'Surcharge',
-                value: val,
-            };
-        })
-        .filter((i) => i.value !== 0);
+    // soma itemized negotiated + published e dedup por código
+    const allItemized = [
+        ...normalizeItemized(pick(neg, ['ItemizedCharges', 'itemizedCharges'])),
+        ...normalizeItemized(pick(rs, ['ItemizedCharges', 'itemizedCharges'])),
+    ];
+    const itemized = Object.values(
+        allItemized.reduce((acc, it) => {
+            if (it.value <= 0) return acc;
+            acc[it.code] = { ...it, currency: it.currency || currency };
+            return acc;
+        }, {})
+    );
 
-    // Se a base não veio, tenta inferir (total - serviceOptions - soma itemized)
-    let normBase = base;
-    if (normBase === 0 && total > 0) {
-        const sumItems = itemized.reduce((a, b) => a + b.value, 0);
-        const inferred = total - serviceOptions - sumItems;
-        if (inferred > 0) normBase = inferred;
-    }
+    const computedSum =
+        (Number.isFinite(base) ? base : 0) +
+        (Number.isFinite(serviceOptions) ? serviceOptions : 0) +
+        itemized.reduce((a, b) => a + (b.value || 0), 0);
 
-    return {
-        currency,
-        base: normBase,
-        serviceOptions,
-        itemized,
-        total,
-    };
+    // total prioriza negotiated > published > soma
+    const total = negTotal || rsTotal || computedSum;
+
+    return { base, total, currency, itemized, serviceOptions };
 }
 
 module.exports = { extractUpsBreakdown };
