@@ -53,69 +53,79 @@ function findFirstRatedShipment(node) {
 function extractUpsBreakdown(raw) {
     if (!raw) return null;
 
-    // aceita: objeto inteiro, .RateResponse, .rateResponse, .raw, etc.
-    const candidate =
-        raw?.RateResponse || raw?.rateResponse || raw?.raw || raw;
-    const rs = findFirstRatedShipment(candidate);
+    const candidate = raw?.RateResponse || raw?.rateResponse || raw?.raw || raw;
+    const rs = typeof findFirstRatedShipment === 'function'
+        ? findFirstRatedShipment(candidate)
+        : (candidate?.RatedShipment?.[0] || candidate?.ratedShipment?.[0] || null);
     if (!rs) return null;
 
-    // negotiated block (3 fontes possíveis)
-    const neg =
-        pick(rs, ['NegotiatedRateCharges', 'negotiatedRateCharges']) ||
-        // alguns retornos colocam dentro do RatedPackage[0]
-        pick(rs?.RatedPackage?.[0], ['NegotiatedCharges', 'negotiatedCharges']) ||
-        null;
-
-    // leitores tolerantes
-    const money = (o) => n(pick(o || {}, ['MonetaryValue', 'monetaryValue']));
-    const ccode = (o) => pick(o || {}, ['CurrencyCode', 'currencyCode']);
-
-    // published
-    const rsBase = money(pick(rs, ['BaseServiceCharge', 'baseServiceCharge']));
-    const rsTransp = money(pick(rs, ['TransportationCharges', 'transportationCharges']));
-    const rsSvc = money(pick(rs, ['ServiceOptionsCharges', 'serviceOptionsCharges']));
-    const rsTotal = money(pick(rs, ['TotalCharges', 'totalCharges'])) ||
-        money(pick(rs, ['RatedShipmentTotalCharges', 'ratedShipmentTotalCharges']));
+    // helpers
+    const _num = (v) => (v == null ? 0 : Number.parseFloat(String(v)));
+    const _pick = (obj, keys) => { if (!obj) return null; for (const k of keys) if (obj[k] != null) return obj[k]; return null; };
+    const _money = (o) => _num(_pick(o || {}, ['MonetaryValue', 'monetaryValue', 'amount']));
+    const _ccode = (o) => _pick(o || {}, ['CurrencyCode', 'currencyCode', 'currency']);
+    const _normItemized = (arr, defaultCurrency) => {
+        if (!Array.isArray(arr)) return [];
+        return arr.map((x) => {
+            const code = _pick(x, ['Code', 'code']);
+            const val = _money(x);
+            const cur = _ccode(x) || defaultCurrency || 'USD';
+            if (!code || !Number.isFinite(val) || val <= 0) return null; // filtra zeros aqui
+            return { code: String(code), value: val, currency: cur };
+        }).filter(Boolean);
+    };
 
     // negotiated
-    const negBase = money(pick(neg, ['BaseServiceCharge', 'baseServiceCharge']));
-    const negTransp = money(pick(neg, ['TransportationCharges', 'transportationCharges']));
-    const negSvc = money(pick(neg, ['ServiceOptionsCharges', 'serviceOptionsCharges']));
-    const negTotal = money(pick(neg, ['TotalCharge', 'totalCharge']));
+    const neg =
+        _pick(rs, ['NegotiatedRateCharges', 'negotiatedRateCharges']) ||
+        _pick(rs?.RatedPackage?.[0], ['NegotiatedCharges', 'negotiatedCharges']) ||
+        null;
 
-    // currency (prioriza negotiated > total > transp)
-    const currency =
-        ccode(pick(neg, ['TotalCharge', 'totalCharge'])) ||
-        ccode(pick(rs, ['TotalCharges', 'totalCharges'])) ||
-        ccode(pick(rs, ['TransportationCharges', 'transportationCharges'])) ||
+    const negBaseObj = _pick(neg, ['BaseServiceCharge', 'baseServiceCharge']);
+    const negItemsArr = _pick(neg, ['ItemizedCharges', 'itemizedCharges']) || [];
+    const negTotalObj = _pick(neg, ['TotalCharge', 'totalCharge']);
+
+    const negBase = _money(negBaseObj);
+    const negTotal = _money(negTotalObj);
+    const negCurr = _ccode(negTotalObj) || _ccode(negBaseObj) || (negItemsArr[0] && _ccode(negItemsArr[0])) || 'USD';
+
+    // published (fallback)
+    const rsBase = _money(_pick(rs, ['BaseServiceCharge', 'baseServiceCharge']));
+    const rsTrans = _money(_pick(rs, ['TransportationCharges', 'transportationCharges']));
+    const rsSvc = _money(_pick(rs, ['ServiceOptionsCharges', 'serviceOptionsCharges']));
+    const rsTotal = _money(_pick(rs, ['TotalCharges', 'totalCharges'])) ||
+        _money(_pick(rs, ['RatedShipmentTotalCharges', 'ratedShipmentTotalCharges']));
+    const pubCurr = _ccode(_pick(rs, ['TotalCharges', 'totalCharges'])) ||
+        _ccode(_pick(rs, ['TransportationCharges', 'transportationCharges'])) ||
         'USD';
+    const pubItemsArr = _pick(rs, ['ItemizedCharges', 'itemizedCharges']) || [];
 
-    // base prioriza BaseServiceCharge negociado -> Base publicada -> Transportation
+    // currency: prioriza negotiated
+    const currency = negCurr || pubCurr;
+
+    // base: prioriza negotiated.BaseServiceCharge -> Base publicada -> Transportation publicada
     const base =
-        negBase || rsBase || negTransp || rsTransp || 0;
+        (Number.isFinite(negBase) && negBase > 0) ? negBase
+            : (Number.isFinite(rsBase) && rsBase > 0) ? rsBase
+                : (Number.isFinite(rsTrans) ? rsTrans : 0);
 
-    const serviceOptions = negSvc || rsSvc || 0;
+    // service options (só publicado)
+    const serviceOptions = Number.isFinite(rsSvc) ? rsSvc : 0;
 
-    // soma itemized negotiated + published e dedup por código
-    const allItemized = [
-        ...normalizeItemized(pick(neg, ['ItemizedCharges', 'itemizedCharges'])),
-        ...normalizeItemized(pick(rs, ['ItemizedCharges', 'itemizedCharges'])),
-    ];
-    const itemized = Object.values(
-        allItemized.reduce((acc, it) => {
-            if (it.value <= 0) return acc;
-            acc[it.code] = { ...it, currency: it.currency || currency };
-            return acc;
-        }, {})
-    );
+    // ITEMIZED: se houver negotiated, usa **somente** negotiated; senão, usa published
+    const itemized = (neg ? _normItemized(negItemsArr, currency)
+        : _normItemized(pubItemsArr, currency));
 
+    // total: prioriza negotiated.TotalCharge -> published -> soma
     const computedSum =
         (Number.isFinite(base) ? base : 0) +
         (Number.isFinite(serviceOptions) ? serviceOptions : 0) +
         itemized.reduce((a, b) => a + (b.value || 0), 0);
 
-    // total prioriza negotiated > published > soma
-    const total = negTotal || rsTotal || computedSum;
+    const total =
+        (Number.isFinite(negTotal) && negTotal > 0) ? negTotal
+            : (Number.isFinite(rsTotal) && rsTotal > 0) ? rsTotal
+                : computedSum;
 
     return { base, total, currency, itemized, serviceOptions };
 }
