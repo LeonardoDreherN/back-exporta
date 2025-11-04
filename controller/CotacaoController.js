@@ -174,10 +174,15 @@ async function createCotacaoReal(req, res) {
                 breakdown = extractUpsBreakdown(rateRaw);
 
                 // BASE preferida = breakdown.base (BaseServiceCharge negotiated/publicado)
-                precoBase =
-                    toNumSafe(breakdown?.base) ??
-                    toNumSafe(carrierResp?.precoBase) ??
-                    0;
+                // precoBase =
+                //     toNumSafe(breakdown?.base) ??
+                //     toNumSafe(carrierResp?.precoBase) ??
+                //     0;
+
+                const baseFromBreakdown = Number.isFinite(breakdown?.base) ? Number(breakdown.base) : null;
+                // const baseFromAdapter = Number.isFinite(carrierResp?.precoBase) ? Number(carrierResp.precoBase) : null;
+                // Se não houver breakdown.base, aí sim caímos para o adapter
+                precoBase = (baseFromBreakdown ?? 0);
             } catch (e) {
                 await t.rollback();
                 const status = e?.response?.status || 502;
@@ -199,7 +204,8 @@ async function createCotacaoReal(req, res) {
         }
 
         // Consolida valores UPS
-        const upsBase = toNumSafe(precoBase) ?? 0;  // BASE (BaseServiceCharge)
+        // const upsBase = toNumSafe(precoBase) ?? 0;  // BASE (BaseServiceCharge)
+        const upsBase = Number.isFinite(breakdown?.base) ? Number(breakdown.base) : (toNumSafe(precoBase) ?? 0)
         const upsTotal =
             toNumSafe(breakdown?.total) ??
             toNumSafe(carrierResp?.negotiated) ??
@@ -282,7 +288,8 @@ async function createCotacaoReal(req, res) {
 
         const savedSurcharges = {
             currency: currency || 'USD',
-            base: upsBase,                 // BaseServiceCharge (sem taxas)
+            // base: upsBase,          // BaseServiceCharge (sem taxas)
+            base: Number.isFinite(breakdown?.base) ? Number(breakdown.base) : upsBase,
             serviceOptions: svc,
             itemized: consolidatedItems,   // taxas negociadas/publicadas ou consolidado
             total: totalCalc,              // negociado se houver

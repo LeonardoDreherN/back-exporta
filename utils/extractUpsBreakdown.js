@@ -76,10 +76,7 @@ function extractUpsBreakdown(raw) {
     };
 
     // negotiated
-    const neg =
-        _pick(rs, ['NegotiatedRateCharges', 'negotiatedRateCharges']) ||
-        _pick(rs?.RatedPackage?.[0], ['NegotiatedCharges', 'negotiatedCharges']) ||
-        null;
+    const neg = _pick(rs, ['NegotiatedRateCharges', 'negotiatedRateCharges']) || null;
 
     const negBaseObj = _pick(neg, ['BaseServiceCharge', 'baseServiceCharge']);
     const negItemsArr = _pick(neg, ['ItemizedCharges', 'itemizedCharges']) || [];
@@ -102,12 +99,6 @@ function extractUpsBreakdown(raw) {
 
     // currency: prioriza negotiated
     const currency = negCurr || pubCurr;
-
-    // base: prioriza negotiated.BaseServiceCharge -> Base publicada -> Transportation publicada
-    // const base =
-    //     (Number.isFinite(negBase) && negBase > 0) ? negBase
-    //         : (Number.isFinite(rsBase) && rsBase > 0) ? rsBase
-    //             : (Number.isFinite(rsTrans) ? rsTrans : 0);
 
     const base = Number.isFinite(negBase) ? negBase
         : Number.isFinite(rsBase) ? rsBase
