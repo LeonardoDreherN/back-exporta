@@ -6,6 +6,7 @@ dotenv.config();
 const db = require('./models/index.js');
 const cors = require('cors');
 const path = require('path');
+const cookieParser = require('cookie-parser');
 const cfg = require('./config/ups.js')
 const uploadRouter = require('./routes/upload.js');
 const compression = require('compression');
@@ -15,7 +16,6 @@ const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./cont
 const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require('./controller/ClientesController.js');
 const { verProdutosLojaShopify, registrarLojaShopify } = require('./controller/ShopifyController.js');
 const { comLoja, garantirInstalada, getAccessTokenForShop } = require('./middleware/shopifyAuth.js');
-const { createCotacaoReal, listCotacoes, attachDocs } = require('./controller/CotacaoController.js');
 const { importPedidos, listPedidos } = require('./controller/PedidoImportController.js');
 const cron = require('node-cron');
 const { pool } = require('./jobs/poolTracking.js');
@@ -38,12 +38,12 @@ app.use(cors({
     if (!origin) return cb(null, true);
     const ok = allowlist.includes(origin);
     // se não estiver na lista, NÃO seta ACAO (navegador bloqueia)
-    return cb(null, ok ? origin : false);
+    return cb(null, !!ok);
   },
   credentials: true,
   methods: ['GET','POST','PUT','PATCH','DELETE'],
   allowedHeaders: ['Content-Type','Authorization','x-csrf-token'],
-  exposedHeaders: ['Authorization'],
+  exposedHeaders: ['Authorization', 'Content-Disposition'],
 }));
 
 // Pré-flight padronizado
@@ -78,6 +78,7 @@ const { applyLogging, errorHandler } = require('./bootstrap/loggin.js');
 // Middlewares globais
 app.use(express.json({ limit: '30mb' }));
 app.use(express.urlencoded({ extended: true, limit: '30mb' }));
+app.use(cookieParser())
 app.use('/sse', sse.router)
 
 app.use("/exports", express.static(path.join(__dirname, "exports"), { maxAge: "1h", etag: true }));
@@ -303,6 +304,7 @@ app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req,res)=>{
 
 // API UPS
 app.use('/api/cotacoes', autenticarUsuario, vincularCliente, require('./routes/cotacoesRoutes.js'));
+app.use('/api/relatorios', autenticarUsuario, vincularCliente, require('./routes/relatoriosRoutes.js'));
 
 
 // app.use('/api', upsRoutes);

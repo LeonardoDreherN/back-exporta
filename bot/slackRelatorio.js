@@ -3,36 +3,45 @@ const cron = require('node-cron');
 const axios = require('axios');
 const { format, subDays } = require('date-fns');
 const { Sequelize } = require('sequelize');
-const models = require('../models');
-const Cotacao = require('../models/Cotacao');
+const db = require('../models'); // { CotacaoPagamento, ... }
+const { buildStatusWhere, expandStatuses } = require('../utils/statusMap');
 
 const HOOK = process.env.SLACK_WEBHOOK_URL;
 const TZ = process.env.TZ || 'America/Sao_Paulo';
 
-// gera texto do relatório
 function asMoney(n) { return (Number(n || 0)).toFixed(2); }
 
-async function queryRelatorio({ cliente_id, from, to, status = 'PAID', currency = null }) {
-    const where = { cliente_id, status };
+async function queryRelatorio({ cliente_id, from, to, status = 'PAID', currency = null, by }) {
+    const where = { cliente_id };
+    Object.assign(where, buildStatusWhere(status));
     if (currency) where.currency = currency;
 
-    where.paid_at = {};
-    if (from) where.paid_at[Sequelize.Op.gte] = new Date(`${from}T00:00:00`);
-    if (to) where.paid_at[Sequelize.Op.lte] = new Date(`${to}T23:59:59`);
+    const dateField = (by === 'created') ? 'createdAt' : 'paid_at';
+    if (from || to) {
+        where[dateField] = {};
+        if (from) where[dateField][Sequelize.Op.gte] = new Date(`${from}T00:00:00Z`);
+        if (to) where[dateField][Sequelize.Op.lte] = new Date(`${to}T23:59:59Z`);
+    }
 
-    const rows = await Cotacao.findAll({
+    // expressão de dia com timezone para atributo e group
+    const dayExpr = db.Sequelize.fn(
+        'DATE',
+        db.Sequelize.fn('timezone', TZ, db.Sequelize.col(dateField))
+    );
+
+    const rows = await db.CotacaoPagamento.findAll({
         where,
         attributes: [
-            [Sequelize.fn('DATE', Sequelize.fn('timezone', TZ, Sequelize.col('paid_at'))), 'dia'],
+            [dayExpr, 'dia'],
             'currency',
-            [Sequelize.fn('COUNT', Sequelize.col('id')), 'qtd'],
-            [Sequelize.fn('SUM', Sequelize.col('amount_total')), 'bruto'],
-            [Sequelize.fn('SUM', Sequelize.col('amount_fees_gateway')), 'fees'],
-            [Sequelize.fn('SUM', Sequelize.col('amount_discount')), 'desc'],
-            [Sequelize.fn('SUM', Sequelize.col('amount_paid')), 'pago'],
+            [db.Sequelize.fn('COUNT', db.Sequelize.col('id')), 'qtd'],
+            [db.Sequelize.fn('SUM', db.Sequelize.col('amount_total')), 'bruto'],
+            [db.Sequelize.fn('SUM', db.Sequelize.col('amount_fees_gateway')), 'fees'],
+            [db.Sequelize.fn('SUM', db.Sequelize.col('amount_discount')), 'desc'],
+            [db.Sequelize.fn('SUM', db.Sequelize.col('amount_paid')), 'pago'],
         ],
-        group: [Sequelize.literal(`DATE(timezone('${TZ}', paid_at))`), 'currency'],
-        order: [[Sequelize.literal(`DATE(timezone('${TZ}', paid_at))`), 'ASC']],
+        group: [dayExpr, 'currency'],
+        order: [[dayExpr, 'ASC']],
     });
 
     const totals = rows.reduce((acc, r) => {
@@ -50,14 +59,14 @@ async function queryRelatorio({ cliente_id, from, to, status = 'PAID', currency 
 }
 
 function formatSlack({ rows, totals, from, to, status, currency }) {
-    const header = `*📊 Relatório de Pagamentos*\nPeríodo: *${from} → ${to}*\nStatus: *${status}*${currency ? ` | Moeda: *${currency}*` : ''}`;
+    const expanded = expandStatuses(status);
+    const statusTxt = expanded && expanded.length ? expanded.join(', ') : String(status || '—');
+    const header = `*📊 Relatório de Pagamentos*\nPeríodo: *${from} → ${to}*\nStatus: *${statusTxt}*${currency ? ` | Moeda: *${currency}*` : ''}`;
     if (!rows.length) return `${header}\n\nSem registros no período.`;
 
-    const lines = rows.map(r => {
-        const dia = r.get('dia');
-        const cur = r.get('currency');
-        return `• ${dia} (${cur}) — Qtd: ${r.get('qtd')} | Bruto: ${asMoney(r.get('bruto'))} | Fees: ${asMoney(r.get('fees'))} | Desc: ${asMoney(r.get('desc'))} | Pago: ${asMoney(r.get('pago'))}`;
-    }).join('\n');
+    const lines = rows.map(r =>
+        `• ${r.get('dia')} (${r.get('currency')}) — Qtd: ${r.get('qtd')} | Bruto: ${asMoney(r.get('bruto'))} | Fees: ${asMoney(r.get('fees'))} | Desc: ${asMoney(r.get('desc'))} | Pago: ${asMoney(r.get('pago'))}`
+    ).join('\n');
 
     const totalsText = Object.entries(totals).map(([cur, t]) =>
         `= ${cur} ⇒ Qtd: ${t.qtd} | Bruto: ${asMoney(t.bruto)} | Fees: ${asMoney(t.fees)} | Desc: ${asMoney(t.desc)} | Pago: ${asMoney(t.pago)}`
@@ -66,16 +75,16 @@ function formatSlack({ rows, totals, from, to, status, currency }) {
     return `${header}\n\n${lines}\n\n*Totais*\n${totalsText}`;
 }
 
-// cron diário 08:00
+// CRON diário 08:00 (São Paulo)
 cron.schedule('0 8 * * *', async () => {
     try {
-        const cliente_id = 1; // ajuste para seu tenant/cliente
+        const cliente_id = 1;
         const now = new Date();
         const to = format(now, 'yyyy-MM-dd');
         const from = format(subDays(now, 1), 'yyyy-MM-dd');
 
-        const { rows, totals } = await queryRelatorio({ cliente_id, from, to, status: 'PAID', currency: null });
-        const text = formatSlack({ rows, totals, from, to, status: 'PAID', currency: null });
+        const { rows, totals } = await queryRelatorio({ cliente_id, from, to, status: 'PAID' });
+        const text = formatSlack({ rows, totals, from, to, status: 'PAID' });
 
         await axios.post(HOOK, { text });
         console.log('[SlackRelatorio] enviado');
@@ -84,15 +93,17 @@ cron.schedule('0 8 * * *', async () => {
     }
 });
 
-// (opcional) execução manual: node bot/slackRelatorio.js once
+// Execução manual (7 dias) -> node bot/slackRelatorio.js once
 if (process.argv.includes('once')) {
     (async () => {
         const cliente_id = 1;
         const now = new Date();
         const to = format(now, 'yyyy-MM-dd');
         const from = format(subDays(now, 7), 'yyyy-MM-dd');
+
         const { rows, totals } = await queryRelatorio({ cliente_id, from, to, status: 'PAID' });
         const text = formatSlack({ rows, totals, from, to, status: 'PAID' });
+
         await axios.post(HOOK, { text });
         process.exit(0);
     })();
