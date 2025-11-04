@@ -104,10 +104,15 @@ function extractUpsBreakdown(raw) {
     const currency = negCurr || pubCurr;
 
     // base: prioriza negotiated.BaseServiceCharge -> Base publicada -> Transportation publicada
-    const base =
-        (Number.isFinite(negBase) && negBase > 0) ? negBase
-            : (Number.isFinite(rsBase) && rsBase > 0) ? rsBase
-                : (Number.isFinite(rsTrans) ? rsTrans : 0);
+    // const base =
+    //     (Number.isFinite(negBase) && negBase > 0) ? negBase
+    //         : (Number.isFinite(rsBase) && rsBase > 0) ? rsBase
+    //             : (Number.isFinite(rsTrans) ? rsTrans : 0);
+
+    const base = Number.isFinite(negBase) ? negBase
+        : Number.isFinite(rsBase) ? rsBase
+            : Number.isFinite(rsTrans) ? rsTrans
+                : 0;
 
     // service options (só publicado)
     const serviceOptions = Number.isFinite(rsSvc) ? rsSvc : 0;
