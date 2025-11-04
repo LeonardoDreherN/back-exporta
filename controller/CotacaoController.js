@@ -302,9 +302,8 @@ async function createCotacaoReal(req, res) {
 
         pedidoJson.pricing = {
             plano_aplicado: pricingBase.plano_aplicado,
-            preco_base: upsBase,                 // BASE (BaseServiceCharge)
+            preco_base: upsBase + pricingBase.ajuste,                 // BASE (BaseServiceCharge)
             preco_final: precoFinalCliente,      // BASE com plano + TAXAS UPS
-            ajuste: pricingBase.ajuste,          // markup do plano
             carrier: carrier ?? 'UPS',
             fonte_base: overrideUsado ? 'OVERRIDE' : 'UPS',
             currency,
