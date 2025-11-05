@@ -7,7 +7,6 @@ const InfoShopifyModel = require('./InfoShopify.js');
 const CotacaoModel = require('./Cotacao.js');
 const PedidoImportModel = require('./PedidoImport.js');
 const ShipmentModel = require('./Shipment.js');
-const CotacaoPagamentoModel = require('./CotacaoPagamento.js');
 
 require('dotenv/config');
 
@@ -36,7 +35,6 @@ const db = {
   Cotacao: CotacaoModel(sequelize),
   PedidoImport: PedidoImportModel(sequelize),
   Shipment: ShipmentModel(sequelize),
-  CotacaoPagamento: CotacaoPagamentoModel(sequelize)
 };
 
 module.exports = db;

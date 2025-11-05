@@ -304,8 +304,7 @@ app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req,res)=>{
 
 // API UPS
 app.use('/api/cotacoes', autenticarUsuario, vincularCliente, require('./routes/cotacoesRoutes.js'));
-app.use('/api/relatorios', autenticarUsuario, vincularCliente, require('./routes/relatoriosRoutes.js'));
-
+app.use('/api/relatorio', autenticarUsuario, vincularCliente, require('./routes/relatorioPagamentos.js'))
 
 // app.use('/api', upsRoutes);
 app.use((err, req, res, next) => {
