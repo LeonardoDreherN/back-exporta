@@ -306,6 +306,8 @@ app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req,res)=>{
 app.use('/api/cotacoes', autenticarUsuario, vincularCliente, require('./routes/cotacoesRoutes.js'));
 app.use('/api/relatorio', autenticarUsuario, vincularCliente, require('./routes/relatorioPagamentos.js'))
 
+app.use('/api/rate', require('./routes/rateMulti.js'));
+
 // app.use('/api', upsRoutes);
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
