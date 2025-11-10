@@ -648,6 +648,12 @@ async function getCotacaoDetails(req, res) {
         const base = Number(pricing?.preco_base ?? cot.preco_base ?? sur?.base ?? 0);
         const total = Number(pricing?.preco_final ?? cot.preco_final ?? sur?.total ?? 0);
 
+        const planAdj = Number(pricing?.ajuste || 0);
+        const basePura = Number.isFinite(sur?.base) ? Number(sur.base) : (base - planAdj);
+        const compare_total = Number.isFinite(pricing?.preco_base)
+            ? Number(pricing.preco_base)       // já “aplicarPlano(base)”
+            : (Number(basePura) + Number(planAdj));  // fallback: base + ajuste
+
         let itemized = Array.isArray(sur?.itemized)
             ? sur.itemized.map(i => ({
                 code: up(i?.code ?? i?.Code ?? '') || undefined,
@@ -659,7 +665,7 @@ async function getCotacaoDetails(req, res) {
         const svc = Number(sur?.serviceOptions || 0);
         if (svc) itemized.unshift({ code: 'SVC', label: 'Service options (UPS)', value: svc });
 
-        const planAdj = Number(pricing?.ajuste || 0);
+        // const planAdj = Number(pricing?.ajuste || 0);
         if (planAdj) {
             const planLabel = pricing?.plano_aplicado
                 ? `Markup plano (${pricing.plano_aplicado})`
@@ -677,7 +683,16 @@ async function getCotacaoDetails(req, res) {
 
         return res.json({
             ok: true,
-            data: { id: cot.id, pedido_ref: cot.pedido_ref, currency, base, total, serviceOptions: svc || undefined, itemized },
+            data: { 
+                id: cot.id, 
+                pedido_ref: cot.pedido_ref, 
+                currency, 
+                base, 
+                total, 
+                compare_total,
+                serviceOptions: svc || undefined, 
+                itemized 
+            },
         });
     } catch (err) {
         console.error('[GET /cotacoes/:id/details]', err);
