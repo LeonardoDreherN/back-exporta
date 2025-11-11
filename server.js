@@ -41,8 +41,8 @@ app.use(cors({
     return cb(null, !!ok);
   },
   credentials: true,
-  methods: ['GET','POST','PUT','PATCH','DELETE'],
-  allowedHeaders: ['Content-Type','Authorization','x-csrf-token'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token'],
   exposedHeaders: ['Authorization', 'Content-Disposition'],
 }));
 
@@ -210,7 +210,7 @@ app.get('/_debug/scopes', async (req, res) => {
     const shop = String(req.query.shop || '').toLowerCase();
     if (!shop) return res.status(400).json({ erro: 'informe ?shop=...' });
 
-    const row = await db.Shop.findOne({ where: { shop }, attributes: ['accessToken','scope'], raw: true });
+    const row = await db.Shop.findOne({ where: { shop }, attributes: ['accessToken', 'scope'], raw: true });
     if (!row) return res.status(404).json({ erro: 'token não encontrado' });
 
     let live = [];
@@ -293,7 +293,7 @@ app.get('/shopify/produtos', autenticarShopify, comLoja, garantirInstalada, verP
 app.post('/import-pedidos', autenticarUsuario, vincularCliente, csrfRequired, importPedidos);
 app.get('/pedidos', autenticarUsuario, vincularCliente, listPedidos);
 
-app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req,res)=>{
+app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req, res) => {
   res.json({
     authHeader: !!req.headers.authorization,
     clienteId: req.clienteId ?? null,
@@ -304,15 +304,19 @@ app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req,res)=>{
 
 // API UPS
 app.use('/api/cotacoes', autenticarUsuario, vincularCliente, require('./routes/cotacoesRoutes.js'));
+app.use('/api/cotacoesFedex', require('./routes/fedexRoutes.js'))
 app.use('/api/relatorio', autenticarUsuario, vincularCliente, require('./routes/relatorioPagamentos.js'))
+const debugFedex = require('./routes/debugFedex.js');
+app.use(debugFedex);
 
 app.use('/api/rate', require('./routes/rateMulti.js'));
+
 
 // app.use('/api', upsRoutes);
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   const status = err?.response?.status || err?.status || 500;
-  res.status(status).json({ ok:false, error: err?.response?.data || { message: err.message } });
+  res.status(status).json({ ok: false, error: err?.response?.data || { message: err.message } });
 });
 
 app.get("/healthz", (_, res) => res.json({ ok: true, ts: Date.now() }));
@@ -329,4 +333,4 @@ db.sequelize.sync()
     console.error('Erro ao sincronizar com o banco:', err);
   });
 
-  module.exports = { app };
+module.exports = { app };
