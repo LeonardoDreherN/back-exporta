@@ -1,7 +1,7 @@
 const { account } = require("./ups");
 
 const base = process.env.FEDEX_AMBIENTE === 'PROD'
-    ? (process.env.FEDEX_BASE_URL || 'https://apis.fedex.com')
+    ? (process.env.FEDEX_BASE_URL_PROD || 'https://apis.fedex.com')
     : (process.env.FEDEX_BASE_URL || 'https://apis-sandbox.fedex.com');
 
 module.exports = {

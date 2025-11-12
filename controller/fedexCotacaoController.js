@@ -26,26 +26,47 @@ const pick = (o, path, def = null) => {
 
 // ===== OAuth FedEx =====
 async function getFedexToken() {
-    const id = fedexCfg.clientId;
-    const secret = fedexCfg.clientSecret;
-    if (!id || !secret) throw new Error('FEDEX clientId/clientSecret ausentes');
+    const { clientId, clientSecret, oauth, timeoutMs, scope } = fedexCfg;
+    if (!clientId || !clientSecret) throw new Error('FEDEX clientId/clientSecret ausentes');
 
-    const body = new URLSearchParams({
-        grant_type: 'client_credentials',
-        client_id: id,
-        client_secret: secret,
-    });
+    const attempts = [scope?.trim(), null, 'oob', 'ship'].filter(v => v !== undefined);
+    let last;
 
-    const resp = await axios.post(fedexCfg.oauth, body.toString(), {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        timeout: fedexCfg.timeoutMs,
-        validateStatus: () => true,
-    });
+    for (const sc of attempts) {
+        const body = new URLSearchParams({
+            grant_type: 'client_credentials',
+            client_id: clientId,
+            client_secret: clientSecret,
+            ...(sc ? { scope: sc } : {}),
+        });
 
-    if (resp.status !== 200 || !resp.data?.access_token) {
-        throw new Error(`FedEx OAuth ${resp.status}: ${JSON.stringify(resp.data)}`);
+        console.log('[FEDEX OAUTH][TRY]', { url: oauth, scope: sc || '(none)', AMBIENTE: process.env.FEDEX_AMBIENTE });
+
+        let resp;
+        try {
+            resp = await axios.post(oauth, body.toString(), {
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                timeout: timeoutMs ?? 60000,
+                validateStatus: () => true,
+            });
+        } catch (e) {
+            console.error('[FEDEX OAUTH][NETWORK ERROR]', { message: e.message, code: e.code, url: oauth });
+            last = { status: 0, data: { error: 'network', message: e.message } };
+            continue;
+        }
+
+        if (resp.status === 200 && resp.data?.access_token) {
+            console.log('[FEDEX OAUTH][OK]', { scope: sc || '(none)' });
+            return resp.data.access_token;
+        }
+
+        console.error('[FEDEX OAUTH][HTTP ERROR]', { scope: sc || '(none)', status: resp.status, data: resp.data });
+        last = { status: resp.status, data: resp.data };
     }
-    return resp.data.access_token;
+
+    // lance erro com o payload original da FedEx
+    const msg = `FedEx OAuth ${last?.status}: ${JSON.stringify(last?.data)}`;
+    throw new Error(msg);
 }
 
 // ===== Aplicar Plano (idêntico à UPS) =====
@@ -285,53 +306,112 @@ async function createCotacaoRealFedex(req, res) {
 
 // ===== SHIP (emissão) =====
 // Mantém status_norm "CRIADO" para não violar o enum (seu refresh de tracking atualiza depois).
+function get(obj, path, def = undefined) {
+    try {
+        return String(path)
+            .split('.')
+            .reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), obj) ?? def;
+    } catch {
+        return def;
+    }
+}
+
+// forçar array
+const toArr = (v) => (Array.isArray(v) ? v : v ? [v] : []);
+
+// pega campos comuns de docs (url/base64)
+function collectDocUrls(docList) {
+    const arr = toArr(docList);
+    return arr
+        .map((d) => d && (d.url || d.contentUrl || d.href))
+        .filter(Boolean);
+}
+
 async function shipFedex(req, res) {
     try {
         const cliente_id = Number(req.body?.cliente_id ?? req.clienteId);
-        if (!cliente_id) return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
+        if (!cliente_id) {
+            return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
+        }
 
         const pedido_ref = normRef(req.body?.pedido_ref);
         const ship_payload = req.body?.ship_payload;
         if (!pedido_ref || !ship_payload) {
-            return res.status(400).json({ ok: false, error: 'pedido_ref e ship_payload são obrigatórios' });
+            return res
+                .status(400)
+                .json({ ok: false, error: 'pedido_ref e ship_payload são obrigatórios' });
         }
 
         // precisa existir a cotação
         const cotacao = await Cotacao.findOne({ where: { cliente_id, pedido_ref } });
-        if (!cotacao) return res.status(404).json({ ok: false, error: 'Cotação não encontrada para este pedido' });
+        if (!cotacao) {
+            return res
+                .status(404)
+                .json({ ok: false, error: 'Cotação não encontrada para este pedido' });
+        }
 
-        // Chama FedEx Ship API
+        // Token + chamada Ship
         const token = await getFedexToken();
         const shipAxios = await axios.post(fedexCfg.ship, ship_payload, {
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
             timeout: fedexCfg.timeoutMs,
             validateStatus: () => true,
         });
 
+        // Trata erros HTTP
         if (shipAxios.status >= 400) {
+            const d = shipAxios.data || {};
+            const errors = Array.isArray(d.errors) ? d.errors : [];
+            const detail = {
+                transactionId: d.transactionId,
+                errors: errors.map((e) => ({
+                    code: e.code,
+                    message: e.message,
+                    parameterList: e.parameterList || e.parameters || e.messageParameters || null,
+                })),
+            };
+
+            console.log('[FEDEX SHIP][REQUEST]', JSON.stringify(ship_payload, null, 2));
+            console.log('[FEDEX SHIP][ERROR RAW]', JSON.stringify(d, null, 2));
+
             return res.status(shipAxios.status).json({
                 ok: false,
                 error: 'Erro FedEx Ship',
                 upstream_status: shipAxios.status,
-                upstream: shipAxios.data,
+                upstream: detail,
+                request_echo: ship_payload,
             });
         }
 
-        const shipResp = shipAxios.data;
+        // === SUCESSO ===
+        const shipResp = shipAxios.data || {};
 
-        // Extrai tracking/labels (se disponível). Muitos ambientes FedEx retornam URL ao invés de base64.
-        const tx = pick(shipResp, 'output.transactionShipments', []) || [];
-        const firstTx = tx[0] || {};
-        const masterTracking = pick(firstTx, 'masterTrackingNumber') || null;
-        const piece = (pick(firstTx, 'pieceResponses', []) || [])[0] || {};
-        const trackingNumber = masterTracking || piece.trackingNumber || null;
+        // A FedEx costuma retornar em output.transactionShipments
+        const txShipments = get(shipResp, 'output.transactionShipments', []);
+        const firstTx = txShipments[0] || {};
 
-        const docs1 = pick(piece, 'packageDocuments', []) || [];
-        const docs2 = pick(firstTx, 'packageDocuments', []) || [];
-        const docs = [].concat(docs1, docs2).filter(Boolean);
-        const labelUrls = docs.filter((d) => d && d.url).map((d) => d.url);
+        // tracking (às vezes vem em masterTrackingNumber, às vezes em pieceResponses[i].trackingNumber)
+        const masterTracking = get(firstTx, 'masterTrackingNumber', null);
+        const pieceResponses = get(firstTx, 'pieceResponses', []);
+        const firstPiece = pieceResponses[0] || {};
+        const trackingNumber = masterTracking || get(firstPiece, 'trackingNumber', null);
 
-        // Anexa no pedido (histórico)
+        // documentos podem aparecer em vários lugares
+        const packageDocs1 = get(firstPiece, 'packageDocuments', []);
+        const packageDocs2 = get(firstTx, 'packageDocuments', []);
+        const shipmentDocs = get(firstTx, 'shipmentDocuments', []); // alguns ambientes usam este
+
+        const allDocs = []
+            .concat(toArr(packageDocs1))
+            .concat(toArr(packageDocs2))
+            .concat(toArr(shipmentDocs));
+
+        const labelUrls = collectDocUrls(allDocs);
+
+        // Atualiza pedido na cotação
         const pedidoOld = cotacao.pedido || {};
         const pedidoNew = { ...pedidoOld, ship_request: ship_payload, ship_response: shipResp };
 
@@ -339,7 +419,7 @@ async function shipFedex(req, res) {
             pedido: pedidoNew,
             tracking_number: trackingNumber || cotacao.tracking_number || null,
             carrier: 'FEDEX',
-            // status_norm: 'CRIADO' // não altera aqui; o seu cron/endpoint de tracking fará a transição segura
+            // status_norm: 'CRIADO' — deixe o cron/endpoint de tracking mover estado com segurança
         });
 
         return res.status(200).json({
@@ -349,10 +429,31 @@ async function shipFedex(req, res) {
             pedido_ref,
             tracking_number: trackingNumber,
             labels: labelUrls,
+            raw: {
+                transactionId: shipResp.transactionId || null,
+            },
         });
     } catch (err) {
-        console.error('[FEDEX shipFedex][ERROR]', err?.message || err);
-        return res.status(500).json({ ok: false, error: 'Erro ao emitir envio FedEx' });
+        const ax = err || {};
+        const net = ax.isAxiosError ? {
+            code: ax.code,
+            errno: ax.errno,
+            syscall: ax.syscall,
+            message: ax.message,
+        } : null;
+
+        console.error('[FEDEX shipFedex][FATAL]', err?.stack || err?.message || err, {
+            net,
+            shipUrl: require('../config/fedex').ship
+        });
+
+        return res.status(500).json({
+            ok: false,
+            error: 'Erro ao emitir envio FedEx',
+            detail: err?.message || null,
+            net,
+            shipUrl: require('../config/fedex').ship
+        });
     }
 }
 

@@ -3,6 +3,13 @@ const express = require('express');
 const app = express();
 const dotenv = require('dotenv');
 dotenv.config();
+const fedexCfg = require('./config/fedex'); // <--- ADICIONE
+console.log('[FEDEX CFG][BOOT]', {
+  AMBIENTE: process.env.FEDEX_AMBIENTE,
+  base: fedexCfg.base,
+  oauth: fedexCfg.oauth,
+  ship: fedexCfg.ship,
+});
 const db = require('./models/index.js');
 const cors = require('cors');
 const path = require('path');

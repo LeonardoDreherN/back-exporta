@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const { autenticarUsuario } = require('../middleware/auth');
 const ctrl = require('../controller/fedexCotacaoController');
+const cfgFedex = require('../config/fedex')
 
 const router = express.Router();
 
@@ -30,5 +31,16 @@ router.options('/ship', corsOpts, (_req, res) => res.sendStatus(204));
 // Rotas
 router.post('/rate', corsOpts, autenticarUsuario, ctrl.createCotacaoRealFedex);
 router.post('/ship', corsOpts, autenticarUsuario, ctrl.shipFedex);
+
+router.get('/_debug/fedex', (req, res) => {
+    res.json({
+        AMBIENTE: process.env.FEDEX_AMBIENTE,
+        base: fedexCfg.base,
+        oauth: fedexCfg.oauth,
+        ship: fedexCfg.ship,
+        clientId_set: !!fedexCfg.clientId,
+        accountNumber: fedexCfg.accountNumber || '(none)'
+    });
+});
 
 module.exports = router;
