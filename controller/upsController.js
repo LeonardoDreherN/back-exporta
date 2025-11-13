@@ -4,6 +4,7 @@ const shipping = require('../services/ups/shipping'); // (não usado aqui, mas m
 const tracking = require('../services/ups/tracking');
 const axios = require('axios');
 const { Cotacao } = require('../models');
+const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
 
 // ====== CONFIG ======
 const UPS_BASE = process.env.UPS_BASE_URL_PROD || 'https://onlinetools.ups.com';
@@ -963,47 +964,43 @@ module.exports = {
             const cotacaoId = req.body?.cotacaoId || req.query?.cotacaoId || null;
             if (cotacaoId) {
                 try {
-                    const patch = {};
+                    const row = await Cotacao.findByPk(cotacaoId);
+                    if (!row) {
+                        console.warn('[UPS/SHIP] Cotação não encontrada para salvar anexos:', cotacaoId);
+                    } else {
+                        const patch = {};
 
-                    // tracking
-                    if (Array.isArray(out.trackingNumbers) && out.trackingNumbers[0]) {
-                        patch.tracking_number = out.trackingNumbers[0];
-                    }
+                        // tracking
+                        if (Array.isArray(out.trackingNumbers) && out.trackingNumbers[0]) {
+                            patch.tracking_number = out.trackingNumbers[0];
+                        }
 
-                    // label
-                    if (out.label?.b64 && out.label?.type) {
-                        patch.etiqueta_base64 = out.label.b64;
-                        patch.etiqueta_mime = labelTypeToMime(out.label.type);
-                    } else if (out.label?.href) {
-                        // se a UPS devolver URL (raro), guarda a URL no campo base64 só para não perder
-                        patch.etiqueta_base64 = out.label.href;
-                        patch.etiqueta_mime = 'text/uri-list';
-                    }
-
-                    // invoice (PDF)
-                    if (out.invoice?.b64) {
-                        patch.invoice_base64 = out.invoice.b64;
-                        patch.invoice_mime = out.invoice.mime || 'application/pdf';
-                    } else if (out.invoice?.href) {
-                        // fallback se vier URL da invoice
-                        patch.invoice_base64 = out.invoice.href;
-                        patch.invoice_mime = 'text/uri-list';
-                    }
-
-                    // NÃO mande undefined para o ORM — só atualize se tiver algo:
-                    if (Object.keys(patch).length) {
-                        const row = await Cotacao.findByPk(cotacaoId);
-                        if (row) {
+                        if (Object.keys(patch).length) {
                             await row.update(patch);
-                        } else {
-                            console.warn('[UPS/SHIP] Cotação não encontrada para salvar anexos:', cotacaoId);
+                        }
+
+                        // ===== LABEL → Supabase Storage =====
+                        if (out.label?.b64 && out.label?.type) {
+                            const mime = labelTypeToMime(out.label.type);
+                            console.log('[UPS/SHIP] salvando etiqueta no Supabase', { cotacaoId: row.id, mime });
+                            await salvarEtiquetaNaStorage(row.id, out.label.b64, mime);
+                        }
+
+                        // ===== INVOICE → Supabase Storage =====
+                        if (out.invoice?.b64) {
+                            const mime = out.invoice.mime || 'application/pdf';
+                            console.log('[UPS/SHIP] salvando invoice no Supabase', { cotacaoId: row.id, mime });
+                            await salvarInvoiceNaStorage(row.id, out.invoice.b64, mime);
                         }
                     }
                 } catch (errSave) {
-                    // não quebre a emissão se o save falhar – só logue
-                    console.error('[UPS/SHIP] Falha ao salvar label/invoice na Cotacao', { cotacaoId, err: errSave?.message });
+                    console.error('[UPS/SHIP] Falha ao salvar label/invoice na Cotacao', {
+                        cotacaoId,
+                        err: errSave?.message,
+                    });
                 }
             }
+
 
             return res.status(200).json({ ...out, tookMs: Date.now() - t0 });
         } catch (err) {

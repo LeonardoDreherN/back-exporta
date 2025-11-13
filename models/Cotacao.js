@@ -22,6 +22,12 @@ module.exports = (sequelize) => {
         invoice_base64: { type: DataTypes.TEXT, allowNull: true },
         invoice_mime: { type: DataTypes.STRING(32), allowNull: true }, // ex.: 'application/pdf'
 
+        etiqueta_path: { type: DataTypes.STRING, allowNull: true }, // ex: 'cotacoes/123/label-xxx.pdf'
+        etiqueta_created_at: { type: DataTypes.DATE, allowNull: true },
+
+        invoice_path: { type: DataTypes.STRING, allowNull: true },  // ex: 'cotacoes/123/invoice-yyy.pdf'
+        invoice_created_at: { type: DataTypes.DATE, allowNull: true },
+
         // um tracking principal por cotação (se tiver multi-pacote, você pode guardar o master)
         tracking_number: { type: DataTypes.STRING(64), allowNull: true },
         status_norm: {

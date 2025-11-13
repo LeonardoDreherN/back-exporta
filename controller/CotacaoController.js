@@ -9,6 +9,15 @@ const { cotarCarrier } = require('../services/carriers');
 const { sse } = require('../server'); // usa a mesma instância criada no app.js
 const { extractUpsBreakdown, extractFromRawUps } = require('../utils/extractUpsBreakdown');
 const { base } = require('../config/ups');
+const { createClient } = require('@supabase/supabase-js');
+
+const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+)
+
+const LABELS_BUCKET = 'labels';
+const INVOICES_BUCKET = 'invoices';
 
 const up = (s) => (typeof s === 'string' ? s.toUpperCase() : s);
 
@@ -23,7 +32,113 @@ function guessLabelFilename(mime = '') {
     if (mime === 'image/png') return 'label.png';
     if (mime === 'image/gif') return 'label.gif';
     if (mime === 'text/plain') return 'label.zpl';
+    if (mime === 'application/pdf') return 'label.pdf';
     return 'label.bin';
+}
+
+async function downloadFromBucket(bucket, path) {
+    const { data, error } = await supabase.storage.from(bucket).download(path);
+    if (error) throw error;
+
+    // Node pode receber Buffer, Blob ou stream
+    if (!data) {
+        throw new Error(`Supabase storage: resposta vazia para ${bucket}/${path}`);
+    }
+
+    // caso já seja Buffer
+    if (Buffer.isBuffer(data)) {
+        return data;
+    }
+
+    // Blob (tem arrayBuffer)
+    if (typeof data.arrayBuffer === 'function') {
+        const arrayBuffer = await data.arrayBuffer();
+        return Buffer.from(arrayBuffer);
+    }
+
+    // Stream async-iterable
+    if (typeof data.getReader === 'function' || data.readable) {
+        const chunks = [];
+        for await (const chunk of data) {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+        return Buffer.concat(chunks);
+    }
+
+    // fallback desesperado
+    return Buffer.from(data);
+}
+
+async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'image/png') {
+    try{
+        let b64toSave = base64;
+        if(mime === 'application/pdf'){
+            try{
+                b64toSave = await keepFirstPageFromPdfB64(base64);
+            }catch(err){
+                console.error('Erro ao extrair primeira página do PDF da etiqueta:', err);
+            }
+        }
+        const buf = Buffer.from(b64toSave, 'base64');
+        const ext = guessLabelFilename(mime)
+        const path = `cotacoes/${cotacaoId}/label-${Date.now()}.${ext}`;
+    
+        const { error } = await supabase
+            .storage
+            .from(LABELS_BUCKET)
+            .upload(path, buf, { contentType: mime, upsert: false });
+    
+        if (error) throw error;
+    
+        await Cotacao.update(
+            {
+                etiqueta_path: path,
+                etiqueta_created_at: new Date(),
+                etiqueta_mime: mime,
+                // se quiser já ir limpando:
+                // etiqueta_base64: null,
+            },
+            { where: { id: cotacaoId } }
+        );
+    }catch(err){
+        console.error('Erro ao salvar etiqueta na storage:', err);
+    }
+}
+
+async function salvarInvoiceNaStorage(cotacaoId, base64, mime = 'application/pdf') {
+    try{
+        let b64toSave = base64;
+        if(mime === 'application/pdf'){
+            try{
+                b64toSave = await keepFirstPageFromPdfB64(base64);
+            }catch(err){
+                console.error('Erro ao extrair primeira página do PDF da invoice:', err);
+            }
+        }
+        const buf = Buffer.from(b64toSave, 'base64');
+        const ext = guessLabelFilename(mime)
+        const path = `cotacoes/${cotacaoId}/invoice-${Date.now()}.${ext}`;
+    
+        const { error } = await supabase
+            .storage
+            .from(INVOICES_BUCKET)
+            .upload(path, buf, { contentType: mime, upsert: false });
+    
+        if (error) throw error;
+    
+        await Cotacao.update(
+            {
+                invoice_path: path,
+                invoice_created_at: new Date(),
+                invoice_mime: mime,
+                // se quiser já ir limpando:
+                // invoice_base64: null,
+            },
+            { where: { id: cotacaoId } }
+        );
+    }catch(err){
+        console.error('Erro ao salvar invoice na storage:', err);
+    }
 }
 
 function toNumSafe(v) {
@@ -75,32 +190,69 @@ function inferFonteBase(carrierResp, overrideUsado) {
 async function downloadEtiqueta(req, res) {
     const id = req.params.id;
     const row = await Cotacao.findByPk(id);
-    if (!row || !row.etiqueta_base64) return res.status(404).json({ error: 'Etiqueta não disponível' });
 
-    const mime = row.etiqueta_mime || 'application/octet-stream';
-    const buf = Buffer.from(row.etiqueta_base64, 'base64');
-    res.setHeader('Content-Type', mime);
-    res.setHeader('Content-Length', buf.length);
-    res.setHeader('Content-Disposition', `attachment; filename="${guessLabelFilename(mime)}"`);
-    return res.send(buf);
+    if (!row) {
+        return res.status(404).json({ error: 'Etiqueta não disponível' });
+    }
+
+    try {
+        let buf;
+        const mime = row.etiqueta_mime || 'image/png';
+
+        if (row.etiqueta_path) {
+            // [NEW] baixa do Supabase Storage
+            buf = await downloadFromBucket(LABELS_BUCKET, row.etiqueta_path);
+        } else if (row.etiqueta_base64) {
+            // [LEGACY] ainda usa o base64 se não tiver path
+            buf = Buffer.from(row.etiqueta_base64, 'base64');
+        } else {
+            return res.status(404).json({ error: 'Etiqueta não disponível' });
+        }
+
+        res.setHeader('Content-Type', mime);
+        res.setHeader('Content-Length', buf.length);
+        res.setHeader('Content-Disposition', `attachment; filename="${guessLabelFilename(mime)}"`);
+        return res.send(buf);
+    } catch (err) {
+        console.error('[DOWNLOAD ETIQUETA][ERROR]', err);
+        return res.status(500).json({ error: 'Erro ao baixar etiqueta' });
+    }
 }
 
 async function downloadInvoice(req, res) {
     const id = req.params.id;
     const row = await Cotacao.findByPk(id);
-    if (!row || !row.invoice_base64) return res.status(404).json({ error: 'Invoice não disponível' });
 
-    const mime = row.invoice_mime || 'application/pdf';
-    let b64 = row.invoice_base64;
-    if (mime === 'application/pdf') {
-        b64 = await keepFirstPageFromPdfB64(b64);
+    if (!row) {
+        return res.status(404).json({ error: 'Invoice não disponível' });
     }
 
-    const buf = Buffer.from(b64, 'base64');
-    res.setHeader('Content-Type', mime);
-    res.setHeader('Content-Length', buf.length);
-    res.setHeader('Content-Disposition', 'attachment; filename="invoice.pdf"');
-    return res.send(buf);
+    try {
+        let buf;
+        const mime = row.invoice_mime || 'application/pdf';
+
+        if (row.invoice_path) {
+            // [NEW] baixa direto do Supabase Storage
+            buf = await downloadFromBucket(INVOICES_BUCKET, row.invoice_path);
+        } else if (row.invoice_base64) {
+            // [LEGACY] mantém lógica antiga enquanto ainda existir base64
+            let b64 = row.invoice_base64;
+            if (mime === 'application/pdf') {
+                b64 = await keepFirstPageFromPdfB64(b64);
+            }
+            buf = Buffer.from(b64, 'base64');
+        } else {
+            return res.status(404).json({ error: 'Invoice não disponível' });
+        }
+
+        res.setHeader('Content-Type', mime);
+        res.setHeader('Content-Length', buf.length);
+        res.setHeader('Content-Disposition', 'attachment; filename="invoice.pdf"');
+        return res.send(buf);
+    } catch (err) {
+        console.error('[DOWNLOAD INVOICE][ERROR]', err);
+        return res.status(500).json({ error: 'Erro ao baixar invoice' });
+    }
 }
 
 async function createCotacaoReal(req, res) {
@@ -358,28 +510,60 @@ async function createCotacaoReal(req, res) {
 async function attachDocs(req, res) {
     try {
         const { id } = req.params;
-        const { etiqueta_base64, etiqueta_mime, invoice_base64, invoice_mime, tracking_number, carrier } = req.body || {};
+        const {
+            etiqueta_base64,
+            etiqueta_mime,
+            invoice_base64,
+            invoice_mime,
+            tracking_number,
+            carrier,
+        } = req.body || {};
+
         const cot = await Cotacao.findByPk(id);
-        if (!cot) return res.status(404).json({ ok: false, error: 'Cotação não encontrada' });
+        if (!cot) {
+            return res.status(404).json({ ok: false, error: 'Cotação não encontrada' });
+        }
 
+        // Atualiza só campos "simples" direto na tabela
         const patch = {};
-        if (typeof etiqueta_base64 === 'string') patch.etiqueta_base64 = etiqueta_base64;
-        if (typeof etiqueta_mime === 'string') patch.etiqueta_mime = etiqueta_mime;
-        if (typeof invoice_base64 === 'string') patch.invoice_base64 = invoice_base64;
-        if (typeof invoice_mime === 'string') patch.invoice_mime = invoice_mime;
-        if (typeof tracking_number === 'string') patch.tracking_number = tracking_number;
-        if (typeof carrier === 'string') patch.carrier = carrier;
+        if (typeof tracking_number === 'string' && tracking_number.trim()) {
+            patch.tracking_number = tracking_number.trim();
+        }
+        if (typeof carrier === 'string' && carrier.trim()) {
+            patch.carrier = carrier.trim();
+        }
 
-        if (!Object.keys(patch).length) return res.status(400).json({ ok: false, error: 'Nada para atualizar' });
+        if (Object.keys(patch).length) {
+            await cot.update(patch);
+        }
 
-        await cot.update(patch);
+        // ===== LABEL → Supabase Storage =====
+        if (typeof etiqueta_base64 === 'string' && etiqueta_base64.trim()) {
+            const mime = typeof etiqueta_mime === 'string' && etiqueta_mime.trim()
+                ? etiqueta_mime.trim()
+                : 'application/pdf';
+
+            await salvarEtiquetaNaStorage(cot.id, etiqueta_base64, mime);
+        }
+
+        // ===== INVOICE → Supabase Storage =====
+        if (typeof invoice_base64 === 'string' && invoice_base64.trim()) {
+            const mime = typeof invoice_mime === 'string' && invoice_mime.trim()
+                ? invoice_mime.trim()
+                : 'application/pdf';
+
+            await salvarInvoiceNaStorage(cot.id, invoice_base64, mime);
+        }
+
+        // recarrega a cotação pra pegar paths atualizados
+        await cot.reload();
 
         return res.json({
             ok: true,
             cotacao_id: cot.id,
             tracking_number: cot.tracking_number || null,
-            has_label: !!cot.etiqueta_base64,
-            has_invoice: !!cot.invoice_base64,
+            has_label: !!cot.etiqueta_path || !!cot.etiqueta_base64,
+            has_invoice: !!cot.invoice_path || !!cot.invoice_base64,
         });
     } catch (err) {
         console.error('attachDocs error:', err);
@@ -462,8 +646,14 @@ async function listCotacoes(req, res) {
             attributes: {
                 exclude: ['etiqueta_base64', 'invoice_base64'],
                 include: [
-                    [literal(`COALESCE(etiqueta_base64, '') <> ''`), 'has_label'],
-                    [literal(`COALESCE(invoice_base64, '') <> ''`), 'has_invoice'],
+                    [
+                        literal(`(COALESCE(etiqueta_base64, '') <> '' OR COALESCE(etiqueta_path, '') <> '')`),
+                        'has_label'
+                    ],
+                    [
+                        literal(`(COALESCE(invoice_base64, '') <> '' OR COALESCE(invoice_path, '') <> '')`),
+                        'has_invoice'
+                    ],
                     'status_norm',
                     'last_tracking_at',
                 ],
@@ -683,15 +873,15 @@ async function getCotacaoDetails(req, res) {
 
         return res.json({
             ok: true,
-            data: { 
-                id: cot.id, 
-                pedido_ref: cot.pedido_ref, 
-                currency, 
-                base, 
-                total, 
+            data: {
+                id: cot.id,
+                pedido_ref: cot.pedido_ref,
+                currency,
+                base,
+                total,
                 compare_total,
-                serviceOptions: svc || undefined, 
-                itemized 
+                serviceOptions: svc || undefined,
+                itemized
             },
         });
     } catch (err) {
@@ -711,5 +901,7 @@ module.exports = {
     downloadInvoice,
     keepFirstPageFromPdfB64,
     getCotacaoStatusByPedidoRef,
-    getCotacaoDetails
+    getCotacaoDetails,
+    salvarEtiquetaNaStorage,
+    salvarInvoiceNaStorage,
 };
