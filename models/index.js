@@ -11,15 +11,20 @@ const ShipmentModel = require('./Shipment.js');
 require('dotenv/config');
 
 // Inicializa Sequelize
+console.log('SUPABASE_DB_URL EM USO:', process.env.SUPABASE_DB_URL);
 const sequelize = new Sequelize(
-  process.env.DB_NAME,
-  process.env.DB_USER,
-  String(process.env.DB_PASS),
+  process.env.SUPABASE_DB_URL,
   {
-    host: process.env.DB_HOST,
     dialect: 'postgres',
     logging: false,
-    port: Number(process.env.DB_PORT) || 5432 // ⚠️ use 5432 como padrão
+    pool: { min: 2, max: 10, idle: 10000, acquire: 30000 },
+    port: Number(process.env.DB_PORT) || 5432, // ⚠️ use 5432 como padrão
+    dialectOptions: {
+      ssl: {
+        require: true,
+        rejectUnauthorized: false,
+      },
+    },
   }
 );
 
@@ -30,11 +35,11 @@ const db = {
   Cliente: ClienteModel(sequelize),
   Caixa: CaixaModel(sequelize),
   Produto: ProdutoModel(sequelize),
-  Shop: ShopModel(sequelize),
-  InfoShopify: InfoShopifyModel(sequelize),
+  // Shop: ShopModel(sequelize),
+  // InfoShopify: InfoShopifyModel(sequelize),
   Cotacao: CotacaoModel(sequelize),
   PedidoImport: PedidoImportModel(sequelize),
-  Shipment: ShipmentModel(sequelize),
+  // Shipment: ShipmentModel(sequelize),
 };
 
 module.exports = db;

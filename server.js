@@ -333,11 +333,17 @@ app.use(errorHandler);
 // Start
 db.sequelize.sync()
   .then(() => {
-    app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
-    console.log(cfg.ship)
+    console.log('Banco sincronizado: ', PORT)
+    app.listen(PORT, () => {
+      console.log(`Servidor rodando na porta ${PORT}`);
+    });
   })
-  .catch((err) => {
-    console.error('Erro ao sincronizar com o banco:', err);
+  .catch(err => {
+    if (err.parent?.code === '42P07') {
+      console.warn('Índice caixas_cliente_cod_uq já existia, seguindo mesmo assim.');
+    } else {
+      console.error('Erro ao sincronizar com o banco:', err);
+    }
   });
 
 module.exports = { app };
