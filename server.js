@@ -22,7 +22,7 @@ const { autenticarUsuario, vincularCliente, autenticarShopify, csrfRequired } = 
 const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js');
 const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require('./controller/ClientesController.js');
 const { verProdutosLojaShopify, registrarLojaShopify } = require('./controller/ShopifyController.js');
-const { comLoja, garantirInstalada, getAccessTokenForShop } = require('./middleware/shopifyAuth.js');
+// const { comLoja, garantirInstalada, getAccessTokenForShop } = require('./middleware/shopifyAuth.js');
 const { importPedidos, listPedidos } = require('./controller/PedidoImportController.js');
 const cron = require('node-cron');
 const { pool } = require('./jobs/poolTracking.js');
@@ -30,7 +30,7 @@ const { pool } = require('./jobs/poolTracking.js');
 cron.schedule('*/15 * * * *', pool)
 
 // Módulo de rotas da Shopify (inclui auth/conexao/produtos + upload-minimal + find)
-const shopifyModule = require('./routes/shopifyRoutes.js');
+// const shopifyModule = require('./routes/shopifyRoutes.js');
 const upsRoutes = require('./routes/upsRoutes.js');
 const sse = require('./routes/SSE.js');
 
@@ -58,14 +58,14 @@ app.use(cors({
 
 const PORT = process.env.PORT || 3001;
 
-app.use((req, res, next) => {
-  res.setHeader(
-    'Content-Security-Policy',
-    "frame-ancestors https://admin.shopify.com https://*.myshopify.com https://*.shopify.com;"
-  );
-  res.removeHeader('X-Frame-Options');
-  next();
-});
+// app.use((req, res, next) => {
+//   res.setHeader(
+//     'Content-Security-Policy',
+//     "frame-ancestors https://admin.shopify.com https://*.myshopify.com https://*.shopify.com;"
+//   );
+//   res.removeHeader('X-Frame-Options');
+//   next();
+// });
 
 // Polyfill fetch (Node < 18)
 if (typeof fetch === 'undefined') {
@@ -96,105 +96,105 @@ applySecurity(app);
 applyLogging(app);
 
 // Monta TODAS as rotas da Shopify sob /shopify (NÃO duplicar)
-app.use('/shopify', shopifyModule);
+// app.use('/shopify', shopifyModule);
 app.use('/api/ups', upsRoutes);
 
 // Saúde
 app.get('/health', (_, res) => res.send('ok'));
 
 // --- Rota raiz (embedded landing com App Bridge) ---
-const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
-app.get('/', (req, res) => {
-  res.type('html').send(`<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>appTest</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
-  <style>
-    html,body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif}
-    #root{padding:24px}
-    .muted{color:#6b7280}
-  </style>
-</head>
-<body>
-  <div id="root">Carregando…</div>
+// const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
+// app.get('/', (req, res) => {
+//   res.type('html').send(`<!doctype html>
+// <html>
+// <head>
+//   <meta charset="utf-8" />
+//   <title>appTest</title>
+//   <meta name="viewport" content="width=device-width, initial-scale=1" />
+//   <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+//   <style>
+//     html,body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif}
+//     #root{padding:24px}
+//     .muted{color:#6b7280}
+//   </style>
+// </head>
+// <body>
+//   <div id="root">Carregando…</div>
 
-  <script>
-  (function () {
-    function shopFromHost(host) {
-      try {
-        var dec = atob(host || '');
-        var m = dec.match(/store\\/([a-z0-9-]+)/i);
-        if (m) return (m[1].toLowerCase() + '.myshopify.com');
-      } catch {}
-      return null;
-    }
+//   <script>
+//   (function () {
+//     function shopFromHost(host) {
+//       try {
+//         var dec = atob(host || '');
+//         var m = dec.match(/store\\/([a-z0-9-]+)/i);
+//         if (m) return (m[1].toLowerCase() + '.myshopify.com');
+//       } catch {}
+//       return null;
+//     }
 
-    (async function () {
-      // Limpa parâmetros sensíveis
-      (function () {
-        var p = new URLSearchParams(location.search);
-        ['hmac','timestamp','code','state','session'].forEach(function(k){ p.delete(k); });
-        if (location.search.indexOf('hmac=') !== -1) {
-          history.replaceState({}, '', location.pathname + (p.toString() ? '?' + p.toString() : ''));
-        }
-      })();
+//     (async function () {
+//       // Limpa parâmetros sensíveis
+//       (function () {
+//         var p = new URLSearchParams(location.search);
+//         ['hmac','timestamp','code','state','session'].forEach(function(k){ p.delete(k); });
+//         if (location.search.indexOf('hmac=') !== -1) {
+//           history.replaceState({}, '', location.pathname + (p.toString() ? '?' + p.toString() : ''));
+//         }
+//       })();
 
-      var params = new URLSearchParams(location.search);
-      var host = params.get('host');
-      var shop = params.get('shop') || (host ? shopFromHost(host) : null);
+//       var params = new URLSearchParams(location.search);
+//       var host = params.get('host');
+//       var shop = params.get('shop') || (host ? shopFromHost(host) : null);
 
-      if (!host) {
-        // sem host -> sobe para OAuth top-level
-        window.top.location.href = location.origin + '/shopify/auth' + (shop?('?shop='+encodeURIComponent(shop)):'');
-        return;
-      }
+//       if (!host) {
+//         // sem host -> sobe para OAuth top-level
+//         window.top.location.href = location.origin + '/shopify/auth' + (shop?('?shop='+encodeURIComponent(shop)):'');
+//         return;
+//       }
 
-      var AB = window.appBridge || window['app-bridge'];
-      if (!AB || !AB.createApp) {
-        window.top.location.href = location.origin + '/shopify/auth' + (shop?('?shop='+encodeURIComponent(shop)):'');
-        return;
-      }
+//       var AB = window.appBridge || window['app-bridge'];
+//       if (!AB || !AB.createApp) {
+//         window.top.location.href = location.origin + '/shopify/auth' + (shop?('?shop='+encodeURIComponent(shop)):'');
+//         return;
+//       }
 
-      var app = AB.createApp({ apiKey: '${SHOPIFY_API_KEY}', host: host, forceRedirect: true });
-      var Redirect = AB.actions.Redirect;
+//       var app = AB.createApp({ apiKey: '${SHOPIFY_API_KEY}', host: host, forceRedirect: true });
+//       var Redirect = AB.actions.Redirect;
 
-      // Garante instalação (sem chamar outras rotas)
-      try {
-        var r = await fetch('/shopify/has-token?shop=' + encodeURIComponent(shop || ''));
-        var info = await r.json();
-        if (!info.hasToken) {
-          var target = location.origin + '/shopify/auth?shop=' + encodeURIComponent(shop) + '&host=' + encodeURIComponent(host);
-          Redirect.create(app).dispatch(Redirect.Action.REMOTE, target);
-          return;
-        }
-      } catch (e) {
-        var t = location.origin + '/shopify/auth?shop=' + encodeURIComponent(shop) + '&host=' + encodeURIComponent(host);
-        Redirect.create(app).dispatch(Redirect.Action.REMOTE, t);
-        return;
-      }
+//       // Garante instalação (sem chamar outras rotas)
+//       try {
+//         var r = await fetch('/shopify/has-token?shop=' + encodeURIComponent(shop || ''));
+//         var info = await r.json();
+//         if (!info.hasToken) {
+//           var target = location.origin + '/shopify/auth?shop=' + encodeURIComponent(shop) + '&host=' + encodeURIComponent(host);
+//           Redirect.create(app).dispatch(Redirect.Action.REMOTE, target);
+//           return;
+//         }
+//       } catch (e) {
+//         var t = location.origin + '/shopify/auth?shop=' + encodeURIComponent(shop) + '&host=' + encodeURIComponent(host);
+//         Redirect.create(app).dispatch(Redirect.Action.REMOTE, t);
+//         return;
+//       }
 
-      // Boas-vindas (nenhuma chamada ao backend)
-      var handle = (shop || '').replace(/\\.myshopify\\.com$/i,'');
-      document.getElementById('root').innerHTML =
-        '<h1>Bem-vindo(a) ao appTest</h1>' +
-        '<p class="muted">Loja: <strong>' + (handle || '—') + '</strong></p>' +
-        '<p class="muted">Seu app foi inicializado dentro do Admin (embedded).</p>' +
-        '<a href="${process.env.FRONTEND}/login" target="_top">Voltar para a Intrex</a>';
+//       // Boas-vindas (nenhuma chamada ao backend)
+//       var handle = (shop || '').replace(/\\.myshopify\\.com$/i,'');
+//       document.getElementById('root').innerHTML =
+//         '<h1>Bem-vindo(a) ao appTest</h1>' +
+//         '<p class="muted">Loja: <strong>' + (handle || '—') + '</strong></p>' +
+//         '<p class="muted">Seu app foi inicializado dentro do Admin (embedded).</p>' +
+//         '<a href="${process.env.FRONTEND}/login" target="_top">Voltar para a Intrex</a>';
 
-      // Opcional: TitleBar
-      try {
-        var TitleBar = AB.actions.TitleBar;
-        TitleBar.create(app, { title: 'appTest' });
-      } catch {}
-    })();
-  })();
-  </script>
-</body>
-</html>`);
-});
+//       // Opcional: TitleBar
+//       try {
+//         var TitleBar = AB.actions.TitleBar;
+//         TitleBar.create(app, { title: 'appTest' });
+//       } catch {}
+//     })();
+//   })();
+//   </script>
+// </body>
+// </html>`);
+// });
 
 // Debug: conferir lojas e escopos
 app.get('/_debug/shops', async (_req, res) => {
@@ -294,7 +294,7 @@ app.put('/editarProduto/:id', autenticarUsuario, csrfRequired, editarProduto);
 app.post('/conectarLoja', autenticarUsuario, vincularCliente, csrfRequired, registrarLojaShopify);
 
 // Rotas de produtos da Shopify (existentes)
-app.get('/shopify/produtos', autenticarShopify, comLoja, garantirInstalada, verProdutosLojaShopify);
+// app.get('/shopify/produtos', autenticarShopify, comLoja, garantirInstalada, verProdutosLojaShopify);
 
 // PEDIDOS (import/list)
 app.post('/import-pedidos', autenticarUsuario, vincularCliente, csrfRequired, importPedidos);
