@@ -139,6 +139,14 @@ function csrfRequired(req, res, next){
   const header = req.get('x-csrf-token');
   const cookie = req.cookies?.csrf_token;
   if (header && cookie && header === cookie) return next();
+
+  console.log('[CSRF DEBUG]', {
+    method: req.method,
+    url: req.originalUrl,
+    header,
+    cookie,
+  });
+
   return res.status(403).json({ erro: 'CSRF inválido' });
 };
 
