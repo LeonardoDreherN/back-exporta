@@ -241,6 +241,7 @@ const loginCliente = async (req, res) => {
 
         return res.json({
             mensagem: 'Login bem-sucedido',
+            csrfToken,
             cliente: {
                 id: cliente.id,
                 emailPrincipal: cliente.emailPrincipal,
