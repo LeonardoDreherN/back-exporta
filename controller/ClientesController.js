@@ -172,11 +172,12 @@ function signRefresh(payload) {
     // jti para permitir rotação/blacklist
     return jwt.sign({ jti: crypto.randomUUID(), ...payload }, jwt_refresh, { expiresIn: REFRESH_TOKEN });
 }
+const isProd = process.env.NODE_ENV === "production";
 
 const cookieBase = {
     httpOnly: true,
-    secure: false, // true em prod
-    sameSite: 'lax',
+    secure: isProd, // true em prod
+    sameSite: isProd? "none" : 'lax',
     path: '/',
 };
 
@@ -232,8 +233,8 @@ const loginCliente = async (req, res) => {
         const csrfToken = crypto.randomUUID();
         res.cookie('csrf_token', csrfToken, {
             httpOnly: false,
-            secure: false,
-            sameSite: 'lax',
+            secure: isProd,
+            sameSite: isProd ? "none" : "lax",
             path: '/',
             maxAge: REFRESH_TOKEN * 1000,
         });
