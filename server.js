@@ -302,7 +302,14 @@ app.post('/conectarLoja', autenticarUsuario, vincularCliente, csrfRequired, regi
 
 // PEDIDOS (import/list)
 // app.post('/import-pedidos', autenticarUsuario, vincularCliente, csrfRequired, importPedidos);
-app.post('/shopify/import-pedidos', autenticarShopify, vincularCliente, csrfRequired, uploadOrdersMinimal);
+app.post('/shopify/import-pedidos', autenticarShopify, vincularCliente, csrfRequired, 
+  uploadOrder.fields([{ name: 'file' }, { name: 'sku_master' }]), // <- AQUI entra o multer
+  async (req, res) => {
+    // aqui sim o req.files já vai estar preenchido
+    const payload = await uploadOrdersMinimal(req, res, /* returnOnly */ false);
+    return payload; // uploadOrdersMinimal já responde, então isso é só pra clareza
+  });
+  
 app.get('/pedidos', autenticarUsuario, vincularCliente, listPedidos);
 
 app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req, res) => {
@@ -319,6 +326,7 @@ app.use('/api/cotacoes', autenticarUsuario, vincularCliente, require('./routes/c
 app.use('/api/cotacoesFedex', require('./routes/fedexRoutes.js'))
 app.use('/api/relatorio', autenticarUsuario, vincularCliente, require('./routes/relatorioPagamentos.js'))
 const debugFedex = require('./routes/debugFedex.js');
+const { uploadOrder } = require('./middleware/shopifyAuth.js');
 app.use(debugFedex);
 
 app.use('/api/rate', require('./routes/rateMulti.js'));
