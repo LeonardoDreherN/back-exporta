@@ -298,7 +298,7 @@ app.post('/conectarLoja', autenticarUsuario, vincularCliente, csrfRequired, regi
 // app.get('/shopify/produtos', autenticarShopify, comLoja, garantirInstalada, verProdutosLojaShopify);
 
 // PEDIDOS (import/list)
-app.post('/import-pedidos', autenticarUsuario, vincularCliente, csrfRequired, importPedidos);
+// app.post('/import-pedidos', autenticarUsuario, vincularCliente, csrfRequired, importPedidos);
 app.post('/shopify/import-pedidos', autenticarShopify, vincularCliente, csrfRequired, uploadOrdersMinimal);
 app.get('/pedidos', autenticarUsuario, vincularCliente, listPedidos);
 
