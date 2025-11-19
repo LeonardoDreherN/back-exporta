@@ -62,36 +62,41 @@ function autenticarShopify(req, res, next) {
 }
 
 function autenticarUsuario(req, res, next) {
+  console.log('==================== [auth] INICIO ====================');
+  console.log('[auth] headers.authorization =', req.headers.authorization);
+  console.log('[auth] cookies =', req.cookies);
+
   const token = extrairToken(req);
-  if (!token) return res.status(401).json({ erro: "Token não fornecido" });
+  console.log('[auth] token extraído =', token ? 'OK' : 'NENHUM');
+
+  if (!token) {
+    console.log('[auth] SAINDO: Token não fornecido');
+    return res.status(401).json({ erro: "Token não fornecido" });
+  }
 
   try {
+    console.log('[auth] JWT_SECRET length =', (process.env.JWT_SECRET || '').length);
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('[auth] decoded =', decoded);
+
     const userId = decoded.userId ?? decoded.id ?? decoded.sub ?? null;
-    // se o token não tiver clienteId explícito, use o próprio userId como clienteId
     const clienteId = decoded.clienteId ?? decoded.clientId ?? decoded.cid ?? userId ?? null;
 
     if (!userId && !clienteId) {
+      console.log('[auth] SAINDO: usuário/cliente não identificado');
       return res.status(403).json({ erro: "Usuário/cliente não identificado no token" });
     }
-    const token = extrairToken(req)
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // const usuario = {
-    //   id: userId ? Number(userId) : null,
-    //   clienteId: clienteId ? Number(clienteId) : null,
-    //   email: decoded.email ?? decoded.emailPrincipal ?? null,
-    //   roles: decoded.roles ?? [],
-    //   razaoSocial: decoded.razaoSocial ?? null,
-    //   // payload: decoded, // opcional
-    // };
-
-    req.usuario = {
+    const usuario = {
       id: userId ? Number(userId) : null,
       clienteId: clienteId ? Number(clienteId) : null,
       email: decoded.email ?? decoded.emailPrincipal ?? null,
       roles: decoded.roles ?? [],
       razaoSocial: decoded.razaoSocial ?? null,
     };
+
+    req.usuario = usuario;
     req.user = {
       id: usuario.id,
       clienteId: usuario.clienteId,
@@ -100,12 +105,17 @@ function autenticarUsuario(req, res, next) {
     };
     if (req.usuario.clienteId) req.clienteId = req.usuario.clienteId;
 
+    console.log('[auth] usuario montado =', usuario);
+    console.log('==================== [auth] FIM OK ====================');
     return next();
   } catch (e) {
+    console.error('[auth] erro ao verificar token', e);
     const msg = e?.name === "TokenExpiredError" ? "Token expirado" : "Token inválido";
+    console.log('[auth] SAINDO:', msg);
     return res.status(401).json({ erro: msg });
   }
 }
+
 
 // Resolve qual é o cliente logado e injeta req.clienteId
 const vincularCliente = async (req, res, next) => {

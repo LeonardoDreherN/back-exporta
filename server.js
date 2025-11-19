@@ -242,15 +242,18 @@ app.get('/verClientes', verClientes);
 app.get('/verClienteAtual', autenticarUsuario, verClienteAtual);
 
 app.get('/me', autenticarUsuario, async (req, res) => {
-  const u = req.usuario;
-  // Se quiser buscar a razão social do cliente no DB:
-  // const cliente = await db.Cliente.findByPk(u.clienteId);
+  const u = req.usuario || req.user;
+
+  if (!u) {
+    return res.status(401).json({ erro: 'Não autenticado' });
+  }
+
   return res.json({
-    id: u.id,
-    email: u.email,
-    clienteId: u.clienteId,
+    id: u.id ?? u.clienteId ?? null,
+    email: u.email ?? null,
+    clienteId: u.clienteId ?? null,
     roles: u.roles || [],
-    razaoSocial: u.razaoSocial, // ou cliente?.razaoSocial
+    razaoSocial: u.razaoSocial ?? null,
   });
 });
 app.post('/auth/refresh', refresh)
