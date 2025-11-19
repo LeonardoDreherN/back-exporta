@@ -25,6 +25,7 @@ const { verProdutosLojaShopify, registrarLojaShopify } = require('./controller/S
 // const { comLoja, garantirInstalada, getAccessTokenForShop } = require('./middleware/shopifyAuth.js');
 const { importPedidos, listPedidos } = require('./controller/PedidoImportController.js');
 const { uploadOrdersMinimal } = require('./controller/pedidosMinimalController.js');
+const { uploadOrder } = require('./middleware/shopifyAuth.js');
 const cron = require('node-cron');
 const { pool } = require('./jobs/poolTracking.js');
 
@@ -309,7 +310,7 @@ app.post('/shopify/import-pedidos', autenticarShopify, vincularCliente, csrfRequ
     const payload = await uploadOrdersMinimal(req, res, /* returnOnly */ false);
     return payload; // uploadOrdersMinimal já responde, então isso é só pra clareza
   });
-  
+
 app.get('/pedidos', autenticarUsuario, vincularCliente, listPedidos);
 
 app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req, res) => {
@@ -326,7 +327,6 @@ app.use('/api/cotacoes', autenticarUsuario, vincularCliente, require('./routes/c
 app.use('/api/cotacoesFedex', require('./routes/fedexRoutes.js'))
 app.use('/api/relatorio', autenticarUsuario, vincularCliente, require('./routes/relatorioPagamentos.js'))
 const debugFedex = require('./routes/debugFedex.js');
-const { uploadOrder } = require('./middleware/shopifyAuth.js');
 app.use(debugFedex);
 
 app.use('/api/rate', require('./routes/rateMulti.js'));
