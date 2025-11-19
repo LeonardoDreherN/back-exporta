@@ -172,12 +172,12 @@ function signRefresh(payload) {
     // jti para permitir rotação/blacklist
     return jwt.sign({ jti: crypto.randomUUID(), ...payload }, jwt_refresh, { expiresIn: REFRESH_TOKEN });
 }
-const isProd = process.env.NODE_ENV === "production";
+const isProd = process.env.NODE_ENV;
 
 const cookieBase = {
     httpOnly: true,
-    secure: isProd, // true em prod
     sameSite: isProd ? "none" : 'lax',
+    secure: isProd, // true em prod
     path: '/',
 };
 
