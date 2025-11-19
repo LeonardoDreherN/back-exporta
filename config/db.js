@@ -30,7 +30,7 @@ const sequelize = new Sequelize(
   {
     dialect: 'postgres',
     logging: false,
-    pool: { min: 2, max: 10, idle: 10000, acquire: 30000 },
+    pool: { min: 2, max: 4, idle: 10000, acquire: 30000 },
     port: Number(process.env.DB_PORT) || 5432, // ⚠️ use 5432 como padrão
     dialectOptions: {
       ssl: {
