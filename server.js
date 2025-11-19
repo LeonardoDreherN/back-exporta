@@ -299,7 +299,7 @@ app.post('/conectarLoja', autenticarUsuario, vincularCliente, csrfRequired, regi
 
 // PEDIDOS (import/list)
 app.post('/import-pedidos', autenticarUsuario, vincularCliente, csrfRequired, importPedidos);
-router.post('/shopify/import-pedidos', autenticarShopify, vincularCliente, csrfRequired, uploadOrdersMinimal);
+app.post('/shopify/import-pedidos', autenticarShopify, vincularCliente, csrfRequired, uploadOrdersMinimal);
 app.get('/pedidos', autenticarUsuario, vincularCliente, listPedidos);
 
 app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req, res) => {
