@@ -5,7 +5,7 @@ const db = require("../models");
 function extrairToken(req) {
   if (req.cookies?.token) return req.cookies.token;
   if (req.cookies?.access_token) return req.cookies.access_token;
-  
+
   // 1) Authorization: Bearer xxx
   const auth = req.headers.authorization || "";
   const m = auth.match(/^Bearer\s+(.+)$/i);
@@ -66,8 +66,6 @@ function autenticarUsuario(req, res, next) {
   if (!token) return res.status(401).json({ erro: "Token não fornecido" });
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
     const userId = decoded.userId ?? decoded.id ?? decoded.sub ?? null;
     // se o token não tiver clienteId explícito, use o próprio userId como clienteId
     const clienteId = decoded.clienteId ?? decoded.clientId ?? decoded.cid ?? userId ?? null;
@@ -75,25 +73,31 @@ function autenticarUsuario(req, res, next) {
     if (!userId && !clienteId) {
       return res.status(403).json({ erro: "Usuário/cliente não identificado no token" });
     }
+    const token = extrairToken(req)
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const usuario = {
+    // const usuario = {
+    //   id: userId ? Number(userId) : null,
+    //   clienteId: clienteId ? Number(clienteId) : null,
+    //   email: decoded.email ?? decoded.emailPrincipal ?? null,
+    //   roles: decoded.roles ?? [],
+    //   razaoSocial: decoded.razaoSocial ?? null,
+    //   // payload: decoded, // opcional
+    // };
+
+    req.usuario = {
       id: userId ? Number(userId) : null,
       clienteId: clienteId ? Number(clienteId) : null,
       email: decoded.email ?? decoded.emailPrincipal ?? null,
       roles: decoded.roles ?? [],
       razaoSocial: decoded.razaoSocial ?? null,
-      // payload: decoded, // opcional
     };
-
-    req.usuario = usuario;
-    // Compatibilidade com trechos que usam req.user
     req.user = {
       id: usuario.id,
       clienteId: usuario.clienteId,
       email: usuario.email,
       roles: usuario.roles,
     };
-
     if (req.usuario.clienteId) req.clienteId = req.usuario.clienteId;
 
     return next();
@@ -133,7 +137,7 @@ const vincularCliente = async (req, res, next) => {
   }
 };
 
-function csrfRequired(req, res, next){
+function csrfRequired(req, res, next) {
   // Só exige em métodos que mudam estado
   if (!/^(POST|PUT|PATCH|DELETE)$/i.test(req.method)) return next();
   const header = req.get('x-csrf-token');
