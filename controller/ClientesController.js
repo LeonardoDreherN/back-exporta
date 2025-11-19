@@ -176,8 +176,8 @@ const isProd = process.env.NODE_ENV;
 
 const cookieBase = {
     httpOnly: true,
-    sameSite: isProd ? "none" : 'lax',
     secure: isProd, // true em prod
+    sameSite: isProd ? "none" : 'lax',
     path: '/',
 };
 
@@ -250,6 +250,7 @@ const loginCliente = async (req, res) => {
         return res.json({
             mensagem: 'Login bem-sucedido',
             csrfToken,
+            accessToken: access,
             cliente: {
                 id: cliente.id,
                 emailPrincipal: cliente.emailPrincipal,
