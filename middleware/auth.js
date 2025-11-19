@@ -121,8 +121,8 @@ function autenticarUsuario(req, res, next) {
 const vincularCliente = async (req, res, next) => {
   try {
     // 1) Se o token já trouxer clienteId, use-o
-    if (req.usuario?.clienteId) {
-      req.clienteId = Number(req.usuario.clienteId);
+    if (req.clienteId) {
+      req.clienteId = Number(req.clienteId);
       return next();
     }
 
