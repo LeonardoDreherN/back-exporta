@@ -22,7 +22,6 @@ const { autenticarUsuario, vincularCliente, autenticarShopify, csrfRequired } = 
 const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js');
 const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require('./controller/ClientesController.js');
 const { verProdutosLojaShopify, registrarLojaShopify } = require('./controller/ShopifyController.js');
-// const { comLoja, garantirInstalada, getAccessTokenForShop } = require('./middleware/shopifyAuth.js');
 const { importPedidos, listPedidos } = require('./controller/PedidoImportController.js');
 const { uploadOrdersMinimal } = require('./controller/pedidosMinimalController.js');
 const { uploadOrder } = require('./middleware/shopifyAuth.js');
