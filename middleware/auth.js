@@ -87,7 +87,9 @@ function autenticarUsuario(req, res, next) {
       console.log('[auth] SAINDO: usuário/cliente não identificado');
       return res.status(403).json({ erro: "Usuário/cliente não identificado no token" });
     }
-
+    
+    const roles = decoded.roles ?? decoded.scope ?? null
+    
     const usuario = {
       id: userId ? Number(userId) : null,
       clienteId: clienteId ? Number(clienteId) : null,
@@ -95,6 +97,7 @@ function autenticarUsuario(req, res, next) {
       roles: decoded.roles ?? [],
       razaoSocial: decoded.razaoSocial ?? null,
     };
+
 
     req.usuario = usuario;
     req.user = {

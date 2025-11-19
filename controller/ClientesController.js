@@ -177,7 +177,7 @@ const isProd = process.env.NODE_ENV === "production";
 const cookieBase = {
     httpOnly: true,
     secure: isProd, // true em prod
-    sameSite: isProd? "none" : 'lax',
+    sameSite: isProd ? "none" : 'lax',
     path: '/',
 };
 
@@ -213,12 +213,20 @@ const loginCliente = async (req, res) => {
 
         if (!ok) return res.status(401).json({ erro: 'Credenciais inválidas' });
 
+        const baseRoles = Array.isArray(cliente.roles) && cliente.roles.length
+            ? cliente.roles
+            : ['cliente'];
+
         const payload = {
             sub: cliente.id,
             id: cliente.id,
             clienteId: cliente.id,
+
+            email: cliente.emailPrincipal,
             emailPrincipal: cliente.emailPrincipal,
             razaoSocial: cliente.razaoSocial,
+
+            roles: baseRoles,
             scope: ['user'],
         };
 
