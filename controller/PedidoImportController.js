@@ -405,6 +405,8 @@ async function enrichPedidosWithProdutos(pedidos, cliente_id) {
 
 // ---------- NOVO: função reutilizável para importar ----------
 async function importPedidosInternal(cliente_id, linhas) {
+    console.log('[importPedidosInternal] cliente_id =', cliente_id, 'linhas =', Array.isArray(linhas) ? linhas.length : 'NÃO É ARRAY');
+
     if (!cliente_id) throw new Error("cliente_id obrigatório");
     if (!Array.isArray(linhas) || !linhas.length) return { created: 0, updated: 0, grouped_orders: 0 };
 
@@ -418,7 +420,11 @@ async function importPedidosInternal(cliente_id, linhas) {
     } else {
         // 🔧 Caso CSV, agrupa por id/orderId
         pedidos = groupRowsByOrder(linhas);
+        console.log('[importPedidosInternal] usando groupRowsByOrder');
     }
+
+    console.log('[importPedidosInternal] pedidos agrupados =', pedidos.length);
+    if (pedidos[0]) console.log('[importPedidosInternal] primeiro pedido =', pedidos[0]);
 
     pedidos = await enrichPedidosWithProdutos(pedidos, cliente_id);
 
@@ -448,6 +454,11 @@ async function importPedidosInternal(cliente_id, linhas) {
             // raw_json: p.raw_json,
         };
 
+        if (!payload.pedido_ref) {
+            console.warn('[importPedidosInternal] ignorando payload sem pedido_ref:', payload);
+            continue;
+        }
+
         if (setExist.has(p.pedido_ref)) {
             await PedidoImport.update(payload, { where: { cliente_id, pedido_ref: p.pedido_ref } });
             updated++;
@@ -456,6 +467,8 @@ async function importPedidosInternal(cliente_id, linhas) {
             created++;
         }
     }
+
+    console.log('[importPedidosInternal] FIM: created =', created, 'updated =', updated, 'grouped_orders =', pedidos.length);
 
     return { created, updated, grouped_orders: pedidos.length };
 }
