@@ -529,6 +529,16 @@ async function listPedidos(req, res) {
                 "itens",
             ],
         });
+        console.log('[listPedidos] rows count =', rows.length);
+
+        if (rows[0]) {
+            console.log('[listPedidos] primeiro row =', {
+                id: rows[0].id,
+                cliente_id: rows[0].cliente_id,
+                pedido_ref: rows[0].pedido_ref,
+                total: rows[0].total,
+            });
+        }
 
         return res.json({ ok: true, itens: rows, limit, offset });
     } catch (e) {
