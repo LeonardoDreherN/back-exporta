@@ -330,8 +330,18 @@ async function importPedidosInternal(cliente_id, linhas) {
     if (!cliente_id) throw new Error("cliente_id obrigatório");
     if (!Array.isArray(linhas) || !linhas.length) return { created: 0, updated: 0, grouped_orders: 0 };
 
-    let pedidos = groupRowsByOrder(linhas);
+    let pedidos;
     // ← novo: preencher categoria/hscode/descricao a partir de Produtos (por SKU)
+    if (linhas[0] && Array.isArray(linhas[0].itens)) {
+        pedidos = linhas.map(p => ({
+            ...p,
+            pedido_ref: p.pedido_ref?.toString().replace(/^#/, "") || "",
+        }));
+    } else {
+        // 🔧 Caso CSV, agrupa por id/orderId
+        pedidos = groupRowsByOrder(linhas);
+    }
+
     pedidos = await enrichPedidosWithProdutos(pedidos, cliente_id);
 
     const existentes = await PedidoImport.findAll({
@@ -362,10 +372,10 @@ async function importPedidosInternal(cliente_id, linhas) {
 
         if (setExist.has(p.pedido_ref)) {
             await PedidoImport.update(payload, { where: { cliente_id, pedido_ref: p.pedido_ref } });
-            updated;
+            updated++;
         } else {
             await PedidoImport.create(payload);
-            created;
+            created++;
         }
     }
 
