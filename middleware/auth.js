@@ -87,9 +87,9 @@ function autenticarUsuario(req, res, next) {
       console.log('[auth] SAINDO: usuário/cliente não identificado');
       return res.status(403).json({ erro: "Usuário/cliente não identificado no token" });
     }
-    
+
     const roles = decoded.roles ?? decoded.scope ?? null
-    
+
     const usuario = {
       id: userId ? Number(userId) : null,
       clienteId: clienteId ? Number(clienteId) : null,
@@ -151,6 +151,12 @@ const vincularCliente = async (req, res, next) => {
 };
 
 function csrfRequired(req, res, next) {
+  const auth = req.headers.authorization || '';
+  const hasBearer = /^Bearer\s+/i.test(auth);
+  if (hasBearer) {
+    return next();
+  }
+
   // Só exige em métodos que mudam estado
   if (!/^(POST|PUT|PATCH|DELETE)$/i.test(req.method)) return next();
   const header = req.get('x-csrf-token');
