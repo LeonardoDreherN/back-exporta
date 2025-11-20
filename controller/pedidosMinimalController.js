@@ -22,7 +22,9 @@ async function uploadOrdersMinimal(req, res, returnOnly = false) {
         // 3) achata em linhas mínimas (uma por item)
         const linhas = buildMinimalRows(ordersRows, skuMap);
 
-        const payload = { ok: true, linhas };
+        const importResult = await require("./PedidoImportController").importPedidosInternal(cliente_id, linhas);
+
+        const payload = { ok: true, linhas, import: importResult };
         if (returnOnly) return payload;     // NÃO responde, só retorna
         return res.json(payload);           // modo direto (sem import)
     } catch (e) {
