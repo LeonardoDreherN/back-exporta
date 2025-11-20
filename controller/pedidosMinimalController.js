@@ -22,6 +22,18 @@ async function uploadOrdersMinimal(req, res, returnOnly = false) {
         // 3) achata em linhas mínimas (uma por item)
         const linhas = buildMinimalRows(ordersRows, skuMap);
 
+        const cliente_id = req.clienteId;
+
+        if (!cliente_id) {
+            // se isso bater, o problema é no vincularCliente / autenticarShopify
+            if (!returnOnly) {
+                return res
+                    .status(401)
+                    .json({ ok: false, error: "cliente_id ausente em req.clienteId" });
+            }
+            throw new Error("cliente_id ausente em req.clienteId");
+        }
+
         const importResult = await require("./PedidoImportController").importPedidosInternal(cliente_id, linhas);
 
         const payload = { ok: true, linhas, import: importResult };
