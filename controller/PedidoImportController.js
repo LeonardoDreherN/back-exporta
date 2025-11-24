@@ -434,7 +434,7 @@ async function importPedidosInternal(cliente_id, linhas) {
     });
     const setExist = new Set(existentes.map(x => x.pedido_ref));
 
-    let created = 0, updated = 0;
+    let created = 0, skipped = 0;
     for (const p of pedidos) {
         const payload = {
             cliente_id,
@@ -460,17 +460,17 @@ async function importPedidosInternal(cliente_id, linhas) {
         }
 
         if (setExist.has(p.pedido_ref)) {
-            await PedidoImport.update(payload, { where: { cliente_id, pedido_ref: p.pedido_ref } });
-            updated++;
-        } else {
-            await PedidoImport.create(payload);
-            created++;
+            skipped++;
+            continue;
         }
+        await PedidoImport.create(payload);
+        created++;
+
     }
 
-    console.log('[importPedidosInternal] FIM: created =', created, 'updated =', updated, 'grouped_orders =', pedidos.length);
+    console.log('[importPedidosInternal] FIM: created =', created, 'skipped =', skipped, 'grouped_orders =', pedidos.length);
 
-    return { created, updated, grouped_orders: pedidos.length };
+    return { created, skipped, grouped_orders: pedidos.length };
 }
 
 // ---------- Handlers HTTP existentes ----------

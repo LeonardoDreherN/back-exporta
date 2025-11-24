@@ -1,5 +1,6 @@
 const { readCsvBuffer } = require('../services/csvReader');
 const { buildSkuMap, buildMinimalRows } = require('../services/pedidoMinimoMapper');
+const { importPedidosInternal } = require('./PedidoImportController');
 
 async function uploadOrdersMinimal(req, res, returnOnly = false) {
     try {
@@ -37,7 +38,7 @@ async function uploadOrdersMinimal(req, res, returnOnly = false) {
             throw new Error("cliente_id ausente em req.clienteId");
         }
 
-        const importResult = await require("./PedidoImportController").importPedidosInternal(cliente_id, linhas);
+        const importResult = await importPedidosInternal(cliente_id, linhas);
 
         console.log('[uploadOrdersMinimal] importResult =', importResult);
 
