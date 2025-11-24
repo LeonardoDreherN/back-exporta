@@ -482,6 +482,7 @@ async function importPedidos(req, res) {
         if (!linhas || !linhas.length) {
             return res.status(400).json({ ok: false, error: 'Envie "linhas" como array' });
         }
+        console.log("#########chegou aqui importPedidos#########");
         const r = await importPedidosInternal(cliente_id, linhas);
         return res.json({ ok: true, cliente_id, ...r });
     } catch (e) {
