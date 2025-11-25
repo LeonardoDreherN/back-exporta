@@ -8,7 +8,7 @@ module.exports = (sequelize) => {
     emailPrincipal: { type: DataTypes.STRING, allowNull: false, unique: true }, // único
     senha: { type: DataTypes.STRING, allowNull: false },
     tipoConta: { type: DataTypes.ENUM('parceiro', 'empresa'), allowNull: false }, // 'pessoa_fisica' ou 'pessoa_juridica'
-    emailAssociado: { type: DataTypes.STRING, allowNull: false },
+    emailAssociado: { type: DataTypes.STRING, allowNull: true },
     codigo: { type: DataTypes.STRING, allowNull: false, unique: true }, // único
     razaoSocial: { type: DataTypes.STRING, allowNull: false },
     enderecoPais: { type: DataTypes.STRING, allowNull: false },
@@ -19,7 +19,7 @@ module.exports = (sequelize) => {
     enderecoCidade: { type: DataTypes.STRING, allowNull: false },
     enderecoEstado: { type: DataTypes.STRING, allowNull: false },
     cnpj: { type: DataTypes.STRING, allowNull: false, unique: true }, // único
-    cnaePrincipal: { type: DataTypes.STRING, allowNull: false },
+    cnaePrincipal: { type: DataTypes.STRING, allowNull: true },
     telefoneCelular: { type: DataTypes.STRING, allowNull: false },
     plano: {
       type: DataTypes.STRING,

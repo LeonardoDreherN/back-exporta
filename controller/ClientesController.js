@@ -28,9 +28,9 @@ const registrarCliente = async (req, res) => {
 
         // 1) Validação mínima de campos obrigatórios
         const required = [
-            "emailPrincipal", "senha", "tipoConta", "emailAssociado", "razaoSocial",
+            "emailPrincipal", "senha", "tipoConta", "razaoSocial",
             "enderecoPais", "enderecoCEP", "enderecoRua", "enderecoNumero",
-            "enderecoCidade", "enderecoEstado", "cnpj", "cnaePrincipal", "telefoneCelular", "plano"
+            "enderecoCidade", "enderecoEstado", "cnpj", "telefoneCelular", "plano"
         ];
         const missing = required.filter(k => !b[k] && b[k] !== 0);
         if (missing.length) {
@@ -55,22 +55,23 @@ const registrarCliente = async (req, res) => {
             return res.status(400).json({ erro: "CNPJ inválido (dígitos verificadores)." });
         }
 
-        const cleanCnae = String(b.cnaePrincipal || "").replace(/\D/g, "");
-        if (!(cleanCnae.length === 5 || cleanCnae.length === 7)) {
-            await t.rollback();
-            return res.status(400).json({ erro: "CNAE deve ter 5 (classe) ou 7 dígitos (subclasse)." });
-        }
+        let cleanCnae = null;
+        if (b.cnaePrincipal) {
+            cleanCnae = String(b.cnaePrincipal).replace(/\D/g, "");
+            if (!(cleanCnae.length === 5 || cleanCnae.length === 7)) {
+                await t.rollback();
+                return res.status(400).json({ erro: "CNAE deve ter 5 (classe) ou 7 dígitos (subclasse)." });
+            }
 
-        const cnaeRes = await validateCNAE(cleanCnae);
-        console.log("[DEBUG CNAE]", cnaeRes); // <-- log temporário para ver o que vem
-
-        if (cnaeRes.valid !== true) {
-            await t.rollback();
-            return res.status(400).json({ erro: "CNAE inválido (formato)." });
-        }
-        if (cnaeRes.exists === false) {
-            await t.rollback();
-            return res.status(400).json({ erro: "CNAE não encontrado no IBGE." });
+            const cnaeRes = await validateCNAE(cleanCnae);
+            if (!cnaeRes.valid) {
+                await t.rollback();
+                return res.status(400).json({ erro: "CNAE inválido." });
+            }
+            if (cnaeRes.exists === false) {
+                await t.rollback();
+                return res.status(400).json({ erro: "CNAE não encontrado no IBGE." });
+            }
         }
 
         // 2) Checagens de unicidade ANTES de criar
@@ -97,7 +98,7 @@ const registrarCliente = async (req, res) => {
             emailPrincipal: b.emailPrincipal,
             senha: senhaHash,
             tipoConta: b.tipoConta,
-            emailAssociado: b.emailAssociado,
+            emailAssociado: b.emailAssociado || null,
             codigo: codigoFinal,
             razaoSocial: b.razaoSocial,
             enderecoPais: b.enderecoPais,
@@ -108,7 +109,7 @@ const registrarCliente = async (req, res) => {
             enderecoCidade: b.enderecoCidade,
             enderecoEstado: b.enderecoEstado,
             cnpj: b.cnpj,
-            cnaePrincipal: b.cnaePrincipal,
+            cnaePrincipal: b.cnaePrincipal || null,
             telefoneCelular: b.telefoneCelular,
             plano: b.plano
         };
