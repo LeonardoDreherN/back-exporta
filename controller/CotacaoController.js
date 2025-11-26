@@ -1,7 +1,7 @@
 // controllers/cotacoes.controller.js
 const { Op, literal, Transaction } = require('sequelize');
 const { Cotacao, Cliente, sequelize } = require('../models');
-const { keepFirstPageFromPdfB64, imagePngB64ToPdfB64 } = require('../utils/pdfTools');
+const { keepFirstPageFromPdfB64 } = require('../utils/pdfTools');
 const { normalizeUpsStatusFromTimeline } = require('../services/ups/tracking');
 const tracking = require('../services/ups/tracking');
 const { aplicarPlano } = require('../utils/regrasPlanos');
@@ -69,27 +69,27 @@ async function downloadFromBucket(bucket, path) {
     return Buffer.from(data);
 }
 
-async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'application/pdf') {
-    try {
+async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'image/png') {
+    try{
         let b64toSave = base64;
-        if (mime === 'application/pdf') {
-            try {
-                b64toSave = await keepFirstPageFromPdfB64(b64toSave);
-            } catch (err) {
+        if(mime === 'application/pdf'){
+            try{
+                b64toSave = await keepFirstPageFromPdfB64(base64);
+            }catch(err){
                 console.error('Erro ao extrair primeira página do PDF da etiqueta:', err);
             }
         }
         const buf = Buffer.from(b64toSave, 'base64');
         const ext = guessLabelFilename(mime)
         const path = `cotacoes/${cotacaoId}/label-${Date.now()}.${ext}`;
-
+    
         const { error } = await supabase
             .storage
             .from(LABELS_BUCKET)
             .upload(path, buf, { contentType: mime, upsert: false });
-
+    
         if (error) throw error;
-
+    
         await Cotacao.update(
             {
                 etiqueta_path: path,
@@ -100,32 +100,32 @@ async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'application/pd
             },
             { where: { id: cotacaoId } }
         );
-    } catch (err) {
+    }catch(err){
         console.error('Erro ao salvar etiqueta na storage:', err);
     }
 }
 
 async function salvarInvoiceNaStorage(cotacaoId, base64, mime = 'application/pdf') {
-    try {
+    try{
         let b64toSave = base64;
-        if (mime === 'application/pdf') {
-            try {
-                b64toSave = await keepFirstPageFromPdfB64(b64toSave);
-            } catch (err) {
+        if(mime === 'application/pdf'){
+            try{
+                b64toSave = await keepFirstPageFromPdfB64(base64);
+            }catch(err){
                 console.error('Erro ao extrair primeira página do PDF da invoice:', err);
             }
         }
         const buf = Buffer.from(b64toSave, 'base64');
         const ext = guessLabelFilename(mime)
         const path = `cotacoes/${cotacaoId}/invoice-${Date.now()}.${ext}`;
-
+    
         const { error } = await supabase
             .storage
             .from(INVOICES_BUCKET)
             .upload(path, buf, { contentType: mime, upsert: false });
-
+    
         if (error) throw error;
-
+    
         await Cotacao.update(
             {
                 invoice_path: path,
@@ -136,7 +136,7 @@ async function salvarInvoiceNaStorage(cotacaoId, base64, mime = 'application/pdf
             },
             { where: { id: cotacaoId } }
         );
-    } catch (err) {
+    }catch(err){
         console.error('Erro ao salvar invoice na storage:', err);
     }
 }
@@ -197,7 +197,7 @@ async function downloadEtiqueta(req, res) {
 
     try {
         let buf;
-        const mime = row.etiqueta_mime || 'application/pdf';
+        const mime = row.etiqueta_mime || 'image/png';
 
         if (row.etiqueta_path) {
             // [NEW] baixa do Supabase Storage
@@ -541,18 +541,18 @@ async function attachDocs(req, res) {
         if (typeof etiqueta_base64 === 'string' && etiqueta_base64.trim()) {
             const mime = typeof etiqueta_mime === 'string' && etiqueta_mime.trim()
                 ? etiqueta_mime.trim()
-                : 'image/png';
+                : 'application/pdf';
 
             await salvarEtiquetaNaStorage(cot.id, etiqueta_base64, mime);
         }
 
         // ===== INVOICE → Supabase Storage =====
         if (typeof invoice_base64 === 'string' && invoice_base64.trim()) {
-            // const mime = typeof invoice_mime === 'string' && invoice_mime.trim()
-            //     ? invoice_mime.trim()
-            //     : 'application/pdf';
+            const mime = typeof invoice_mime === 'string' && invoice_mime.trim()
+                ? invoice_mime.trim()
+                : 'application/pdf';
 
-            await salvarInvoiceNaStorage(cot.id, invoice_base64, 'application/pdf');
+            await salvarInvoiceNaStorage(cot.id, invoice_base64, mime);
         }
 
         // recarrega a cotação pra pegar paths atualizados
