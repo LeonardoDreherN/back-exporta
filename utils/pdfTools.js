@@ -16,4 +16,27 @@ async function keepFirstPageFromPdfB64(b64) {
     }
 }
 
-module.exports = { keepFirstPageFromPdfB64 };
+async function imagePngB64ToPdfB64(pngB64) {
+    try {
+        const pngBytes = Buffer.from(pngB64, 'base64');
+        const pdfDoc = await PDFDocument.create();
+        const pngImage = await pdfDoc.embedPng(pngBytes);
+        const pngDims = pngImage.scale(1);
+
+        const page = pdfDoc.addPage([pngDims.width, pngDims.height]);
+        page.drawImage(pngImage, {
+            x: 0,
+            y: 0,
+            width: pngDims.width,
+            height: pngDims.height,
+        });
+
+        const pdfBytes = await pdfDoc.save();
+        return Buffer.from(pdfBytes).toString('base64');
+    } catch (err) {
+        console.error('Erro ao converter PNG para PDF:', err);
+        return pngB64; // fallback: devolve original
+    }
+}
+
+module.exports = { keepFirstPageFromPdfB64, imagePngB64ToPdfB64 };
