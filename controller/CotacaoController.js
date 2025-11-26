@@ -69,7 +69,7 @@ async function downloadFromBucket(bucket, path) {
     return Buffer.from(data);
 }
 
-async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'image/png') {
+async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'application/pdf') {
     try{
         let b64toSave = base64;
         if(mime === 'application/pdf'){
