@@ -197,7 +197,7 @@ async function downloadEtiqueta(req, res) {
 
     try {
         let buf;
-        const mime = row.etiqueta_mime || 'image/png';
+        const mime = row.etiqueta_mime || 'application/pdf';
 
         if (row.etiqueta_path) {
             // [NEW] baixa do Supabase Storage
