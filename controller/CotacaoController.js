@@ -112,9 +112,14 @@ async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'application/pd
 async function salvarInvoiceNaStorage(cotacaoId, base64, mime = 'application/pdf') {
     try {
         let b64toSave = base64;
+        if (mime === 'image/png') {
+            // converte a imagem para PDF antes de salvar
+            b64toSave = await imagePngB64ToPdfB64(base64);
+            mime = 'application/pdf';
+        }
         if (mime === 'application/pdf') {
             try {
-                b64toSave = await keepFirstPageFromPdfB64(base64);
+                b64toSave = await keepFirstPageFromPdfB64(b64toSave);
             } catch (err) {
                 console.error('Erro ao extrair primeira página do PDF da invoice:', err);
             }
