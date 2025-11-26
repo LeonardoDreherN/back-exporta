@@ -539,20 +539,20 @@ async function attachDocs(req, res) {
 
         // ===== LABEL → Supabase Storage =====
         if (typeof etiqueta_base64 === 'string' && etiqueta_base64.trim()) {
-            const mime = typeof etiqueta_mime === 'string' && etiqueta_mime.trim()
-                ? etiqueta_mime.trim()
-                : 'application/pdf';
+            // const mime = typeof etiqueta_mime === 'string' && etiqueta_mime.trim()
+            //     ? etiqueta_mime.trim()
+            //     : 'application/pdf';
 
-            await salvarEtiquetaNaStorage(cot.id, etiqueta_base64, mime);
+            await salvarEtiquetaNaStorage(cot.id, etiqueta_base64, 'application/pdf');
         }
 
         // ===== INVOICE → Supabase Storage =====
         if (typeof invoice_base64 === 'string' && invoice_base64.trim()) {
-            const mime = typeof invoice_mime === 'string' && invoice_mime.trim()
-                ? invoice_mime.trim()
-                : 'application/pdf';
+            // const mime = typeof invoice_mime === 'string' && invoice_mime.trim()
+            //     ? invoice_mime.trim()
+            //     : 'application/pdf';
 
-            await salvarInvoiceNaStorage(cot.id, invoice_base64, mime);
+            await salvarInvoiceNaStorage(cot.id, invoice_base64, 'application/pdf');
         }
 
         // recarrega a cotação pra pegar paths atualizados
