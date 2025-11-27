@@ -28,6 +28,7 @@ module.exports = (sequelize) => {
       validate: {
         isIn: [['basico', 'gold', 'premium']]
       }
-    }
+    },
+    customerAsaas: { type: DataTypes.STRING, allowNull: true }, // id do customer no Asaas
   });
 }

@@ -330,6 +330,8 @@ app.use(debugFedex);
 
 app.use('/api/rate', require('./routes/rateMulti.js'));
 
+//Asaas
+app.post('/boletos', autenticarUsuario, vincularCliente, require('./controller/Asaas.js').gerarBoleto);
 
 // app.use('/api', upsRoutes);
 app.use((err, req, res, next) => {
