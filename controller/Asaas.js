@@ -1,5 +1,6 @@
 const { Op } = require("sequelize");
 const db = require("../models/index.js");
+const Cotacao = require("../models/Cotacao.js");
 
 const URL_ASAAS = "https://api-sandbox.asaas.com/v3";
 const ASAAS_TOKEN = process.env.ASAAS_TOKEN;
@@ -125,7 +126,7 @@ const gerarBoleto = async (req, res) => {
 
         const valor_total = await pegarValor({ from, to, clienteId });
 
-        if (!total_final || total_final <= 0) {
+        if (!valor_total || valor_total <= 0) {
             await t.rollback();
             return res.status(400).json({
                 ok: false,
