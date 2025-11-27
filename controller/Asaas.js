@@ -29,36 +29,61 @@ async function verificaCustomer(cliente) {
     return data.id;
 }
 
-// async function downloadBoleto(req, res) {
-//     const id = req.params.id;
+function fromSurcharges(c) {
+    const s = c.surcharges || {};
+    const base = n(s.base);
+    const itemized = Array.isArray(s.itemized) ? s.itemized : [];
+    const taxas = itemized.reduce((acc, it) => acc + n(it.value), 0);
+    const totalCarrier = n(s.total) || (base + taxas + n(s.serviceOptions));
+    const currency = s.currency || "USD";
+    const taxas_itens = itemized
+        .map((it) => `${it.code}:${n(it.value).toFixed(2)}`)
+        .join(" | ");
+    return { base, taxas, totalCarrier, currency, taxas_itens };
+}
 
-//     try {
-//         let buf;
-//         const mime = 'application/pdf';
+async function pegarValor({ from, to, clienteId }) {
+    try {
+        const where = {};
+        if (clienteId) where.clienteId = Number(clienteId);
+        if (from || to) {
+            where.createdAt = {
+                [Op.between]: [
+                    new Date((from || "1970-01-01") + "T00:00:00Z"),
+                    new Date((to || "2999-12-31") + "T23:59:59Z"),
+                ],
+            };
+        }
 
-//         if (row.invoice_path) {
-//             // [NEW] baixa direto do Supabase Storage
-//             buf = await downloadFromBucket(INVOICES_BUCKET, row.invoice_path);
-//         } else if (row.invoice_base64) {
-//             // [LEGACY] mantém lógica antiga enquanto ainda existir base64
-//             let b64 = row.invoice_base64;
-//             if (mime === 'application/pdf') {
-//                 b64 = await keepFirstPageFromPdfB64(b64);
-//             }
-//             buf = Buffer.from(b64, 'base64');
-//         } else {
-//             return res.status(404).json({ error: 'Invoice não disponível' });
-//         }
+        const cotacoes = await Cotacao.findAll({
+            where,
+            order: [["createdAt", "DESC"]],
+            raw: true
+        });
 
-//         res.setHeader('Content-Type', mime);
-//         res.setHeader('Content-Length', buf.length);
-//         res.setHeader('Content-Disposition', 'attachment; filename="invoice.pdf"');
-//         return res.send(buf);
-//     } catch (err) {
-//         console.error('[DOWNLOAD INVOICE][ERROR]', err);
-//         return res.status(500).json({ error: 'Erro ao baixar invoice' });
-//     }
-// }
+        const linhas = cotacoes.map(c => {
+            const sur = fromSurcharges(c);
+            // usa SEMPRE o preço final já salvo no seu banco (ajuste o nome do campo abaixo)
+            const precoFinal = n(c.preco_final) || n(c.total_cliente) || n(c.valor_frete_cliente);
+
+            return {
+                preco_final: precoFinal,         // o que entra no total geral
+                moeda: sur.currency,
+                taxas_itens: sur.taxas_itens
+            };
+        });
+
+        // totais (somamos o que você precisa)
+        const total_final = linhas.reduce((acc, l) => acc + n(l.preco_final), 0);
+
+        // linha de rodapé (só para referência; você pode deixar só o TOTAL_GERAL)
+        return total_final;
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ ok: false, error: "ERRO_RELATORIO_PAGAMENTOS" });
+    }
+}
+
 
 const gerarBoleto = async (req, res) => {
     const t = await db.sequelize.transaction();
@@ -70,19 +95,19 @@ const gerarBoleto = async (req, res) => {
             req.body?.clienteId // <-- adiciona isso
         );
 
-        const { valor, dueDate } = req.body || {};
+        const { dueDate, from, to } = req.body || {};
 
-        if (!valor) {
-            return res.status(400).json({ error: "Parâmetros insuficientes." });
-        }
+        // if (!valor) {
+        //     return res.status(400).json({ error: "Parâmetros insuficientes." });
+        // }
+
+        // if (valor <= 0) {
+        //     return res.status(400).json({ error: "Valor inválido." });
+        // }
 
         if (!clienteId) {
             await t.rollback();
             return res.status(400).json({ ok: false, error: 'clienteId é obrigatório' });
-        }
-
-        if (valor <= 0) {
-            return res.status(400).json({ error: "Valor inválido." });
         }
 
         const cliente = await db.Cliente.findByPk(clienteId, { transaction: t });
@@ -91,19 +116,30 @@ const gerarBoleto = async (req, res) => {
             return res.status(404).json({ ok: false, error: 'Cliente não encontrado' });
         }
 
-        let customer; 
-        
-        if(cliente.customerAsaas){
-            customer = cliente.customerAsaas;
-        }else{
-            customer = await verificaCustomer(cliente);
-            //verifica se o cliente ja tem um customer, se tiver ele apenas pega ele, se nao ele cria :)
+        if (!dueDate) {
+            await t.rollback();
+            return res
+                .status(400)
+                .json({ ok: false, error: "dueDate é obrigatório (YYYY-MM-DD)" });
         }
+
+        const valor_total = await pegarValor({ from, to, clienteId });
+
+        if (!total_final || total_final <= 0) {
+            await t.rollback();
+            return res.status(400).json({
+                ok: false,
+                error:
+                    "Nenhuma cotação encontrada para o período informado ou total zerado.",
+            });
+        }
+
+        const customer = await verificaCustomer(cliente);
 
         const boletoPayload = {
             customer: customer,
             billingType: "BOLETO", //sempre usamos boleto
-            value: valor,
+            value: valor_total,
             dueDate: dueDate,
         }
 
@@ -123,7 +159,7 @@ const gerarBoleto = async (req, res) => {
             value: data.value,
             dueDate: data.dueDate,
             status: data.status,
-        })
+        }, { transaction: t });
 
         await t.commit();
 
@@ -145,4 +181,5 @@ const gerarBoleto = async (req, res) => {
 
 module.exports = {
     gerarBoleto,
+    pegarValor
 }
