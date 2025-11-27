@@ -1,3 +1,4 @@
+const { Op } = require("sequelize");
 const db = require("../models/index.js");
 
 const URL_ASAAS = "https://api-sandbox.asaas.com/v3";
@@ -80,7 +81,6 @@ async function pegarValor({ from, to, clienteId }) {
         return total_final;
     } catch (e) {
         console.error(e);
-        res.status(500).json({ ok: false, error: "ERRO_RELATORIO_PAGAMENTOS" });
     }
 }
 
