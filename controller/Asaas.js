@@ -56,7 +56,7 @@ async function verificaCustomer(cliente) {
 async function pegarValor({ from, to, clienteId }) {
     try {
         const where = {};
-        if (clienteId) where.clienteId = Number(clienteId);
+        if (clienteId) where.cliente_id = Number(clienteId);
         if (from || to) {
             where.createdAt = {
                 [Op.between]: [
