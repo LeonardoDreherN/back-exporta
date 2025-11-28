@@ -6,6 +6,14 @@ const { fromSurcharges } = require("../routes/relatorioPagamentos.js");
 const URL_ASAAS = "https://api-sandbox.asaas.com/v3";
 const ASAAS_TOKEN = process.env.ASAAS_TOKEN;
 
+function n(v) {
+    if (v === null || v === undefined) return 0;
+    const num = Number(
+        String(v).replace(".", "").replace(",", ".") // aceita "1.234,56"
+    );
+    return Number.isNaN(num) ? 0 : num;
+}
+
 async function verificaCustomer(cliente) {
     if (cliente.customerAsaas) {
         return cliente.customerAsaas;
@@ -45,9 +53,8 @@ async function verificaCustomer(cliente) {
 //     return { base, taxas, totalCarrier, currency, taxas_itens };
 // }
 
-async function pegarValor(req, res) {
+async function pegarValor({ from, to, clienteId }) {
     try {
-        const { from, to, clienteId } = req.body || {};
         const where = {};
         if (clienteId) where.clienteId = Number(clienteId);
         if (from || to) {
