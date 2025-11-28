@@ -2,7 +2,7 @@
 const router = require("express").Router();
 const { Op } = require("sequelize");
 const db = require("../models");
-const fromSurcharges = require("../utils/fromSurcharges");
+const {fromSurcharges} = require("../utils/fromSurcharges");
 const Cotacao = db.Cotacao;  
 
 // util data

@@ -85,11 +85,13 @@ async function pegarValor({ from, to, clienteId }) {
         });
 
         // totais (somamos o que você precisa)
-        const total_final = linhas.reduce((acc, l) => acc + n(l.preco_final), 0);
+        const total_final = linhas.reduce((acc, l) => acc + (l.preco_final || 0), 0);
         console.log("#########total_final: ", total_final)
 
+        const converte_valor = total_final / 100 //o valor até aqui estava vindo em centavos
+
         // linha de rodapé (só para referência; você pode deixar só o TOTAL_GERAL)
-        return total_final;
+        return converte_valor;
     } catch (e) {
         console.error(e);
     }
