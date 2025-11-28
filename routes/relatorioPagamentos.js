@@ -2,9 +2,9 @@
 const router = require("express").Router();
 const { Op } = require("sequelize");
 const db = require("../models");
-const {fromSurcharges, n} = require("../utils/fromSurcharges");
+const { fromSurcharges, n } = require("../utils/fromSurcharges");
 const { valorConversao } = require("../utils/dolar");
-const Cotacao = db.Cotacao;  
+const Cotacao = db.Cotacao;
 
 // util data
 function range(from, to) {
@@ -33,9 +33,22 @@ function toCSV(rows) {
 
 router.post("/pagamentos.csv", async (req, res) => {
     try {
-        const { from, to, clienteId } = req.body || {};
-        const where = {};
-        if (clienteId) where.cliente_id = Number(clienteId);
+        const cliente_id = Number(
+            (req.cliente && req.cliente.id) ||
+            req.clienteId ||
+            (req.usuario && req.usuario.clienteId) ||
+            (req.user && req.user.clienteId)
+        );
+
+        if (!cliente_id) {
+            return res
+                .status(401)
+                .json({ ok: false, error: "CLIENTE_NAO_AUTENTICADO" });
+        }
+
+        const { from, to } = req.body || {};
+        const where = {clienteId: cliente_id};
+        // if (clienteId) where.cliente_id = Number(clienteId);
         if (from || to) {
             where.createdAt = {
                 [Op.between]: [
