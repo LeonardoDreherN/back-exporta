@@ -1,6 +1,7 @@
 const { Op } = require("sequelize");
 const db = require("../models/index.js");
 const Cotacao = require("../models/Cotacao.js");
+const { fromSurcharges } = require("../routes/relatorioPagamentos.js");
 
 const URL_ASAAS = "https://api-sandbox.asaas.com/v3";
 const ASAAS_TOKEN = process.env.ASAAS_TOKEN;
@@ -31,21 +32,22 @@ async function verificaCustomer(cliente) {
     return data.id;
 }
 
-function fromSurcharges(c) {
-    const s = c.surcharges || {};
-    const base = n(s.base);
-    const itemized = Array.isArray(s.itemized) ? s.itemized : [];
-    const taxas = itemized.reduce((acc, it) => acc + n(it.value), 0);
-    const totalCarrier = n(s.total) || (base + taxas + n(s.serviceOptions));
-    const currency = s.currency || "USD";
-    const taxas_itens = itemized
-        .map((it) => `${it.code}:${n(it.value).toFixed(2)}`)
-        .join(" | ");
-    return { base, taxas, totalCarrier, currency, taxas_itens };
-}
+// function fromSurcharges(c) {
+//     const s = c.surcharges || {};
+//     const base = n(s.base);
+//     const itemized = Array.isArray(s.itemized) ? s.itemized : [];
+//     const taxas = itemized.reduce((acc, it) => acc + n(it.value), 0);
+//     const totalCarrier = n(s.total) || (base + taxas + n(s.serviceOptions));
+//     const currency = s.currency || "USD";
+//     const taxas_itens = itemized
+//         .map((it) => `${it.code}:${n(it.value).toFixed(2)}`)
+//         .join(" | ");
+//     return { base, taxas, totalCarrier, currency, taxas_itens };
+// }
 
-async function pegarValor({ from, to, clienteId }) {
+async function pegarValor(req, res) {
     try {
+        const { from, to, clienteId } = req.body || {};
         const where = {};
         if (clienteId) where.clienteId = Number(clienteId);
         if (from || to) {

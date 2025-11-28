@@ -19,7 +19,7 @@ const n = (v) => {
 
 // Lê jsonb `surcharges` -> base, soma de itemized (taxas), total, moeda, e string de itens
 // Lê jsonb `surcharges` -> base, soma de itemized (taxas), total, moeda, e string de itens
-function fromSurcharges(c) {
+export function fromSurcharges(c) {
     const s = c.surcharges || {};
     const base = n(s.base);
     const itemized = Array.isArray(s.itemized) ? s.itemized : [];
