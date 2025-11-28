@@ -14,4 +14,4 @@ function fromSurcharges(c) {
     return { base, taxas, totalCarrier, currency, taxas_itens };
 }
 
-module.exports = {fromSurcharges, n}
+module.exports = { fromSurcharges, n }
