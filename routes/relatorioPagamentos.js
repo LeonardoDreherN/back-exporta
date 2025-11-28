@@ -47,7 +47,7 @@ router.post("/pagamentos.csv", async (req, res) => {
         }
 
         const { from, to } = req.body || {};
-        const where = {clienteId: cliente_id};
+        const where = { cliente_id: cliente_id };
         // if (clienteId) where.cliente_id = Number(clienteId);
         if (from || to) {
             where.createdAt = {
