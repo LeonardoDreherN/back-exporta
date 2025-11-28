@@ -76,7 +76,7 @@ async function pegarValor({ from, to, clienteId }) {
             const sur = fromSurcharges(c);
             // usa SEMPRE o preço final já salvo no seu banco (ajuste o nome do campo abaixo)
             const precoFinal = n(c.preco_final) || n(c.total_cliente) || n(c.valor_frete_cliente);
-
+            console.log("Preco final: ", precoFinal)
             return {
                 preco_final: precoFinal,         // o que entra no total geral
                 moeda: sur.currency,
@@ -86,6 +86,7 @@ async function pegarValor({ from, to, clienteId }) {
 
         // totais (somamos o que você precisa)
         const total_final = linhas.reduce((acc, l) => acc + n(l.preco_final), 0);
+        console.log("#########total_final: ", total_final)
 
         // linha de rodapé (só para referência; você pode deixar só o TOTAL_GERAL)
         return total_final;
@@ -134,6 +135,7 @@ const gerarBoleto = async (req, res) => {
         }
 
         const valor_total = await pegarValor({ from, to, clienteId });
+        console.log("VALOR TOTAL: ", valor_total)
 
         if (!valor_total || valor_total <= 0) {
             await t.rollback();
@@ -152,6 +154,8 @@ const gerarBoleto = async (req, res) => {
             value: valor_total,
             dueDate: dueDate,
         }
+
+        console.log("BOLETO VALUE: ", boletoPayload.value)
 
         const { data } = await require('axios').post(`${URL_ASAAS}/payments`, boletoPayload, {
             headers: {
