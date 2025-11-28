@@ -1,3 +1,8 @@
+const n = (v) => {
+    const x = Number(typeof v === "string" ? v.replace(",", ".") : v);
+    return Number.isFinite(x) ? x : 0;
+};
+
 function fromSurcharges(c) {
     const s = c.surcharges || {};
     const base = n(s.base);
@@ -9,4 +14,4 @@ function fromSurcharges(c) {
     return { base, taxas, totalCarrier, currency, taxas_itens };
 }
 
-module.exports = fromSurcharges
+module.exports = {fromSurcharges, n}

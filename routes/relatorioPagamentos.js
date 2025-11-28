@@ -12,11 +12,6 @@ function range(from, to) {
     const fim = new Date((to || "2999-12-31") + "T23:59:59Z");
     return { [Op.between]: [ini, fim] };
 }
-const n = (v) => {
-    const x = Number(typeof v === "string" ? v.replace(",", ".") : v);
-    return Number.isFinite(x) ? x : 0;
-};
-
 
 // Lê jsonb `surcharges` -> base, soma de itemized (taxas), total, moeda, e string de itens
 // Lê jsonb `surcharges` -> base, soma de itemized (taxas), total, moeda, e string de itens
