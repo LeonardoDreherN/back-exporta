@@ -1,7 +1,7 @@
 const { Op } = require("sequelize");
 const db = require("../models/index.js");
 const Cotacao = require("../models/Cotacao.js");
-const { fromSurcharges } = require("../routes/relatorioPagamentos.js");
+const fromSurcharges = require("../utils/fromSurcharges.js");
 
 const URL_ASAAS = "https://api-sandbox.asaas.com/v3";
 const ASAAS_TOKEN = process.env.ASAAS_TOKEN;
