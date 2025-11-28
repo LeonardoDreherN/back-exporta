@@ -2,6 +2,7 @@ const { Op } = require("sequelize");
 const db = require("../models/index.js");
 const Cotacao = db.Cotacao;
 const { fromSurcharges } = require("../utils/fromSurcharges.js");
+const { valorConversao } = require("../utils/dolar.js");
 
 const URL_ASAAS = "https://api-sandbox.asaas.com/v3";
 const ASAAS_TOKEN = process.env.ASAAS_TOKEN;
@@ -86,12 +87,15 @@ async function pegarValor({ from, to, clienteId }) {
 
         // totais (somamos o que você precisa)
         const total_final = linhas.reduce((acc, l) => acc + (l.preco_final || 0), 0);
-        console.log("#########total_final: ", total_final)
 
         const converte_valor = total_final / 100 //o valor até aqui estava vindo em centavos
 
+        const dolar_para_real = await valorConversao() //pega o valor de dolar para real
+
+        const total_convertido = converte_valor * dolar_para_real
+
         // linha de rodapé (só para referência; você pode deixar só o TOTAL_GERAL)
-        return converte_valor;
+        return total_convertido;
     } catch (e) {
         console.error(e);
     }

@@ -2,7 +2,8 @@
 const router = require("express").Router();
 const { Op } = require("sequelize");
 const db = require("../models");
-const {fromSurcharges} = require("../utils/fromSurcharges");
+const {fromSurcharges, n} = require("../utils/fromSurcharges");
+const { valorConversao } = require("../utils/dolar");
 const Cotacao = db.Cotacao;  
 
 // util data
@@ -70,11 +71,15 @@ router.post("/pagamentos.csv", async (req, res) => {
         // totais (somamos o que você precisa)
         const total_final = linhas.reduce((acc, l) => acc + n(l.preco_final), 0);
 
+        const dolar_para_real = await valorConversao() //pega o valor de dolar para real
+
+        const total_convertido = total_final * dolar_para_real
+
         // linha de rodapé (só para referência; você pode deixar só o TOTAL_GERAL)
         linhas.push({
             pedido_ref: "TOTAL_GERAL",
             tracking_number: "",
-            preco_final: total_final,
+            preco_final: total_convertido,
             moeda: "",
             taxas_itens: ""
         });
