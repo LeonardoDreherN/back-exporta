@@ -3,8 +3,8 @@ const rating = require('../services/ups/rating');
 const shipping = require('../services/ups/shipping'); // (não usado aqui, mas mantido)
 const tracking = require('../services/ups/tracking');
 const axios = require('axios');
-const { Cotacao } = require('../models');
 const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
+const { Cotacao } = db;
 
 // ====== CONFIG ======
 const UPS_BASE = process.env.UPS_BASE_URL_PROD || 'https://onlinetools.ups.com';
