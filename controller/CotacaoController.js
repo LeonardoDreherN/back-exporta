@@ -70,26 +70,26 @@ async function downloadFromBucket(bucket, path) {
 }
 
 async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'image/png') {
-    try{
+    try {
         let b64toSave = base64;
-        if(mime === 'application/pdf'){
-            try{
+        if (mime === 'application/pdf') {
+            try {
                 b64toSave = await keepFirstPageFromPdfB64(base64);
-            }catch(err){
+            } catch (err) {
                 console.error('Erro ao extrair primeira página do PDF da etiqueta:', err);
             }
         }
         const buf = Buffer.from(b64toSave, 'base64');
         const ext = guessLabelFilename(mime)
         const path = `cotacoes/${cotacaoId}/label-${Date.now()}.${ext}`;
-    
+
         const { error } = await supabase
             .storage
             .from(LABELS_BUCKET)
             .upload(path, buf, { contentType: mime, upsert: false });
-    
+
         if (error) throw error;
-    
+
         await Cotacao.update(
             {
                 etiqueta_path: path,
@@ -100,32 +100,32 @@ async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'image/png') {
             },
             { where: { id: cotacaoId } }
         );
-    }catch(err){
+    } catch (err) {
         console.error('Erro ao salvar etiqueta na storage:', err);
     }
 }
 
 async function salvarInvoiceNaStorage(cotacaoId, base64, mime = 'application/pdf') {
-    try{
+    try {
         let b64toSave = base64;
-        if(mime === 'application/pdf'){
-            try{
+        if (mime === 'application/pdf') {
+            try {
                 b64toSave = await keepFirstPageFromPdfB64(base64);
-            }catch(err){
+            } catch (err) {
                 console.error('Erro ao extrair primeira página do PDF da invoice:', err);
             }
         }
         const buf = Buffer.from(b64toSave, 'base64');
         const ext = guessLabelFilename(mime)
         const path = `cotacoes/${cotacaoId}/invoice-${Date.now()}.${ext}`;
-    
+
         const { error } = await supabase
             .storage
             .from(INVOICES_BUCKET)
             .upload(path, buf, { contentType: mime, upsert: false });
-    
+
         if (error) throw error;
-    
+
         await Cotacao.update(
             {
                 invoice_path: path,
@@ -136,7 +136,7 @@ async function salvarInvoiceNaStorage(cotacaoId, base64, mime = 'application/pdf
             },
             { where: { id: cotacaoId } }
         );
-    }catch(err){
+    } catch (err) {
         console.error('Erro ao salvar invoice na storage:', err);
     }
 }
@@ -486,6 +486,9 @@ async function createCotacaoReal(req, res) {
             carrier: carrier ?? 'UPS',
             status_norm: 'CRIADO',
             last_tracking_at: null,
+            data_coleta: null,
+            ready_hora: null,
+            close_hora: null,
         }, { transaction: t });
 
         console.log('[DBG][RATE keys]', Object.keys((carrierResp?.raw || rate_payload) || {}));

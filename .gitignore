@@ -2,3 +2,4 @@
 /public-app/
 .vercel
 .env
+node_modules

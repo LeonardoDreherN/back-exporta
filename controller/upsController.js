@@ -1043,5 +1043,116 @@ module.exports = {
             console.error("[UPS/TRACK][ERR]", msg, e?.details || e);
             return res.status(http).json({ error: msg, details: e?.details });
         }
-    }
+    },
+
+    // ---------------- PICKUP ----------------
+    pickup: async (req, res) => {
+        try {
+            const body = req.body || {};
+            const { PickupCreationRequest } = body;
+
+            if (!PickupCreationRequest) {
+                return res.status(400).json({ ok: false, error: 'PickupCreationRequest é obrigatório.' });
+            }
+
+            const info = PickupCreationRequest.PickupDateInfo || {};
+            const pickupDateRaw = info.PickupDate || "";
+            const readyRaw = info.ReadyTime || "";
+            const closeRaw = info.CloseTime || "";
+
+            const data_coleta = String(pickupDateRaw).replace(/\D/g, ""); // ex: 20250211
+            const ready_hora = String(readyRaw).replace(/\D/g, "");       // ex: 0900
+            const close_hora = String(closeRaw).replace(/\D/g, "");       // ex: 1700
+
+            if (!data_coleta) {
+                return res.status(400).json({ ok: false, error: 'PickupDate inválido.' });
+            }
+            if (!ready_hora) {
+                return res.status(400).json({ ok: false, error: 'ReadyTime inválido.' });
+            }
+            if (!close_hora) {
+                return res.status(400).json({ ok: false, error: 'CloseTime inválido.' });
+            }
+
+            const upsReq = { PickupCreationRequest };
+
+            const url = `${UPS_BASE}/api/pickupcreation/v2407/pickup`;
+            const transId = req.headers['x-idempotency-key'] || `pickup-${Date.now()}`;
+            let token = await getUpsToken();
+
+            const doPost = async (bearer) =>
+                axios.post(url, upsReq, {
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "Authorization": `Bearer ${bearer}`,
+                        "transId": transId,
+                        "transactionSrc": "exporta-digital",
+                    },
+                    timeout: 20000,
+                });
+
+            let resp;
+            try {
+                resp = await doPost(token);
+            } catch (e) {
+                const status = e?.response?.status;
+                if (status === 401) {
+                    token = await getUpsToken(true);
+                    resp = await doPost(token);
+                } else {
+                    throw e;
+                }
+            }
+
+            const upsData = resp.data || {};
+
+            // se veio cotacaoId, grava a data/horas na tabela
+            const cotacaoId = body.cotacaoId || req.query.cotacaoId || null;
+            if (cotacaoId) {
+                try {
+                    const row = await Cotacao.findByPk(cotacaoId);
+                    if (!row) {
+                        console.warn('[UPS/PICKUP] Cotação não encontrada:', cotacaoId);
+                    } else {
+                        await row.update({
+                            data_coleta,
+                            ready_hora,
+                            close_hora,
+                        });
+                    }
+                } catch (errSave) {
+                    console.error('[UPS/PICKUP] Falha ao salvar data/horas na Cotacao', {
+                        cotacaoId,
+                        err: errSave?.message,
+                    });
+                }
+            }
+
+            return res.status(200).json({
+                ok: true,
+                pickup: upsData,
+                data_coleta,
+                ready_hora,
+                close_hora,
+            });
+        } catch (err) {
+            if (!err?.response) {
+                console.error('[UPS/PICKUP network error]', {
+                    code: err?.code,
+                    message: err?.message,
+                    json: typeof err?.toJSON === 'function' ? err.toJSON() : undefined,
+                });
+            } else {
+                console.error('[UPS/PICKUP HTTP error]', {
+                    status: err?.response?.status,
+                    data: err?.response?.data,
+                });
+            }
+
+            const { status, message, raw } = normalizeUpsError(err);
+            return res.status(status).json({ ok: false, error: message, raw });
+        }
+    },
+
 };
