@@ -41,9 +41,9 @@ module.exports = (sequelize) => {
         preco_base: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
         preco_final: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
         surcharges: { type: DataTypes.JSONB, allowNull: true, defaultValue: null },
-        data_coleta: { type: DataTypes.STRING(8), allowNull: false},
-        ready_hora : { type: DataTypes.STRING(4), allowNull: false},
-        close_hora : { type: DataTypes.STRING(4), allowNull: false},
+        data_coleta: { type: DataTypes.STRING(8), allowNull: true},
+        ready_hora : { type: DataTypes.STRING(4), allowNull: true},
+        close_hora : { type: DataTypes.STRING(4), allowNull: true},
     }, {
         tableName: 'cotacoes',
         underscored: true,
