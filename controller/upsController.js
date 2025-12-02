@@ -1051,6 +1051,7 @@ module.exports = {
         try {
             const body = req.body || {};
             const { PickupCreationRequest } = body;
+            console.log(body)
 
             if (!PickupCreationRequest) {
                 return res.status(400).json({ ok: false, error: 'PickupCreationRequest é obrigatório.' });
