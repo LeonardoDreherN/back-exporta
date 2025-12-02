@@ -1154,9 +1154,30 @@ module.exports = {
                     json: typeof err?.toJSON === 'function' ? err.toJSON() : undefined,
                 });
             } else {
-                console.error('[UPS/PICKUP HTTP error]', {
-                    status: err?.response?.status,
-                    data: err?.response?.data,
+                const status = err?.response?.status;
+                const data = err?.response?.data;
+                const errors =
+                    data?.response?.errors ||
+                    data?.errors ||
+                    null;
+
+                console.error("[UPS/PICKUP HTTP error RAW] status =", status);
+                console.error(
+                    "[UPS/PICKUP HTTP error DATA] =",
+                    JSON.stringify(data, null, 2)
+                );
+
+                if (errors) {
+                    console.error(
+                        "[UPS/PICKUP ERRORS] =",
+                        JSON.stringify(errors, null, 2)
+                    );
+                }
+
+                return res.status(400).json({
+                    ok: false,
+                    error: errors?.[0]?.message || "Falha ao criar pickup na UPS.",
+                    upstream: data,
                 });
             }
 
