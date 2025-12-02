@@ -1066,11 +1066,12 @@ module.exports = {
 
     // ---------------- PICKUP ----------------
     pickup: async (req, res) => {
+        let cotacaoId = null
         try {
             const body = req.body || {};
             const { PickupCreationRequest } = body;
             console.log(body)
-
+            cotacaoId = body.cotacaoId || req.query.cotacaoId || null;
             if (!PickupCreationRequest) {
                 return res.status(400).json({ ok: false, error: 'PickupCreationRequest é obrigatório.' });
             }
@@ -1128,7 +1129,6 @@ module.exports = {
             const upsData = resp.data || {};
 
             // se veio cotacaoId, grava a data/horas na tabela
-            const cotacaoId = body.cotacaoId || req.query.cotacaoId || null;
             console.log("PICKUP BODY >>>", JSON.stringify(req.body, null, 2));
             console.log("PICKUP INFO >>>", {
                 cotacaoId,
@@ -1165,7 +1165,6 @@ module.exports = {
                 close_hora,
             });
         } catch (err) {
-            const cotacaoId = req.body?.cotacaoId || req.query?.cotacaoId;
             if (cotacaoId) {
                 await deleteCotacaoById(cotacaoId);
             }
