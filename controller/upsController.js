@@ -1110,6 +1110,14 @@ module.exports = {
 
             // se veio cotacaoId, grava a data/horas na tabela
             const cotacaoId = body.cotacaoId || req.query.cotacaoId || null;
+            console.log("PICKUP BODY >>>", JSON.stringify(req.body, null, 2));
+            console.log("PICKUP INFO >>>", {
+                cotacaoId,
+                pickupDateInfo: PickupCreationRequest?.PickupDateInfo,
+                data_coleta,
+                ready_hora,
+                close_hora,
+            });
             if (cotacaoId) {
                 try {
                     const row = await Cotacao.findByPk(cotacaoId);
