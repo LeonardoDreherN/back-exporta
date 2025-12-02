@@ -1154,7 +1154,6 @@ module.exports = {
                         cotacaoId,
                         err: errSave?.message,
                     });
-                    deleteCotacaoById(cotacaoId)
                 }
             }
 
@@ -1166,6 +1165,10 @@ module.exports = {
                 close_hora,
             });
         } catch (err) {
+            const cotacaoId = req.body?.cotacaoId || req.query?.cotacaoId;
+            if (cotacaoId) {
+                await deleteCotacaoById(cotacaoId);
+            }
             if (!err?.response) {
                 console.error('[UPS/PICKUP network error]', {
                     code: err?.code,
