@@ -560,6 +560,24 @@ function translateFrontShipSRToBiz(body) {
     };
 }
 
+async function deleteCotacaoById(id) {
+    if (!id) return;
+    try {
+        const cot = await Cotacao.findByPk(id);
+        if (!cot) {
+            console.warn('[deleteCotacaoById] Cotação não encontrada:', id);
+            return;
+        }
+        await cot.destroy();
+        console.log('[deleteCotacaoById] Cotação deletada:', id);
+    } catch (err) {
+        console.error('[deleteCotacaoById] Erro ao excluir cotação:', {
+            id,
+            err: err?.message,
+        });
+    }
+}
+
 module.exports = {
     // ---------------- RATE ----------------
     rate: async (req, res, next) => {
@@ -1136,6 +1154,7 @@ module.exports = {
                         cotacaoId,
                         err: errSave?.message,
                     });
+                    deleteCotacaoById(cotacaoId)
                 }
             }
 
