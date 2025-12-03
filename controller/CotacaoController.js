@@ -10,7 +10,7 @@ const { sse } = require('../server'); // usa a mesma instância criada no app.js
 const { extractUpsBreakdown, extractFromRawUps } = require('../utils/extractUpsBreakdown');
 const { base } = require('../config/ups');
 const { createClient } = require('@supabase/supabase-js');
-const { getUpsToken } = require('./upsController');
+const { getUpsToken } = require('../services/upsAuth');
 
 const supabase = createClient(
     process.env.SUPABASE_URL,
