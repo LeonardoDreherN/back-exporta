@@ -9,7 +9,8 @@ async function valorConversao(){
         throw new Error("Resposta inválida da API de câmbio");
     }
 
-    const dolar = Number(resp.bid)
+    const dolar = Number(Number(resp.high).toFixed(2)) - 0.01
+    console.log(dolar)
     return dolar
 }
 
