@@ -90,7 +90,7 @@ function normalizeUpsError(err) {
 // }
 
 let _upsTokenCache = { token: null, expTs: 0 }; // epoch ms
-async function getUpsToken(force = false) {
+export async function getUpsToken(force = false) {
     const now = Date.now();
     if (!force && _upsTokenCache.token && now < _upsTokenCache.expTs - 60_000) {
         return _upsTokenCache.token;
