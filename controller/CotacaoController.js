@@ -545,15 +545,15 @@ async function createCotacaoReal(req, res) {
         // console.log('[DBG][RATE keys]', Object.keys((carrierResp?.raw || rate_payload) || {}));
         // console.log('[DBG][EXTRACT]', extractUpsBreakdown(carrierResp?.raw || rate_payload));
 
-        // await t.commit();
-        // return res.json({
-        //     ok: true,
-        //     created: true,
-        //     cotacao_id: registro.id,
-        //     pedido_ref: registro.pedido_ref,
-        //     preco_final: precoFinalCliente,
-        //     plano_aplicado: pricingBase.plano_aplicado
-        // });
+        await t.commit();
+        return res.json({
+            ok: true,
+            created: true,
+            cotacao_id: registro.id,
+            pedido_ref: registro.pedido_ref,
+            preco_final: precoFinalCliente,
+            plano_aplicado: pricingBase.plano_aplicado
+        });
     } catch (err) {
         try { await t.rollback(); } catch (_) { }
         console.error('[COTACAO][ERROR]', err?.message, err?.stack);
