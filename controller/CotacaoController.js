@@ -491,59 +491,73 @@ async function createCotacaoReal(req, res) {
             close_hora: null,
         }, { transaction: t });
 
-        // if (req.body?.PickupCreationRequest) {
-        //     try {
-        //         const pickupBody = {
-        //             PickupCreationRequest: req.body.PickupCreationRequest,
-        //             cotacaoId: registro.id,
-        //         };
+        if (req.body?.PickupCreationRequest) {
+            try {
+                const pickupBody = {
+                    PickupCreationRequest: req.body.PickupCreationRequest,
+                    cotacaoId: registro.id,
+                };
 
-        //         // reaproveita sua lógica atual de chamada da UPS:
-        //         const url = `https://onlinetools.ups.com/api/pickupcreation/v2407/pickup`;
-        //         const transId = `pickup-${Date.now()}`;
-        //         let token = await getUpsToken();
+                // reaproveita sua lógica atual de chamada da UPS:
+                const url = `https://onlinetools.ups.com/api/pickupcreation/v2407/pickup`;
+                const transId = `pickup-${Date.now()}`;
+                let token = await getUpsToken();
 
-        //         const doPost = async (bearer) =>
-        //             axios.post(url, pickupBody, {
-        //                 headers: {
-        //                     "Content-Type": "application/json",
-        //                     "Accept": "application/json",
-        //                     "Authorization": `Bearer ${bearer}`,
-        //                     "transId": transId,
-        //                     "transactionSrc": "exporta-digital",
-        //                 },
-        //                 timeout: 20000,
-        //             });
+                const doPost = async (bearer) =>
+                    axios.post(url, pickupBody, {
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Accept": "application/json",
+                            "Authorization": `Bearer ${bearer}`,
+                            "transId": transId,
+                            "transactionSrc": "exporta-digital",
+                        },
+                        timeout: 20000,
+                    });
 
-        //         let resp;
-        //         try {
-        //             resp = await doPost(token);
-        //         } catch (e) {
-        //             const status = e?.response?.status;
-        //             if (status === 401) {
-        //                 token = await getUpsToken(true);
-        //                 resp = await doPost(token);
-        //             } else {
-        //                 throw e; // cai no catch de fora
-        //             }
-        //         }
+                let resp;
+                try {
+                    resp = await doPost(token);
+                } catch (e) {
+                    const status = e?.response?.status;
+                    if (status === 401) {
+                        token = await getUpsToken(true);
+                        resp = await doPost(token);
+                    } else {
+                        throw e; // cai no catch de fora
+                    }
+                }
 
-        //         const upsData = resp.data || {};
-        //         // se quiser, dá pra gravar algo da resposta do pickup na cotação usando `registro.update(...)` com a mesma transação `t`
-        //     } catch (errPickup) {
-        //         // SE O PICKUP FALHAR → ROLLBACK + NÃO CRIA COTAÇÃO
-        //         await t.rollback();
-        //         const { status, message, raw } = normalizeUpsError(errPickup);
-        //         return res.status(status).json({
-        //             ok: false,
-        //             error: message || 'Falha ao criar pickup na UPS.',
-        //             raw,
-        //         });
-        //     }
-        // }
+                const upsData = resp.data || {};
+                console.log('[UPS][PICKUP][OK]', JSON.stringify(upsData, null, 2));
+                // se quiser, dá pra gravar algo da resposta do pickup na cotação usando `registro.update(...)` com a mesma transação `t`
+            } catch (errPickup) {
+                // SE O PICKUP FALHAR → ROLLBACK + NÃO CRIA COTAÇÃO
+                await t.rollback();
+                // const { status, message, raw } = normalizeUpsError(errPickup);
+                const status = errPickup?.response?.status || 502;
+                const rawData = errPickup?.response?.data || errPickup;
+                console.error(
+                    '[UPS][PICKUP][ERROR]',
+                    status,
+                    JSON.stringify(rawData, null, 2)
+                );
+                const msgFromUps =
+                    rawData?.response?.errors?.[0]?.message ||
+                    rawData?.response?.errors?.[0]?.description ||
+                    rawData?.fault?.faultstring ||
+                    rawData?.error_description ||
+                    rawData?.message;
+                return res.status(status).json({
+                    ok: false,
+                    error: message || 'Falha ao criar pickup na UPS.',
+                    raw: rawData,
+                });
+            }
+        }
 
-        // console.log('[DBG][RATE keys]', Object.keys((carrierResp?.raw || rate_payload) || {}));
-        // console.log('[DBG][EXTRACT]', extractUpsBreakdown(carrierResp?.raw || rate_payload));
+        console.log('[DBG][RATE keys]', Object.keys((carrierResp?.raw || rate_payload) || {}));
+        console.log('[DBG][EXTRACT]', extractUpsBreakdown(carrierResp?.raw || rate_payload));
 
         await t.commit();
         return res.json({
