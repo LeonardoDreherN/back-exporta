@@ -90,7 +90,7 @@ function normalizeUpsError(err) {
 // }
 
 let _upsTokenCache = { token: null, expTs: 0 }; // epoch ms
-export async function getUpsToken(force = false) {
+async function getUpsToken(force = false) {
     const now = Date.now();
     if (!force && _upsTokenCache.token && now < _upsTokenCache.expTs - 60_000) {
         return _upsTokenCache.token;
@@ -1063,6 +1063,7 @@ module.exports = {
             return res.status(http).json({ error: msg, details: e?.details });
         }
     },
+    getUpsToken
 
     // ---------------- PICKUP ----------------
     // pickup: async (req, res) => {
