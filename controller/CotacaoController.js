@@ -550,7 +550,7 @@ async function createCotacaoReal(req, res) {
                     rawData?.message;
                 return res.status(status).json({
                     ok: false,
-                    error: message || 'Falha ao criar pickup na UPS.',
+                    error: msgFromUps || 'Falha ao criar pickup na UPS.',
                     raw: rawData,
                 });
             }
