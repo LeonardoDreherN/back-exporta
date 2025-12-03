@@ -530,8 +530,21 @@ async function createCotacaoReal(req, res) {
                     }
                 }
 
+                console.log(">>>>>>>>>>>>>>>>>>>>>",resp)
+                console.log(">>>>>>>>>>>>>>>>>>>>>",pickupBody)
+
                 const upsData = resp.data || {};
                 console.log('[UPS][PICKUP][OK]', JSON.stringify(upsData, null, 2));
+                const info = pickupBody.PickupCreationRequest?.PickupDateInfo || {};
+                const data_coleta = info.PickupDate
+                const ready_hora = info.ReadyTime
+                const close_hora = info.CloseTime
+
+                await registro.update({
+                    data_coleta,
+                    ready_hora,
+                    close_hora
+                }, {transaction: t})
                 // se quiser, dá pra gravar algo da resposta do pickup na cotação usando `registro.update(...)` com a mesma transação `t`
             } catch (errPickup) {
                 // SE O PICKUP FALHAR → ROLLBACK + NÃO CRIA COTAÇÃO
