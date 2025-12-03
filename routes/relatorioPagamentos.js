@@ -90,10 +90,18 @@ router.post("/pagamentos.csv", async (req, res) => {
 
         // linha de rodapé (só para referência; você pode deixar só o TOTAL_GERAL)
         linhas.push({
-            pedido_ref: "TOTAL_GERAL",
+            pedido_ref: "TOTAL_GERAL_DOLAR",
+            tracking_number: "",
+            preco_final: total_final,
+            moeda: "USD",
+            taxas_itens: ""
+        });
+        
+        linhas.push({
+            pedido_ref: "TOTAL_GERAL_REAL",
             tracking_number: "",
             preco_final: total_convertido,
-            moeda: "",
+            moeda: "BRL",
             taxas_itens: ""
         });
 
