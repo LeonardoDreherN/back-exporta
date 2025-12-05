@@ -13,7 +13,7 @@ const { createClient } = require('@supabase/supabase-js');
 const { getUpsToken } = require('../services/upsAuth');
 const axios = require('axios');
 const { prepararCotacaoUPS } = require('../services/ups/cotacaoUps');
-const { toNumSafe } = require('../services/cotacoesHelpers');
+const { toNumSafe, up } = require('../services/cotacoesHelpers');
 
 const supabase = createClient(
     process.env.SUPABASE_URL,
@@ -270,7 +270,8 @@ async function createCotacaoReal(req, res) {
             carrier = "UPS",
             rate_payload,          // payload completo do carrier (UPS)
             preco_base,            // override do front (string "42,55" ok)
-            freightValueNum        // compat antigo
+            freightValueNum,        // compat antigo
+            serviceCode
         } = req.body || {};
 
         const pedido_ref = normRef(pedido_ref_raw);
@@ -309,7 +310,7 @@ async function createCotacaoReal(req, res) {
                 freightValueNum,
                 plano,
             });
-        }else if(carrier == "FEDEX"){
+        } else if (carrier == "FEDEX") {
             carrierResult = await prepararCotacaoFedex({
                 req,
                 rate_payload,
@@ -398,7 +399,16 @@ async function createCotacaoReal(req, res) {
             ups_taxes_total:
                 carrierCode === 'UPS' ? carrierTaxesTotal : undefined,
             carrier_raw: carrier_raw,
+            serviceCode
         };
+
+        const service_code =
+            serviceCode != null ? String(serviceCode).trim() : null;
+
+        // opcional, mas ajuda a ter no JSON também
+        if (service_code) {
+            pedidoJson.serviceCode = service_code;
+        }
 
         const registro = await Cotacao.create(
             {
@@ -421,12 +431,13 @@ async function createCotacaoReal(req, res) {
                         ? caixa
                         : {},
                 tracking_number: tracking_number ?? null,
-                carrier: carrierCode,
                 status_norm: 'CRIADO',
                 last_tracking_at: null,
                 data_coleta: null,
                 ready_hora: null,
                 close_hora: null,
+                carrier: carrierCode,
+                serviceCode: service_code
             },
             { transaction: t }
         );

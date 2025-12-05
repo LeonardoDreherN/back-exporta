@@ -44,6 +44,8 @@ module.exports = (sequelize) => {
         data_coleta: { type: DataTypes.STRING(8), allowNull: true},
         ready_hora : { type: DataTypes.STRING(4), allowNull: true},
         close_hora : { type: DataTypes.STRING(4), allowNull: true},
+        carrier: { type: DataTypes.STRING, allowNull: false },
+        serviceCode: { type: DataTypes.STRING(2), allowNull: true }
     }, {
         tableName: 'cotacoes',
         underscored: true,

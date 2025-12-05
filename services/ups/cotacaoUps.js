@@ -1,6 +1,12 @@
+const { default: axios } = require("axios");
+const { Cotacao, Cliente, sequelize } = require("../../models");
+const { onlyDigits } = require("../../utils/cnpj");
 const { extractUpsBreakdown } = require("../../utils/extractUpsBreakdown");
 const { cotarCarrier } = require("../carriers");
-const { toNumSafe, up } = require("../cotacoesHelpers");
+const { toNumSafe, up, normalizeTimeToHHMM, iso2Country, splitEndereco } = require("../cotacoesHelpers");
+const { getUpsToken } = require("../upsAuth");
+
+const SHIPPER_NUMBER = process.env.UPS_ACCOUNT_NUMBER
 
 async function prepararCotacaoUPS({ rate_payload, preco_base, freightValueNum }) {
     let precoBase = null;      // valor base retornado/override
@@ -181,6 +187,27 @@ function getItensTotalKgFromCotacao(cotacao) {
         return acc + qty * unitKg;
     }, 0);
 }
+
+function extractUpsServiceCode(carrierRaw) {
+    if (!carrierRaw) return "";
+
+    if (typeof carrierRaw === "string") {
+        try {
+            carrierRaw = JSON.parse(carrierRaw);
+        } catch {
+            return "";
+        }
+    }
+
+    const rated = carrierRaw?.RateResponse?.RatedShipment;
+
+    if (Array.isArray(rated)) {
+        return rated[0]?.Service?.Code || "";
+    }
+
+    return rated?.Service?.Code || "";
+}
+
 async function agendarPickupCotacao(req, res) {
     const t = await sequelize.transaction();
     try {
@@ -248,19 +275,20 @@ async function agendarPickupCotacao(req, res) {
         const dest = pedido?.endereco || pedido?.shipping_address || {};
         const destinatario = {
             nome: dest.nome || dest.name || pedido.nomeComprador || "Destinatário",
-            telefone: dest.telefone || dest.phone || pedido.telefoneComprador || "",
-            rua: dest.rua || dest.address1 || "",
-            numero: dest.numero || "",
-            cidade: dest.cidade || dest.city || "",
-            estado: dest.estado || dest.province || dest.state || "",
-            cep: onlyDigits(dest.cep || dest.zip || ""),
+            telefone: dest.telefone || dest.phone || pedido.telefoneComprador || "17865994231",
+            rua: splitEndereco(dest.rua || dest.address1 || pedido.endereco || "").rua,
+            numero: splitEndereco(dest.rua || dest.address1 || pedido.rua || "").numero,
+            cidade: dest.cidade || pedido.cidade || "",
+            estado: dest.estado || pedido.estado || "",
+            cep: onlyDigits(pedido.CEP || ""),
             pais:
-                iso2Country(dest.pais || dest.country_code_v2 || dest.country) || "US",
-            email: pedido.email || dest.email || "",
+                iso2Country(dest.pais || pedido.pais) || "",
+            email: dest.emailComprador || pedido.emailComprador || "",
         };
 
         const okPessoa = (p) =>
             p.nome && p.rua && p.cidade && p.estado && p.cep && p.pais;
+
         if (!okPessoa(remetente)) {
             await t.rollback();
             return res.status(400).json({
@@ -269,6 +297,7 @@ async function agendarPickupCotacao(req, res) {
             });
         }
         if (!okPessoa(destinatario)) {
+            console.log(">>>#", destinatario)
             await t.rollback();
             return res.status(400).json({
                 ok: false,
@@ -303,10 +332,11 @@ async function agendarPickupCotacao(req, res) {
             .slice(0, 35);
 
         const serviceCode =
-            serviceCodeBody ||
-            cotacao?.pedido?.serviceCode ||
-            cotacao?.pedido?.service_code ||
+            cotacao?.serviceCode ||
+            cotacao?.service_code ||
             ""; // fallback
+
+        console.log("SERVICE CODE HERE: ", serviceCode)
 
         const pickUpPayload = {
             PickupCreationRequest: {
@@ -419,16 +449,38 @@ async function agendarPickupCotacao(req, res) {
             pickup: upsData,
         });
     } catch (err) {
-        console.error("[COTACAO][PICKUP][ERROR]", err?.message, err?.stack);
+        console.error("[COTACAO][PICKUP][ERROR] MESSAGE:", err?.message);
+        console.error("[COTACAO][PICKUP][ERROR] STATUS:", err?.response?.status);
+
+        if (err?.response?.data) {
+            console.error(
+                "[COTACAO][PICKUP][ERROR] DATA:",
+                JSON.stringify(err.response.data, null, 2)
+            );
+
+            const errors = err.response.data?.response?.errors;
+            if (Array.isArray(errors)) {
+                console.error(
+                    "[COTACAO][PICKUP][ERROR] FIRST ERROR:",
+                    JSON.stringify(errors[0], null, 2)
+                );
+            }
+        }
+
         try {
             await t.rollback();
-        } catch { }
+        } catch (e2) {
+            console.error("[COTACAO][PICKUP][ROLLBACK_ERROR]", e2?.message);
+        }
+
         const status = err?.response?.status || 500;
         const raw = err?.response?.data || err;
+
         return res.status(status).json({
             ok: false,
             error:
                 raw?.response?.errors?.[0]?.description ||
+                raw?.response?.errors?.[0]?.message ||
                 raw?.message ||
                 "Falha ao agendar pickup na UPS.",
             raw,

@@ -6,6 +6,7 @@ const axios = require('axios');
 const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
 const Cotacao = require('../models/Cotacao');
 const { getUpsToken } = require('../services/upsAuth');
+const { iso2Country } = require('../services/cotacoesHelpers');
 // const { Cotacao } = db;
 
 // ====== CONFIG ======
@@ -37,18 +38,6 @@ function labelTypeToMime(t) {
     return 'application/octet-stream';
 }
 
-function iso2Country(c) {
-    if (!c) return undefined;
-    const x = String(c).trim().toUpperCase();
-    const map = {
-        BR: 'BR', BRA: 'BR', BRASIL: 'BR', BRAZIL: 'BR',
-        US: 'US', USA: 'US', UNITEDSTATES: 'US', 'UNITED STATES': 'US',
-        CA: 'CA', CANADA: 'CA',
-        MX: 'MX', MEXICO: 'MX',
-        AR: 'AR', ARGENTINA: 'AR', CL: 'CL', CHILE: 'CL',
-    };
-    return map[x] || (x.length === 2 ? x : undefined);
-}
 function isoState(s) { return String(s || '').trim().toUpperCase(); }
 
 function toYMD(d) {
