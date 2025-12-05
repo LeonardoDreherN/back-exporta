@@ -1,4 +1,3 @@
-// routes/upsRoutes.js
 const express = require('express');
 const cors = require('cors');
 
@@ -25,7 +24,6 @@ const corsOpts = cors({
     optionsSuccessStatus: 204,
 });
 
-URL_ASAAS = "https://api-sandbox.asaas.com/v3";
 
 
 

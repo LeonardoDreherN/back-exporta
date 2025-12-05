@@ -6,8 +6,8 @@ const { valorConversao } = require("../utils/dolar.js");
 
 const URL_ASAAS =
     process.env.NODE_ENV === "production"
-        ? "https://onlinetools.ups.com"
-        : "https://wwwcie.ups.com";
+        ? "https://api.asaas.com/v3"
+        : "https://api-sandbox.asaas.com/v3";
 
 const ASAAS_TOKEN = process.env.ASAAS_TOKEN;
 
@@ -91,6 +91,9 @@ async function pegarValor({ from, to, clienteId }) {
 
         // totais (somamos o que você precisa)
         const total_final = linhas.reduce((acc, l) => acc + (l.preco_final || 0), 0);
+        if (!total_final || total_final <= 0) {
+            return 0;
+        }
 
         const converte_valor = total_final / 100 //o valor até aqui estava vindo em centavos
 
@@ -196,6 +199,7 @@ const gerarBoleto = async (req, res) => {
         });
     } catch (err) {
         console.error("Erro ao gerar boleto:", err);
+        await t.rollback()
         return res.status(500).json({
             error: "Erro interno do servidor.",
             detail: err.response?.data || err.message

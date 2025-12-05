@@ -27,6 +27,7 @@ const { uploadOrdersMinimal } = require('./controller/pedidosMinimalController.j
 const { uploadOrder } = require('./middleware/shopifyAuth.js');
 const cron = require('node-cron');
 const { pool } = require('./jobs/poolTracking.js');
+const { valorConversao } = require('./utils/dolar.js');
 
 cron.schedule('*/15 * * * *', pool)
 
@@ -302,7 +303,7 @@ app.post('/conectarLoja', autenticarUsuario, vincularCliente, csrfRequired, regi
 
 // PEDIDOS (import/list)
 // app.post('/import-pedidos', autenticarUsuario, vincularCliente, csrfRequired, importPedidos);
-app.post('/shopify/import-pedidos', autenticarShopify, vincularCliente, csrfRequired, 
+app.post('/shopify/import-pedidos', autenticarShopify, vincularCliente, csrfRequired,
   uploadOrder.fields([{ name: 'file' }, { name: 'sku_master' }]), // <- AQUI entra o multer
   async (req, res) => {
     // aqui sim o req.files já vai estar preenchido
@@ -332,6 +333,15 @@ app.use('/api/rate', require('./routes/rateMulti.js'));
 
 //Asaas
 app.post('/boletos', autenticarUsuario, vincularCliente, require('./controller/Asaas.js').gerarBoleto);
+app.get("/dolar", async (req, res) => {
+  try {
+    const v = await valorConversao();
+    res.json({ valor: v });
+  } catch (e) {
+    console.error("[/dolar] erro:", e);
+    res.status(500).json({ error: "Falha ao obter câmbio" });
+  }
+});
 
 // app.use('/api', upsRoutes);
 app.use((err, req, res, next) => {

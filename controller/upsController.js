@@ -12,8 +12,8 @@ const { iso2Country } = require('../services/cotacoesHelpers');
 // ====== CONFIG ======
 const UPS_BASE =
     process.env.NODE_ENV === "production"
-        ? "https://api.asaas.com/v3"
-        : "https://api-sandbox.asaas.com/v3";
+        ? "https://onlinetools.ups.com"
+        : "https://wwwcie.ups.com";
 
 const UPS_ACCOUNT_NUMBER = process.env.UPS_ACCOUNT_NUMBER || "JE8372";
 const UPS_STUB = String(process.env.UPS_STUB || '') === 'true';
