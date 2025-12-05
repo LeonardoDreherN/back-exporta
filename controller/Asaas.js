@@ -4,7 +4,11 @@ const Cotacao = db.Cotacao;
 const { fromSurcharges } = require("../utils/fromSurcharges.js");
 const { valorConversao } = require("../utils/dolar.js");
 
-const URL_ASAAS = "https://api-sandbox.asaas.com/v3";
+const URL_ASAAS =
+    process.env.NODE_ENV === "production"
+        ? "https://onlinetools.ups.com"
+        : "https://wwwcie.ups.com";
+
 const ASAAS_TOKEN = process.env.ASAAS_TOKEN;
 
 function n(v) {

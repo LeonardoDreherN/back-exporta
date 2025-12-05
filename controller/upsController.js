@@ -10,8 +10,11 @@ const { iso2Country } = require('../services/cotacoesHelpers');
 // const { Cotacao } = db;
 
 // ====== CONFIG ======
-const UPS_BASE = process.env.UPS_BASE_URL_PROD || 'https://onlinetools.ups.com';
-// const UPS_BASE = process.env.UPS_BASE_URL || 'https://wwwcie.ups.com';
+const UPS_BASE =
+    process.env.NODE_ENV === "production"
+        ? "https://api.asaas.com/v3"
+        : "https://api-sandbox.asaas.com/v3";
+
 const UPS_ACCOUNT_NUMBER = process.env.UPS_ACCOUNT_NUMBER || "JE8372";
 const UPS_STUB = String(process.env.UPS_STUB || '') === 'true';
 const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || '';
