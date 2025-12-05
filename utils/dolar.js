@@ -17,25 +17,25 @@ async function valorConversao() {
     }
 
     try {
-        const { data } = await axios.get(
-            "https://economia.awesomeapi.com.br/json/last/USD-BRL",
-            { timeout: 3000 }
-        );
+        const hoje = new Date();
+        const dia = String(hoje.getDate()).padStart(2, "0");
+        const mes = String(hoje.getMonth() + 1).padStart(2, "0");
+        const ano = hoje.getFullYear();
 
-        const valor = Number(data?.USDBRL?.high);
+        const data = `${mes}-${dia}-${ano}`;
 
-        if (!Number.isFinite(valor)) {
-            throw new Error("Cotação inválida");
-        }
+        const url = `https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoDolarDia(dataCotacao=@dataCotacao)?@dataCotacao='${data}'&$top=1&$format=json`;
 
-        cache = { valor, atualizadoEm: agora };
-        return valor;
+        const resp = await axios.get(url);
+
+        const valor = resp.data?.value?.[0]?.cotacaoVenda;
+
+        if (!valor) throw new Error("Sem cotação do dia.");
+
+        return Number(valor);
     } catch (err) {
-        console.error(
-            "[DOLAR] Erro ao consultar AwesomeAPI, usando fallback:",
-            err?.response?.status,
-            err?.response?.data || err.message
-        );
+        console.error("[DOLAR] Erro ao consultar PTAX:", err.message);
+        return 0; // fallback
     }
 }
 
