@@ -336,6 +336,9 @@ app.post('/boletos', autenticarUsuario, vincularCliente, require('./controller/A
 app.get("/dolar", async (req, res) => {
   try {
     const v = await valorConversao();
+    if (!v) {
+      return res.status(500).json({ erro: "Falha ao obter cotação do dólar." });
+    }
     res.json({ valor: v });
   } catch (e) {
     console.error("[/dolar] erro:", e);
