@@ -342,7 +342,10 @@ app.get("/dolar", async (req, res) => {
     res.json({ valor: v });
   } catch (e) {
     console.error("[/dolar] erro:", e);
-    res.status(500).json({ error: "Falha ao obter câmbio" });
+    return res.status(500).json({
+      erro: "Erro interno ao buscar dólar",
+      detalhe: err?.message || String(err),
+    });
   }
 });
 

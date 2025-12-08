@@ -26,7 +26,7 @@ async function valorConversao() {
         const url = `https://economia.awesomeapi.com.br/json/last/USD-BRL`;
 
         const resp = await axios.get(url);
-        console.log(">>>>>>>",resp?.data.USDBRL.high)
+        console.log(">>>>>>>", resp?.data.USDBRL.high)
 
         // const valor = resp.USDBRL.high;
 
@@ -36,8 +36,22 @@ async function valorConversao() {
 
         return resp?.data.USDBRL.high;
     } catch (err) {
-        console.error("[DOLAR] Erro ao consultar PTAX:", err.message);
-        return 0; // fallback
+        console.error(
+            "[DOLAR BACK] ERRO AO CONSULTAR AWESOMEAPI:",
+            err?.message || err
+        );
+
+        // se já tinha valor em cache, usa ele
+        if (cache.valor) {
+            console.warn(
+                "[DOLAR BACK] Usando valor antigo do cache após erro:",
+                cache.valor
+            );
+            return cache.valor;
+        }
+
+        // deixa estourar pra gente ver no JSON também
+        throw err;
     }
 }
 
