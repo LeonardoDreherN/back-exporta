@@ -1,7 +1,7 @@
 // utils/dolar.js
 const axios = require("axios");
 
-const CACHE_MS = 60 * 60 * 1000;           // 10 minutos
+const CACHE_MS = 60 * 60 * 1000;           //UMA HORA
 let cache = {
     valor: null,
     atualizadoEm: 0,
