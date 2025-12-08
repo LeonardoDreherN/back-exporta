@@ -25,7 +25,15 @@ async function valorConversao() {
 
         const url = `https://economia.awesomeapi.com.br/json/last/USD-BRL`;
 
-        const resp = await axios.get(url);
+        const resp = await axios.get(url, {
+            timeout: 8000,
+            headers: {
+                // a AwesomeAPI aceita x-api-key
+                "x-api-key": process.env.AWESOMEAPI_TOKEN,
+            },
+            // se em algum momento preferir por querystring, seria algo tipo:
+            // params: { token: process.env.AWESOMEAPI_TOKEN },
+        });
         console.log(">>>>>>>", resp?.data.USDBRL.high)
 
         // const valor = resp.USDBRL.high;
