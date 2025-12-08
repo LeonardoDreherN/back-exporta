@@ -344,7 +344,7 @@ app.get("/dolar", async (req, res) => {
     console.error("[/dolar] erro:", e);
     return res.status(500).json({
       erro: "Erro interno ao buscar dólar",
-      detalhe: err?.message || String(err),
+      detalhe: e?.message || String(e),
     });
   }
 });
