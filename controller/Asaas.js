@@ -102,7 +102,7 @@ async function pegarValor({ from, to, clienteId }) {
         const total_convertido = converte_valor * dolar_para_real
 
         // linha de rodapé (só para referência; você pode deixar só o TOTAL_GERAL)
-        return total_convertido;
+        return total_convertido + 2.00;
     } catch (e) {
         console.error(e);
     }
