@@ -3,13 +3,14 @@ const db = require("../models/index.js");
 const Cotacao = db.Cotacao;
 const { fromSurcharges } = require("../utils/fromSurcharges.js");
 const { valorConversao } = require("../utils/dolar.js");
+const axios = require("axios");
 
 const URL_ASAAS =
     process.env.NODE_ENV === "production"
         ? "https://api.asaas.com/v3"
         : "https://api-sandbox.asaas.com/v3";
 
-const ASAAS_TOKEN = process.env.ASAAS_TOKEN;
+const ASAAS_TOKEN = process.env.NODE_ENV === "production" ? process.env.ASAAS_TOKEN_PROD : process.env.ASAAS_TOKEN_SANDBOX
 
 function n(v) {
     if (v === null || v === undefined) return 0;
@@ -21,7 +22,27 @@ function n(v) {
 
 async function verificaCustomer(cliente) {
     if (cliente.customerAsaas) {
-        return cliente.customerAsaas;
+        try {
+            const { data } = await axios.get(
+                `${URL_ASAAS}/customers/${cliente.customerAsaas}`,
+                {
+                    headers: {
+                        Accept: "application/json",
+                        "User-Agent": "exporta-digital-intrex/1.0",
+                        access_token: ASAAS_TOKEN,
+                    },
+                }
+            );
+
+            // se não estourou erro, o customer existe nesse ambiente
+            return data.id;
+        } catch (error) {
+            console.warn(
+                "[ASAAS] customer salvo é inválido nesse ambiente, recriando...",
+                error?.response?.data || error.message
+            );
+            // segue o fluxo pra criar um novo abaixo
+        }
     }
 
     const payload = {
@@ -31,7 +52,7 @@ async function verificaCustomer(cliente) {
         phone: cliente.telefoneCelular,
     } //payload minimo
 
-    const { data } = await require('axios').post(`${URL_ASAAS}/customers`, payload, {
+    const { data } = await axios.post(`${URL_ASAAS}/customers`, payload, {
         headers: {
             Accept: 'application/json',
             'Content-Type': 'application/json',
@@ -198,11 +219,18 @@ const gerarBoleto = async (req, res) => {
             status: novoBoleto.status,
         });
     } catch (err) {
-        console.error("Erro ao gerar boleto:", err);
-        await t.rollback()
+        const status = err?.response?.status;
+        const body = err?.response?.data;
+
+        console.error("[BOLETO] ERRO AO GERAR BOLETO:");
+        console.error("  STATUS =", status);
+        console.error("  BODY   =", JSON.stringify(body, null, 2));
+
+        await t.rollback();
+
         return res.status(500).json({
             error: "Erro interno do servidor.",
-            detail: err.response?.data || err.message
+            detail: body || err.message
         });
     }
 }
