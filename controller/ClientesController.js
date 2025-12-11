@@ -308,7 +308,19 @@ const verClienteAtual = async (req, res) => {
                 "enderecoComplemento",
                 "enderecoCidade",
                 "enderecoEstado",
-                "plano"
+                "plano",
+                "descIOR",
+                "nomeIOR",
+                "emailIOR",
+                "tipoIOR",
+                "paisIOR",
+                "cod_postalIOR",
+                "estadoIOR",
+                "cidadeIOR",
+                "enderecoIOR",
+                "numeroIOR",
+                "telefoneIOR",
+                "state_tax_idIOR"
             ]
         });
 

@@ -36,16 +36,16 @@ cron.schedule('*/15 * * * *', pool)
 const upsRoutes = require('./routes/upsRoutes.js');
 const sse = require('./routes/SSE.js');
 
-// const allowlist = (process.env.CORS_ALLOWED_ORIGINS || '')
-//   .split(',')
-//   .map(s => s.trim())
-//   .filter(Boolean);
+const allowlist = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
 
-const allowlist = [
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  process.env.FRONTEND_URL,       // ex.: https://app.intrex.com
-].filter(Boolean); // tira undefined/vazio
+// const allowlist = [
+//   'http://localhost:3000',
+//   'http://127.0.0.1:3000',
+//   process.env.FRONTEND_URL,       // ex.: https://app.intrex.com
+// ].filter(Boolean); // tira undefined/vazio
 
 app.use(cors({
   origin(origin, cb) {
