@@ -1,7 +1,7 @@
 // backend/services/fedex/ship.js
 const { createHttp } = require('../../utils/https');
-const { getToken } = require('./oauth');
 const cfg = require('../../config/fedex');
+const { getToken } = require('./authFedex');
 
 const http = createHttp(cfg.timeoutMs);
 

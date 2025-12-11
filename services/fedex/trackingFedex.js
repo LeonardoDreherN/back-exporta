@@ -1,9 +1,9 @@
 // services/fedex/track.js
 const axios = require('axios');
-const { getFedexToken, baseUrl } = require('./auth');
+const { getToken, baseUrl } = require('./authFedex');
 
 async function trackNumbers(trackingNumbers = []) {
-    const token = await getFedexToken();
+    const token = await getToken();
     const url = `${baseUrl()}/track/v1/trackingnumbers`;
     const body = {
         trackingInfo: trackingNumbers.map(n => ({ trackingNumberInfo: { trackingNumber: n } })),

@@ -1,6 +1,6 @@
 // services/fedex/rates.js
 const axios = require('axios');
-const { getFedexToken, baseUrl } = require('./authFedex');
+const { getToken, baseUrl } = require('./authFedex');
 
 // helpers de unidade
 const kgToLb = kg => +(kg * 2.2046226218).toFixed(3);
@@ -16,7 +16,7 @@ function accountNumberObj() {
  * packages: [{ weightKg, dimCm: {length,width,height} }]
  */
 async function quoteRates({ shipper, recipient, packages }) {
-    const token = await getFedexToken();
+    const token = await getToken();
     const url = `${baseUrl()}/rate/v1/rates/quotes`;
 
     const requestedPackageLineItems = packages.map((p, idx) => ({
