@@ -36,18 +36,25 @@ cron.schedule('*/15 * * * *', pool)
 const upsRoutes = require('./routes/upsRoutes.js');
 const sse = require('./routes/SSE.js');
 
-const allowlist = (process.env.CORS_ALLOWED_ORIGINS || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
+// const allowlist = (process.env.CORS_ALLOWED_ORIGINS || '')
+//   .split(',')
+//   .map(s => s.trim())
+//   .filter(Boolean);
+
+const allowlist = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  process.env.FRONTEND_URL,       // ex.: https://app.intrex.com
+].filter(Boolean); // tira undefined/vazio
 
 app.use(cors({
   origin(origin, cb) {
-    // Permite tools sem Origin (curl/Postman) e o próprio server-side
-    if (!origin) return cb(null, true);
+    console.log('[CORS] Origin:', origin);
+    if (!origin) return cb(null, true); // Postman, curl etc
+
     const ok = allowlist.includes(origin);
-    // se não estiver na lista, NÃO seta ACAO (navegador bloqueia)
-    return cb(null, !!ok);
+    console.log('[CORS] allowed?', ok);
+    return cb(null, ok);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],

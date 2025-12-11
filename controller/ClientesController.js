@@ -30,7 +30,10 @@ const registrarCliente = async (req, res) => {
         const required = [
             "emailPrincipal", "senha", "tipoConta", "razaoSocial",
             "enderecoPais", "enderecoCEP", "enderecoRua", "enderecoNumero",
-            "enderecoCidade", "enderecoEstado", "cnpj", "telefoneCelular", "plano"
+            "enderecoCidade", "enderecoEstado", "cnpj", "telefoneCelular", "plano",
+            "descIOR", "nomeIOR", "emailIOR", "tipoIOR", "paisIOR",
+            "cod_postalIOR", "estadoIOR", "cidadeIOR", "enderecoIOR",
+            "numeroIOR", "telefoneIOR", "state_tax_idIOR"
         ];
         const missing = required.filter(k => !b[k] && b[k] !== 0);
         if (missing.length) {
@@ -40,8 +43,10 @@ const registrarCliente = async (req, res) => {
 
         const e1 = validateEmailFormat ? validateEmailFormat(b.emailPrincipal) : { valid: true };
         const e2 = validateEmailFormat ? validateEmailFormat(b.emailAssociado) : { valid: true };
+        const e3 = validateEmailFormat ? validateEmailFormat(b.emailIOR) : { valid: true };
         if (!e1.valid) { await t.rollback(); return res.status(400).json({ erro: "E-mail principal inválido (formato)." }); }
         if (!e2.valid) { await t.rollback(); return res.status(400).json({ erro: "E-mail associado inválido (formato)." }); }
+        if (!e3.valid) { await t.rollback(); return res.status(400).json({ erro: "E-mail do IOR inválido (formato)." }); }
 
         if (!["empresa", "parceiro"].includes(b.tipoConta)) {
             await t.rollback();
@@ -111,7 +116,21 @@ const registrarCliente = async (req, res) => {
             cnpj: b.cnpj,
             cnaePrincipal: b.cnaePrincipal || null,
             telefoneCelular: b.telefoneCelular,
-            plano: b.plano
+            plano: b.plano,
+
+            // ===== CAMPOS IOR =====
+            descIOR: b.descIOR || null,
+            nomeIOR: b.nomeIOR || null,
+            emailIOR: b.emailIOR || null,
+            tipoIOR: b.tipoIOR || null,
+            paisIOR: b.paisIOR || null,
+            cod_postalIOR: b.cod_postalIOR || null,
+            estadoIOR: b.estadoIOR || null,
+            cidadeIOR: b.cidadeIOR || null,
+            enderecoIOR: b.enderecoIOR || null,
+            numeroIOR: b.numeroIOR || null,
+            telefoneIOR: b.telefoneIOR || null,
+            state_tax_idIOR: b.state_tax_idIOR || null
         };
 
 

@@ -29,6 +29,18 @@ module.exports = (sequelize) => {
         isIn: [['basico', 'gold', 'premium']]
       }
     },
+    descIOR: { type: DataTypes.STRING, allowNull: false },
+    nomeIOR: { type: DataTypes.STRING, allowNull: false },
+    emailIOR: { type: DataTypes.STRING, allowNull: false },
+    tipoIOR: { type: DataTypes.STRING, allowNull: false },
+    paisIOR: { type: DataTypes.STRING, allowNull: false },
+    cod_postalIOR: { type: DataTypes.STRING, allowNull: false },
+    estadoIOR: { type: DataTypes.STRING, allowNull: false },
+    cidadeIOR: { type: DataTypes.STRING, allowNull: false },
+    enderecoIOR: { type: DataTypes.STRING, allowNull: false },
+    numeroIOR: { type: DataTypes.STRING, allowNull: false },
+    telefoneIOR: { type: DataTypes.STRING, allowNull: false },
+    state_tax_idIOR: { type: DataTypes.STRING, allowNull: false },
     customerAsaas: { type: DataTypes.STRING, allowNull: true }, // id do customer no Asaas
   });
 }
