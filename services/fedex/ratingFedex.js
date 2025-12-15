@@ -91,13 +91,13 @@ async function quoteRates({ shipper, recipient, packages, pedidoId, clienteId })
     }
 
     const { commodities, currency } = buildCommoditiesFromPedido(pedido, packages);
-    console.log(">><< pedido: ", pedido);
-    console.log(">><< commodities: ", commodities);
-    console.log(">><< currency: ", currency);
+    // console.log(">><< pedido: ", pedido);
+    // console.log(">><< commodities: ", commodities);
+    // console.log(">><< currency: ", currency);
 
-    console.log(">><<: ", shipper)
-    console.log(">><<: ", recipient)
-    console.log(">><<: ", packages)
+    // console.log(">><<: ", shipper)
+    // console.log(">><<: ", recipient)
+    // console.log(">><<: ", packages)
 
     const requestedPackageLineItems = packages.map((p, idx) => ({
         weight: { units: 'LB', value: kgToLb(p.weightKg || 0.5) },

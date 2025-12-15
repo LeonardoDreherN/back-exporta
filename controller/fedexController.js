@@ -162,6 +162,11 @@ function buildFedexShipPayload(biz = {}) {
         customs.countryOfManufacture || shipper.countryCode || shipper.pais || 'BR'
     ) || 'BR';
 
+    // console.log('shipper =>', shipper);
+    // console.log('recipient =>', recipient);
+    // console.log('packages =>', packages);
+
+
     return {
         labelResponseOptions: 'URL_ONLY',
         // accountNumber: será injetado no service se não vier; aqui pode omitir
@@ -169,15 +174,15 @@ function buildFedexShipPayload(biz = {}) {
         requestedShipment: {
             shipper: {
                 contact: {
-                    personName: shipper.personName || shipper.nome || 'Shipper',
-                    phoneNumber: onlyDigits(shipper.phoneNumber || shipper.telefone || '1234567890'),
-                    companyName: shipper.companyName || shipper.razaoSocial || 'Shipper Company',
+                    personName: 'Shipper',
+                    phoneNumber: '1234567890',
+                    companyName: 'Shipper Company',
                 },
                 address: {
-                    streetLines: [shipper.street || shipper.logradouro || 'Rua Teste 123'],
-                    city: shipper.city || shipper.cidade || 'Sao Paulo',
-                    stateOrProvinceCode: shipper.stateOrProvinceCode || shipper.uf || 'SP',
-                    postalCode: cleanZip(shipper.postalCode || shipper.cep || '04795100'),
+                    streetLines: 'Rua Teste 123',
+                    city: 'Sao Paulo',
+                    stateOrProvinceCode: 'SP',
+                    postalCode: '04795100',
                     countryCode: shipperCountry,
                 },
             },
@@ -185,29 +190,28 @@ function buildFedexShipPayload(biz = {}) {
             recipients: [
                 {
                     contact: {
-                        personName: recipient.personName || recipient.nome || 'Recipient',
-                        phoneNumber: onlyDigits(recipient.phoneNumber || recipient.telefone || '1234567890'),
-                        companyName:
-                            recipient.companyName || recipient.company || recipient.nome || 'Recipient Company',
+                        personName: 'Recipient',
+                        phoneNumber: '1234567890',
+                        companyName: 'Recipient Company',
                     },
                     address: {
-                        streetLines: [recipient.street || recipient.logradouro || 'Street Line 1'],
-                        city: recipient.city || recipient.cidade || 'Miami',
-                        stateOrProvinceCode: recipient.stateOrProvinceCode || recipient.estado || 'FL',
-                        postalCode: cleanZip(recipient.postalCode || recipient.cep || '33136'),
+                        streetLines: 'Street Line 1',
+                        city: 'Miami',
+                        stateOrProvinceCode: 'FL',
+                        postalCode: '33136',
                         countryCode: recipientCountry,
                     },
                 },
             ],
 
             shipDatestamp: toYMDDate(shipDatestamp) || toYMDDate(new Date()),
-            serviceType: serviceType || 'INTERNATIONAL_PRIORITY',
+            serviceType: 'FEDEX_INTERNATIONAL_CONNECT_PLUS',
             packagingType: 'YOUR_PACKAGING',
-            pickupType: pickupType || 'DROPOFF_AT_FEDEX_LOCATION',
+            pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
             blockInsightVisibility: false,
 
             shippingChargesPayment: {
-                paymentType: paymentType || 'SENDER',
+                paymentType: 'SENDER',
             },
 
             labelSpecification: {
@@ -216,20 +220,20 @@ function buildFedexShipPayload(biz = {}) {
             },
 
             customsClearanceDetail: {
-                dutiesPayment: { paymentType: dutiesPaymentType || paymentType || 'SENDER' },
+                dutiesPayment: 'SENDER',
                 isDocumentOnly: false,
                 commodities: [
                     {
-                        description: customs.description || 'Commodity',
+                        description: 'Commodity',
                         countryOfManufacture,
-                        quantity: customs.quantity || 1,
-                        quantityUnits: customs.quantityUnits || 'PCS',
+                        quantity: 1,
+                        quantityUnits: 'PCS',
                         unitPrice: {
                             amount: unitAmount,
                             currency,
                         },
                         customsValue: {
-                            amount: customs.customsValue ?? unitAmount,
+                            amount: unitAmount,
                             currency,
                         },
                         weight: {
@@ -434,9 +438,12 @@ module.exports = {
         try {
             const body = req.body || {};
             cotacaoId = body.cotacaoId || req.query?.cotacaoId || null;
+            console.log('[FEDEX/SHIP] body:', body);
 
             // body vem no formato "negócio"
-            const fedexPayload = buildFedexShipPayload(body);
+            const fedexPayload = body?.requestedShipment
+                ? body // já está no formato FedEx
+                : buildFedexShipPayload(body);
 
             const idem = req.headers['x-idempotency-key'] || `fedex-${Date.now()}`;
             const fedexResp = await createShipment(fedexPayload, { idempotencyKey: idem });
