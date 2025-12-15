@@ -5,7 +5,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 const fedexCfg = require('./config/fedex'); // <--- ADICIONE
 console.log('[FEDEX CFG][BOOT]', {
-  AMBIENTE: process.env.FEDEX_AMBIENTE,
+  AMBIENTE: process.env.NODE_ENV,
   base: fedexCfg.base,
   oauth: fedexCfg.oauth,
   ship: fedexCfg.ship,
@@ -34,6 +34,7 @@ cron.schedule('*/15 * * * *', pool)
 // Módulo de rotas da Shopify (inclui auth/conexao/produtos + upload-minimal + find)
 // const shopifyModule = require('./routes/shopifyRoutes.js');
 const upsRoutes = require('./routes/upsRoutes.js');
+const fedexRoutes = require('./routes/fedexRoutes.js');
 const sse = require('./routes/SSE.js');
 
 const allowlist = (process.env.CORS_ALLOWED_ORIGINS || '')
@@ -107,6 +108,7 @@ applyLogging(app);
 // Monta TODAS as rotas da Shopify sob /shopify (NÃO duplicar)
 // app.use('/shopify', shopifyModule);
 app.use('/api/ups', upsRoutes);
+app.use('/api/fedex', fedexRoutes)
 
 // Saúde
 app.get('/health', (_, res) => res.send('ok'));

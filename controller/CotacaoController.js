@@ -14,6 +14,7 @@ const { getUpsToken } = require('../services/upsAuth');
 const axios = require('axios');
 const { prepararCotacaoUPS } = require('../services/ups/cotacaoUps');
 const { toNumSafe, up } = require('../services/cotacoesHelpers');
+const { prepararCotacaoFedex } = require('../services/fedex/cotacaoFedex');
 
 const supabase = createClient(
     process.env.SUPABASE_URL,

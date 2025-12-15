@@ -2,7 +2,7 @@
 const express = require('express');
 const cors = require('cors');
 const { autenticarUsuario } = require('../middleware/auth');
-const ctrl = require('../controller/fedexCotacaoController');
+const ctrl = require('../controller/fedexController');
 const cfgFedex = require('../config/fedex')
 
 const router = express.Router();
@@ -25,16 +25,18 @@ const corsOpts = cors({
 });
 
 // Preflight
-router.options('/rate', corsOpts, (_req, res) => res.sendStatus(204));
-router.options('/ship', corsOpts, (_req, res) => res.sendStatus(204));
+router.options('/rating', corsOpts, (_req, res) => res.sendStatus(204));
+router.options('/shipping', corsOpts, (_req, res) => res.sendStatus(204));
+router.options('/tracking/:tracking', corsOpts, (_req, res) => res.sendStatus(204));
 
 // Rotas
-router.post('/rate', corsOpts, autenticarUsuario, ctrl.createCotacaoRealFedex);
-router.post('/ship', corsOpts, autenticarUsuario, ctrl.shipFedex);
+router.post('/rating', corsOpts, autenticarUsuario, ctrl.rate);
+router.post('/shipping', corsOpts, autenticarUsuario, ctrl.ship);
+router.post('/tracking/:tracking', corsOpts, autenticarUsuario, ctrl.track);
 
 router.get('/_debug/fedex', (req, res) => {
     res.json({
-        AMBIENTE: process.env.FEDEX_AMBIENTE,
+        AMBIENTE: process.env.NODE_ENV,
         base: fedexCfg.base,
         oauth: fedexCfg.oauth,
         ship: fedexCfg.ship,
