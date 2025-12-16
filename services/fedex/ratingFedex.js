@@ -17,7 +17,7 @@ async function loadPedidoImport(pedidoId, clienteId) {
     // garante multi-tenant
     const row = await db.PedidoImport.findOne({
         where: { id: pedidoId, cliente_id: clienteId },
-        attributes: ['id', 'cliente_id', 'moeda', 'total', 'itens'],
+        // attributes: ['id', 'cliente_id', 'moeda', 'total', 'itens'],
     });
 
     return row ? row.toJSON() : null;
@@ -76,19 +76,21 @@ async function quoteRates({ shipper, recipient, packages, pedidoId, clienteId })
     function ymdLocal(date = new Date()) {
         const d = (date instanceof Date) ? date : new Date(date);
         if (isNaN(d.getTime())) return null;
-    
+
         const y = d.getFullYear();
         const m = String(d.getMonth() + 1).padStart(2, '0');
         const day = String(d.getDate()).padStart(2, '0');
         return `${y}-${m}-${day}`;
     }
-    
+
     const pedido = await loadPedidoImport(pedidoId, clienteId);
     if (!pedido) {
         const e = new Error('Pedido não encontrado para montar commodities (pedidoId inválido).');
         e.http = 400;
         throw e;
     }
+    console.log("PEDIDO",pedido)
+    console.log("PACKAGES", packages)
 
     const { commodities, currency } = buildCommoditiesFromPedido(pedido, packages);
     // console.log(">><< pedido: ", pedido);
@@ -249,4 +251,7 @@ async function quoteRates({ shipper, recipient, packages, pedidoId, clienteId })
     return { raw: data, rows: out };
 }
 
-module.exports = { quoteRates };
+module.exports = {
+    quoteRates,
+    loadPedidoImport
+};

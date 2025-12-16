@@ -333,9 +333,34 @@ const verClienteAtual = async (req, res) => {
     }
 };
 
+async function getClienteAtual(req) {
+    const clienteId =
+        req?.user?.clienteId ||
+        req?.user?.id ||
+        req?.clienteId ||
+        req?.auth?.clienteId ||
+        req?.headers?.['x-cliente-id']; // se você usa isso em testes
+
+    if (!clienteId) {
+        const e = new Error('clienteId não encontrado no request (auth).');
+        e.status = 401;
+        throw e;
+    }
+
+    const cliente = await db.Cliente.findByPk(clienteId);
+    if (!cliente) {
+        const e = new Error('Cliente não encontrado.');
+        e.status = 404;
+        throw e;
+    }
+
+    return cliente;
+}
+
 module.exports = {
     registrarCliente,
     verClientes,
     loginCliente,
-    verClienteAtual
+    verClienteAtual,
+    getClienteAtual
 };

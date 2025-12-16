@@ -1,12 +1,15 @@
 // backend/controller/fedexController.js
 const axios = require('axios');
-const { iso2Country } = require('../services/cotacoesHelpers');
+const { iso2Country, splitEndereco } = require('../services/cotacoesHelpers');
 const { createShipment } = require('../services/fedex/shippingFedex');
 const { trackNumbers } = require('../services/fedex/trackingFedex');
 const Cotacao = require('../models/Cotacao');
-const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
-const { quoteRates } = require('../services/fedex/ratingFedex');
+// const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
+const { quoteRates, loadPedidoImport } = require('../services/fedex/ratingFedex');
 const db = require('../models');
+// const { accountNumber } = require('../config/fedex');
+// const { getToken, baseUrl } = require('../services/fedex/authFedex');
+const { verClienteAtual, getClienteAtual } = require('./ClientesController');
 
 // ========== HELPERS ==========
 const onlyDigits = (s) => String(s || '').replace(/\D+/g, '');
@@ -116,55 +119,172 @@ function mapToFedexRatePackages(packages = []) {
     }));
 }
 
-/**
- * Traduz body "de negócio" para payload FedEx Ship (REST)
- *
- * Espera algo como:
- * {
- *   shipper: {...},
- *   recipient: {...},
- *   packages: [...],
- *   customs: {...},
- *   serviceType,
- *   shipDatestamp,
- *   pickupType,
- *   paymentType,
- *   dutiesPaymentType
- * }
- */
-function buildFedexShipPayload(biz = {}) {
-    const {
-        shipper = {},
-        recipient = {},
-        packages = [],
-        customs = {},
-        serviceType,
-        shipDatestamp,
-        pickupType,
-        paymentType,
-        dutiesPaymentType,
-    } = biz;
+function ymdLocal(date = new Date()) {
+    const d = (date instanceof Date) ? date : new Date(date);
+    if (isNaN(d.getTime())) return null;
 
-    const firstPkg = packages[0] || {};
-    const weightKg = firstPkg.weightKg ?? firstPkg.pesoKg ?? 1;
-    const dim = {
-        length: firstPkg.length ?? firstPkg.lengthCm ?? firstPkg.dimCm?.length ?? 20,
-        width: firstPkg.width ?? firstPkg.widthCm ?? firstPkg.dimCm?.width ?? 10,
-        height: firstPkg.height ?? firstPkg.heightCm ?? firstPkg.dimCm?.height ?? 10,
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function safeStr(v, fallback = '') {
+    if (v === null || v === undefined) return fallback;
+    return String(v);
+}
+
+function normalizePackagesForShip(packages = []) {
+    const pkgs = Array.isArray(packages) ? packages : [];
+    if (!pkgs.length) {
+        return [{
+            weight: { units: 'KG', value: 1 },
+            dimensions: { length: 20, width: 10, height: 10, units: 'CM' }
+        }];
+    }
+
+    return pkgs.map((p, idx) => {
+        const weightKg = Number(p.weightKg ?? p.pesoKg ?? 1) || 1;
+
+        const length = Number(p.length ?? p.lengthCm ?? p.dimCm?.length ?? 20) || 20;
+        const width = Number(p.width ?? p.widthCm ?? p.dimCm?.width ?? 10) || 10;
+        const height = Number(p.height ?? p.heightCm ?? p.dimCm?.height ?? 10) || 10;
+
+        return {
+            sequenceNumber: idx + 1,
+            groupPackageCount: 1,
+            weight: { units: 'KG', value: weightKg },
+            dimensions: { length, width, height, units: 'CM' },
+        };
+    });
+}
+
+function extractShipArtifacts(data) {
+    const output = data?.output || data;
+
+    // tracking
+    const txShipments = output?.transactionShipments || [];
+    const firstTx = txShipments[0] || {};
+
+    const trackingNumber =
+        firstTx?.masterTrackingNumber ||
+        firstTx?.pieceResponses?.[0]?.trackingNumber ||
+        firstTx?.trackingNumber ||
+        null;
+
+    // label url(s)
+    const docs = firstTx?.shipmentDocuments || [];
+    const labelDocs = docs.filter(d => /LABEL/i.test(d?.contentType || d?.type || '') || /LABEL/i.test(d?.documentType || ''));
+    const labelUrls = labelDocs.map(d => d?.url).filter(Boolean);
+
+    // commercial invoice url(s)
+    const ciDocs = docs.filter(d =>
+        /COMMERCIAL/i.test(d?.contentType || '') ||
+        /INVOICE/i.test(d?.contentType || '') ||
+        /COMMERCIAL_INVOICE/i.test(d?.documentType || '')
+    );
+    const commercialInvoiceUrls = ciDocs.map(d => d?.url).filter(Boolean);
+
+    return { trackingNumber, labelUrls, commercialInvoiceUrls };
+}
+
+function mapClienteToFedexShipper(cliente) {
+    const line1 = [cliente.enderecoRua, cliente.enderecoNumero].filter(Boolean).join(', ');
+    return {
+        contact: {
+            personName: cliente.razaoSocial || cliente.nomeFantasia || 'Shipper',
+            companyName: cliente.razaoSocial || cliente.nomeFantasia || 'Shipper Company',
+            phoneNumber: String(cliente.telefoneCelular || cliente.telefone || '11999999999'),
+        },
+        address: {
+            streetLines: ['Rua Teste, 123'] /*[line1 || 'Rua Teste, 123'].filter(Boolean)*/,
+            city: cliente.enderecoCidade || 'Sao Paulo',
+            stateOrProvinceCode: (cliente.enderecoEstado || 'SP').toUpperCase(),
+            postalCode: onlyDigits(cliente.enderecoCEP || '04795100'),
+            countryCode: iso2Country(cliente.enderecoPais || 'BR') || 'BR',
+        },
     };
+}
 
-    const currency = customs.currency || 'USD';
-    const unitAmount = customs.unitPrice ?? customs.customsValue ?? 50;
+function mapPedidoToFedexRecipient(pedido) {
+    const dest = pedido?.endereco || pedido?.shipping_address || pedido?.shippingAddress || {};
+    const ruaNum = splitEndereco(dest.rua || dest.address1 || pedido.endereco || '');
 
-    const shipperCountry = iso2Country(shipper.countryCode || shipper.pais || 'BR') || 'BR';
-    const recipientCountry = iso2Country(recipient.countryCode || recipient.pais || 'US') || 'US';
-    const countryOfManufacture = iso2Country(
-        customs.countryOfManufacture || shipper.countryCode || shipper.pais || 'BR'
-    ) || 'BR';
+    const line1 = [ruaNum.rua, ruaNum.numero].filter(Boolean).join(', ') || dest.address1 || 'Test Street, 456';
 
-    // console.log('shipper =>', shipper);
-    // console.log('recipient =>', recipient);
-    // console.log('packages =>', packages);
+    return {
+        contact: {
+            personName: dest.nome || dest.name || pedido.nomeComprador || 'Recipient',
+            companyName: dest.empresa || dest.company || 'Recipient Company',
+            phoneNumber: String(dest.telefone || dest.phone || pedido.telefoneComprador || '17865994231'),
+            emailAddress: dest.email || pedido.emailComprador || undefined,
+        },
+        address: {
+            streetLines: ["Test Street 318"] /*[line1].filter(Boolean)*/,
+            city: dest.cidade || dest.city || pedido.cidade || 'Miami',
+            stateOrProvinceCode: (dest.estado || dest.province || pedido.estado || 'FL').toUpperCase(),
+            postalCode: onlyDigits(dest.cep || dest.zip || pedido.CEP || '33136'),
+            countryCode: iso2Country(dest.pais || dest.countryCode || pedido.pais || 'US') || 'US',
+            residential: Boolean(dest.residential ?? false),
+        },
+    };
+}
+
+function buildCommoditiesFromPedido(pedido, packages = []) {
+    const currency = (pedido.moeda || 'USD').toUpperCase();
+
+    // tenta usar peso total vindo dos packages e dividir proporcionalmente se não tiver pesoUnit
+    const totalKgFromPackages = (Array.isArray(packages) ? packages : []).reduce((acc, p) => {
+        const w = Number(p.weightKg ?? p.pesoKg ?? 0);
+        return acc + (Number.isFinite(w) ? w : 0);
+    }, 0);
+
+    const itens = Array.isArray(pedido.itens) ? pedido.itens : [];
+    const totalQty = itens.reduce((acc, it) => acc + (Number(it.qty || 0) || 0), 0) || 1;
+
+    const commodities = itens.map((it) => {
+        const qty = Number(it.qty || 1) || 1;
+
+        const unitPrice = Number(it.preco || 0) || 0;
+
+        const lineTotal =
+            Number(it.valorTotalLinha || 0) ||
+            (unitPrice * qty);
+
+        // peso por item: prioridade -> pesoUnit (se vier) -> rateio do total dos packages
+        const pesoUnitKg = Number(it.pesoUnit || 0); // se você salvar em kg
+        const weightKg =
+            (pesoUnitKg > 0 ? pesoUnitKg * qty : 0) ||
+            (totalKgFromPackages > 0 ? (totalKgFromPackages * (qty / totalQty)) : 1);
+
+        return {
+            description: (it.titulo || 'Item').slice(0, 450), // FedEx tem limites, corta por segurança
+            countryOfManufacture: 'BR',
+            quantity: qty,
+            quantityUnits: 'PCS',
+
+            // (opcional) HS code se tiver
+            ...(it.hscode ? { harmonizedCode: String(it.hscode) } : {}),
+
+            unitPrice: { amount: unitPrice, currency },
+            customsValue: { amount: lineTotal, currency },
+            weight: { units: 'KG', value: Number(weightKg.toFixed(3)) },
+        };
+    });
+
+    return { commodities, currency };
+}
+
+
+
+async function buildFedexShipPayload({ shipper, recipient, packages = [], commodities = [], }) {
+    const acct = process.env.FEDEX_ACCOUNT_NUMBER
+    console.log("PEDIDO: ", recipient)
+    console.log("CLIENTE: ", shipper)
+    const requestedPackageLineItems = normalizePackagesForShip(packages);
+    console.log("CAIXAS: ", requestedPackageLineItems)
+    console.log("packs: ", packages)
+    console.log("COMMODITIES: ", commodities)
 
 
     return {
@@ -172,39 +292,41 @@ function buildFedexShipPayload(biz = {}) {
         // accountNumber: será injetado no service se não vier; aqui pode omitir
 
         requestedShipment: {
-            shipper: {
-                contact: {
-                    personName: 'Shipper',
-                    phoneNumber: '1234567890',
-                    companyName: 'Shipper Company',
-                },
-                address: {
-                    streetLines: 'Rua Teste 123',
-                    city: 'Sao Paulo',
-                    stateOrProvinceCode: 'SP',
-                    postalCode: '04795100',
-                    countryCode: shipperCountry,
-                },
-            },
+            shipper,
+            // CLIENTE: {
+            //     contact: {
+            //         personName: 'Exporta-Digital',
+            //         companyName: 'Exporta-Digital',
+            //         phoneNumber: '48984848484'
+            //     },
+            //     address: {
+            //         streetLines: ['Rua Teste, 123'],
+            //         city: 'sao jose',
+            //         stateOrProvinceCode: 'SC',
+            //         postalCode: '88888888',
+            //         countryCode: 'BR'
+            //     }
+            // }
 
-            recipients: [
-                {
-                    contact: {
-                        personName: 'Recipient',
-                        phoneNumber: '1234567890',
-                        companyName: 'Recipient Company',
-                    },
-                    address: {
-                        streetLines: 'Street Line 1',
-                        city: 'Miami',
-                        stateOrProvinceCode: 'FL',
-                        postalCode: '33136',
-                        countryCode: recipientCountry,
-                    },
-                },
-            ],
+            recipients: [recipient],
+            // PEDIDO: {
+            //     contact: {
+            //         personName: 'Maria Garcia',
+            //         companyName: 'Recipient Company',
+            //         phoneNumber: '9173715659',
+            //         emailAddress: '212marity@gmail.com'
+            //     },
+            //     address: {
+            //         streetLines: ['414 Thomas S Boyland Street, Apt, 44'],
+            //         city: 'Brooklyn',
+            //         stateOrProvinceCode: 'NY',
+            //         postalCode: '11233',
+            //         countryCode: 'US',
+            //         residential: false
+            //     }
+            // }
 
-            shipDatestamp: toYMDDate(shipDatestamp) || toYMDDate(new Date()),
+            shipDatestamp: toYMDDate(new Date()),
             serviceType: 'FEDEX_INTERNATIONAL_CONNECT_PLUS',
             packagingType: 'YOUR_PACKAGING',
             pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
@@ -214,58 +336,78 @@ function buildFedexShipPayload(biz = {}) {
                 paymentType: 'SENDER',
             },
 
+            shipmentSpecialServices: {
+                specialServiceTypes: [
+                    "ELECTRONIC_TRADE_DOCUMENTS"
+                ],
+                etdDetail: {
+                    requestedDocumentTypes: [
+                        "COMMERCIAL_INVOICE"
+                    ],
+                    attributes: [
+                        "POST_SHIPMENT_UPLOAD_REQUESTED"
+                    ]
+                }
+            },
+
             labelSpecification: {
                 imageType: 'PDF',
                 labelStockType: 'PAPER_85X11_TOP_HALF_LABEL',
             },
 
             customsClearanceDetail: {
-                dutiesPayment: 'SENDER',
+                dutiesPayment: {
+                    paymentType: 'SENDER'
+                },
                 isDocumentOnly: false,
-                commodities: [
-                    {
-                        description: 'Commodity',
-                        countryOfManufacture,
-                        quantity: 1,
-                        quantityUnits: 'PCS',
-                        unitPrice: {
-                            amount: unitAmount,
-                            currency,
-                        },
-                        customsValue: {
-                            amount: unitAmount,
-                            currency,
-                        },
-                        weight: {
-                            units: 'KG',
-                            value: weightKg,
-                        },
+                commodities: (commodities || []).map((c) => ({
+                    description: c.description || 'Item',
+                    countryOfManufacture: iso2Country(c.countryOfManufacture || 'BR') || 'BR',
+                    quantity: Number(c.quantity || 1),
+                    quantityUnits: c.quantityUnits || 'PCS',
+                    ...(c.harmonizedCode ? { harmonizedCode: String(c.harmonizedCode) } : {}),
+                    unitPrice: {
+                        amount: Number(c.unitPrice?.amount ?? 50),
+                        currency: c.unitPrice?.currency || currency,
                     },
-                ],
+                    customsValue: {
+                        amount: Number(c.customsValue?.amount ?? c.unitPrice?.amount ?? 50),
+                        currency: c.customsValue?.currency || currency,
+                    },
+                    weight: {
+                        units: 'KG',
+                        value: Number(c.weight?.value ?? 1),
+                    },
+                })),
             },
 
             shippingDocumentSpecification: {
                 shippingDocumentTypes: ['COMMERCIAL_INVOICE'],
                 commercialInvoiceDetail: {
+                    customerImageUsages: [
+                        {
+                            id: "IMAGE_1",
+                            type: "LETTER_HEAD",
+                            providedImageType: "LETTER_HEAD"
+                        },
+                        {
+                            id: "IMAGE_2",
+                            type: "SIGNATURE",
+                            providedImageType: "SIGNATURE"
+                        }
+                    ],
                     documentFormat: {
-                        stockType: 'PAPER_LETTER',
-                        docType: 'PDF',
-                    },
-                },
+                        stockType: "PAPER_LETTER",
+                        docType: "PDF"
+                    }
+                }
             },
 
-            requestedPackageLineItems: [
-                {
-                    weight: { units: 'KG', value: weightKg },
-                    dimensions: {
-                        length: dim.length,
-                        width: dim.width,
-                        height: dim.height,
-                        units: 'CM',
-                    },
-                },
-            ],
+            requestedPackageLineItems,
         },
+        accountNumber: {
+            value: acct
+        }
     };
 }
 
@@ -432,106 +574,40 @@ module.exports = {
     },
     // ---------- SHIP ----------
     ship: async (req, res) => {
-        const t0 = Date.now();
-        let cotacaoId = null;
-
         try {
-            const body = req.body || {};
-            cotacaoId = body.cotacaoId || req.query?.cotacaoId || null;
-            console.log('[FEDEX/SHIP] body:', body);
+            const cliente = await getClienteAtual(req, res);
+            const { pedidoId, packages } = req.body || {};
 
-            // body vem no formato "negócio"
-            const fedexPayload = body?.requestedShipment
-                ? body // já está no formato FedEx
-                : buildFedexShipPayload(body);
-
-            const idem = req.headers['x-idempotency-key'] || `fedex-${Date.now()}`;
-            const fedexResp = await createShipment(fedexPayload, { idempotencyKey: idem });
-
-            const docs = extractFedexShipmentDocs(fedexResp);
-
-            // -------- salvar na tabela Cotacao, se cotacaoId vier --------
-            if (cotacaoId) {
-                try {
-                    const row = await Cotacao.findByPk(cotacaoId);
-                    if (!row) {
-                        console.warn('[FEDEX/SHIP] Cotação não encontrada para salvar anexos:', cotacaoId);
-                    } else {
-                        const patch = {};
-
-                        // tracking
-                        if (Array.isArray(docs.trackingNumbers) && docs.trackingNumbers[0]) {
-                            patch.tracking_number = docs.trackingNumbers[0];
-                        }
-
-                        if (Object.keys(patch).length) {
-                            await row.update(patch);
-                        }
-
-                        // LABEL (PDF) -> Storage (se conseguir baixar)
-                        if (docs.labelUrl) {
-                            try {
-                                const b64 = await fetchUrlAsBase64(docs.labelUrl);
-                                if (b64) {
-                                    const mime = labelTypeToMimeFedex(docs.labelType || 'PDF');
-                                    console.log('[FEDEX/SHIP] salvando etiqueta no Storage', {
-                                        cotacaoId: row.id,
-                                        mime,
-                                    });
-                                    await salvarEtiquetaNaStorage(row.id, b64, mime);
-                                }
-                            } catch (e) {
-                                console.error(
-                                    '[FEDEX/SHIP] Falha ao baixar/salvar label FedEx, seguindo sem impedir resposta.',
-                                    e?.message
-                                );
-                            }
-                        }
-
-                        // INVOICE (PDF) -> Storage
-                        if (docs.invoiceUrl) {
-                            try {
-                                const b64 = await fetchUrlAsBase64(docs.invoiceUrl);
-                                if (b64) {
-                                    const mime = 'application/pdf';
-                                    console.log('[FEDEX/SHIP] salvando invoice no Storage', {
-                                        cotacaoId: row.id,
-                                        mime,
-                                    });
-                                    await salvarInvoiceNaStorage(row.id, b64, mime);
-                                }
-                            } catch (e) {
-                                console.error(
-                                    '[FEDEX/SHIP] Falha ao baixar/salvar invoice FedEx, seguindo sem impedir resposta.',
-                                    e?.message
-                                );
-                            }
-                        }
-                    }
-                } catch (errSave) {
-                    console.error('[FEDEX/SHIP] Falha ao salvar tracking/label/invoice na Cotacao', {
-                        cotacaoId,
-                        err: errSave?.message,
-                    });
-                }
+            if (!pedidoId) return res.status(400).json({ ok: false, error: 'pedidoId é obrigatório.' });
+            if (!Array.isArray(packages) || !packages.length) {
+                return res.status(400).json({ ok: false, error: 'packages é obrigatório.' });
             }
 
-            return res.status(200).json({
-                ok: true,
-                trackingNumbers: docs.trackingNumbers,
-                labelUrl: docs.labelUrl,
-                invoiceUrl: docs.invoiceUrl,
-                raw: fedexResp,
-                tookMs: Date.now() - t0,
+            const pedido = await loadPedidoImport(pedidoId, cliente.id);
+            if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
+
+            const { commodities, currency } = buildCommoditiesFromPedido(pedido, packages);
+
+
+            const shipper = mapClienteToFedexShipper(cliente);
+            const recipient = mapPedidoToFedexRecipient(pedido);
+
+            const payload = await buildFedexShipPayload({
+                shipper,
+                recipient,
+                packages,
+                commodities,
+                currency
             });
+
+            const data = await createShipment(payload);
+
+            return res.json({ ok: true, raw: data });
         } catch (err) {
-            console.error('[FEDEX/SHIP][ERR]', err);
-            const { status, message, raw } = normalizeFedexError(err);
-            return res.status(status).json({
+            return res.status(err.status || 500).json({
                 ok: false,
-                error: message,
-                raw,
-                tookMs: Date.now() - t0,
+                error: err.message || 'Falha no ship FedEx',
+                raw: err.upstream || null,
             });
         }
     },
