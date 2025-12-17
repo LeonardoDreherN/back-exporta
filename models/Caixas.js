@@ -9,6 +9,7 @@ module.exports = (sequelize) => {
       altura: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
       largura: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
       comprimento: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
+      peso: { type: DataTypes.DECIMAL(10, 3), allowNull: false },
       id_cliente: {
         type: DataTypes.INTEGER,
         allowNull: false,

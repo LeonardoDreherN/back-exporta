@@ -19,6 +19,7 @@ const registrarCaixa = async (req, res) => {
     const altura = Number(b.altura);
     const largura = Number(b.largura);
     const comprimento = Number(b.comprimento);
+    const peso = Number(b.peso);
 
     const payload = {
       cod_identificacao: b.cod_identificacao,
@@ -26,19 +27,20 @@ const registrarCaixa = async (req, res) => {
       altura,
       largura,
       comprimento,
+      peso,
       id_cliente: req.clienteId, // <<< automático do middleware
     };
 
-    const obrigatorios = ['cod_identificacao', 'descricao', 'altura', 'largura', 'comprimento'];
+    const obrigatorios = ['cod_identificacao', 'descricao', 'altura', 'largura', 'comprimento', 'peso'];
     const faltando = obrigatorios.filter(k => payload[k] === undefined || payload[k] === null || payload[k] === '');
     if (faltando.length) {
       return res.status(400).json({ erro: 'Campos obrigatórios faltando', campos: faltando });
     }
 
-    if (![altura, largura, comprimento].every(isPosNumber)) {
+    if (![altura, largura, comprimento, peso].every(isPosNumber)) {
       return res.status(400).json({ erro: "Dimensões devem ser números positivos" });
     }
-    if (altura > MAX_DIM || largura > MAX_DIM || comprimento > MAX_DIM) {
+    if (altura > MAX_DIM || largura > MAX_DIM || comprimento > MAX_DIM || peso > MAX_DIM) {
       return res.status(400).json({ erro: `Dimensões inválidas (0 < valor ≤ ${MAX_DIM} cm)` });
     }
 
@@ -55,6 +57,7 @@ const registrarCaixa = async (req, res) => {
         altura: novaCaixa.altura,
         largura: novaCaixa.largura,
         comprimento: novaCaixa.comprimento,
+        peso: novaCaixa.peso,
         id_cliente: novaCaixa.id_cliente,
       }
     });
@@ -70,7 +73,7 @@ const verCaixas = async (req, res) => {
   try {
     const caixas = await db.Caixa.findAll({
       where: { id_cliente: req.clienteId },
-      attributes: ["id", "cod_identificacao", "descricao", "altura", "largura", "comprimento", "id_cliente"],
+      attributes: ["id", "cod_identificacao", "descricao", "altura", "largura", "comprimento", "peso", "id_cliente"],
       order: [["id", "DESC"]],
     });
 
@@ -129,6 +132,7 @@ const editarCaixa = async (req, res) => {
       altura,
       largura,
       comprimento,
+      peso
     } = req.body;
 
     const updateData = {};
@@ -143,6 +147,7 @@ const editarCaixa = async (req, res) => {
     const a = altura !== undefined ? Number(altura) : undefined;
     const l = largura !== undefined ? Number(largura) : undefined;
     const p = comprimento !== undefined ? Number(comprimento) : undefined;
+    const w = peso !== undefined ? Number(peso) : undefined;
 
     if (altura !== undefined) {
       const a = Number(altura);
@@ -164,6 +169,13 @@ const editarCaixa = async (req, res) => {
         return res.status(400).json({ erro: `Profundidade inválida (0 < comprimento ≤ ${MAX_DIM} cm)` });
       }
       updateData.comprimento = p;
+    }
+    if (peso !== undefined) {
+      const w = Number(peso);
+      if (!isPosNumber(w) || w > MAX_DIM) {
+        return res.status(400).json({ erro: `Peso inválido (0 < peso ≤ ${MAX_DIM} kg)` });
+      }
+      updateData.peso = w;
     }
 
     await caixa.update(updateData);
