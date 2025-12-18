@@ -268,7 +268,7 @@ async function createCotacaoReal(req, res) {
             pedido,
             caixa,
             tracking_number,
-            carrier = "UPS",
+            carrier,
             rate_payload,          // payload completo do carrier (UPS)
             preco_base,            // override do front (string "42,55" ok)
             freightValueNum,        // compat antigo
