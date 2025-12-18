@@ -20,7 +20,7 @@ function extractFedexBreakdown(rateRaw) {
             total: firstRow.base, // se você ainda não separar base/total, deixa igual
             itemized: (firstRow.itemized || []).map(it => ({
                 code: up(it.code || ''),
-                label: it.code || 'Surcharge',
+                label: it.code || it.label || 'Surcharge',
                 value: Number(it.amount || 0) || 0,
             })),
         };
@@ -119,14 +119,15 @@ async function prepararCotacaoFedex({ rate_payload, preco_base, freightValueNum 
         ? breakdown.itemized.map(it => ({
             code: up(it.code ?? ''),
             label: it.label ?? it.code ?? 'Surcharge',
-            value: Number(it.value ?? 0) || 0,
+            value: Number(it.value ?? it.amount ?? 0) || 0,
         }))
         : [];
 
-    let totalCalc = fedexBase + items.reduce((a, b) => a + (b.value || 0), 0);
+    const itemsSum = items.reduce((a, b) => a + (b.value || 0), 0);
 
-    if (!totalCalc && fedexTotal) {
-        totalCalc = fedexTotal;
+    let totalCalc = toNumSafe(breakdown?.total);
+    if (!Number.isFinite(totalCalc) || totalCalc <= 0) {
+        totalCalc = fedexBase + itemsSum;
     }
 
     const savedSurcharges = {
@@ -137,18 +138,18 @@ async function prepararCotacaoFedex({ rate_payload, preco_base, freightValueNum 
         total: totalCalc,
     };
 
-    const carrierRawToSave = rate_payload || null;
-
     return {
         carrier: 'FEDEX',
+        serviceType: 'FEDEX_INTERNATIONAL_CONNECT_PLUS',
         base: fedexBase,
-        total: fedexTotal || totalCalc,
+        total: totalCalc,
         taxesTotal: fedexTaxesTotal,
         currency,
         surcharges: savedSurcharges,
-        carrier_raw: carrierRawToSave,
+        carrier_raw: rate_payload || null,
         fonte_base: overrideUsado ? 'OVERRIDE' : 'FEDEX',
     };
+
 }
 
 module.exports = { prepararCotacaoFedex };

@@ -2,7 +2,6 @@
 const axios = require('axios');
 const { iso2Country, splitEndereco } = require('../services/cotacoesHelpers');
 const { createShipment } = require('../services/fedex/shippingFedex');
-const { trackNumbers } = require('../services/fedex/trackingFedex');
 const Cotacao = require('../models/Cotacao');
 // const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
 const { quoteRates, loadPedidoImport } = require('../services/fedex/ratingFedex');
@@ -10,6 +9,7 @@ const db = require('../models');
 // const { accountNumber } = require('../config/fedex');
 // const { getToken, baseUrl } = require('../services/fedex/authFedex');
 const { verClienteAtual, getClienteAtual } = require('./ClientesController');
+const tracking = require('../services/fedex/trackingFedex');
 
 // ========== HELPERS ==========
 const onlyDigits = (s) => String(s || '').replace(/\D+/g, '');
@@ -119,22 +119,12 @@ function mapToFedexRatePackages(packages = []) {
     }));
 }
 
-function ymdLocal(date = new Date()) {
-    const d = (date instanceof Date) ? date : new Date(date);
-    if (isNaN(d.getTime())) return null;
-
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-}
-
 function safeStr(v, fallback = '') {
     if (v === null || v === undefined) return fallback;
     return String(v);
 }
 
-function normalizePackagesForShip(packages = []) {
+function normalizePackagesForShip(packages = [], pesoTotalPedidoKg) {
     const pkgs = Array.isArray(packages) ? packages : [];
     if (!pkgs.length) {
         return [{
@@ -144,7 +134,10 @@ function normalizePackagesForShip(packages = []) {
     }
 
     return pkgs.map((p, idx) => {
-        const weightKg = Number(p.weightKg ?? p.pesoKg ?? 1) || 1;
+        const weightKg = Number(pesoTotalPedidoKg);
+        if (!Number.isFinite(weightKg) || weightKg <= 0) {
+            throw new Error('pesoTotalPedidoKg inválido (precisa ser > 0).');
+        }
 
         const length = Number(p.length ?? p.lengthCm ?? p.dimCm?.length ?? 20) || 20;
         const width = Number(p.width ?? p.widthCm ?? p.dimCm?.width ?? 10) || 10;
@@ -186,6 +179,47 @@ function extractShipArtifacts(data) {
     const commercialInvoiceUrls = ciDocs.map(d => d?.url).filter(Boolean);
 
     return { trackingNumber, labelUrls, commercialInvoiceUrls };
+}
+
+function round3(n) {
+    return Math.round((Number(n) || 0) * 1000) / 1000;
+}
+
+function getBoxDimsCm(cx = {}) {
+    // ajuste aqui pros nomes reais do seu model "Caixas"
+    const length = Number(cx.lengthCm ?? cx.comprimentoCm ?? cx.comprimento ?? cx.length ?? 0);
+    const width = Number(cx.widthCm ?? cx.larguraCm ?? cx.largura ?? cx.width ?? 0);
+    const height = Number(cx.heightCm ?? cx.alturaCm ?? cx.altura ?? cx.height ?? 0);
+
+    return { length, width, height };
+}
+
+function boxVolumeScore(cx = {}) {
+    const d = getBoxDimsCm(cx);
+    const vol = (d.length > 0 && d.width > 0 && d.height > 0) ? (d.length * d.width * d.height) : 0;
+    return vol > 0 ? vol : 1; // se não tiver dimensão, score 1 (divide igual)
+}
+
+function distributePedidoWeightAcrossCaixas(totalKg, caixas = []) {
+    const total = Number(totalKg);
+    if (!Number.isFinite(total) || total <= 0) throw new Error('pesoTotalPedidoKg inválido (precisa ser > 0).');
+    if (!Array.isArray(caixas) || !caixas.length) throw new Error('Nenhuma caixa para dividir peso.');
+
+    const scores = caixas.map(boxVolumeScore);
+    const sum = scores.reduce((a, b) => a + b, 0) || 1;
+
+    // distribui + arredonda
+    let parts = caixas.map((cx, i) => ({
+        ...cx,
+        weightKg: round3(total * (scores[i] / sum)),
+    }));
+
+    // garante soma exata ajustando a última caixa
+    const sumRounded = parts.reduce((acc, p) => acc + (Number(p.weightKg) || 0), 0);
+    const diff = round3(total - sumRounded);
+    parts[parts.length - 1].weightKg = round3((parts[parts.length - 1].weightKg || 0) + diff);
+
+    return parts;
 }
 
 function mapClienteToFedexShipper(cliente) {
@@ -247,9 +281,9 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
 
         const unitPrice = Number(it.preco || 0) || 0;
 
-        const lineTotal =
-            Number(it.valorTotalLinha || 0) ||
-            (unitPrice * qty);
+        const lineTotal = (unitPrice * qty); // Number(it.valorTotalLinha || 0)
+            console.log("LINE TOTAL: ", lineTotal)
+            console.log("MULT", unitPrice * qty)
 
         // peso por item: prioridade -> pesoUnit (se vier) -> rateio do total dos packages
         const pesoUnitKg = Number(it.pesoUnit || 0); // se você salvar em kg
@@ -277,15 +311,18 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
 
 
 
-async function buildFedexShipPayload({ shipper, recipient, packages = [], commodities = [], }) {
+async function buildFedexShipPayload({ shipper, recipient, packages = [], commodities = [], currency = 'USD', pesoTotalPedidoKg }) {
     const acct = process.env.FEDEX_ACCOUNT_NUMBER
     console.log("PEDIDO: ", recipient)
     console.log("CLIENTE: ", shipper)
-    const requestedPackageLineItems = normalizePackagesForShip(packages);
+    const requestedPackageLineItems = normalizePackagesForShip(packages, pesoTotalPedidoKg);
     console.log("CAIXAS: ", requestedPackageLineItems)
     console.log("packs: ", packages)
     console.log("COMMODITIES: ", commodities)
 
+
+
+    // total da linha (preferência: customsValue vindo do builder; fallback: unit*qty)
 
     return {
         labelResponseOptions: 'URL_ONLY',
@@ -360,25 +397,35 @@ async function buildFedexShipPayload({ shipper, recipient, packages = [], commod
                     paymentType: 'SENDER'
                 },
                 isDocumentOnly: false,
-                commodities: (commodities || []).map((c) => ({
-                    description: c.description || 'Item',
-                    countryOfManufacture: iso2Country(c.countryOfManufacture || 'BR') || 'BR',
-                    quantity: Number(c.quantity || 1),
-                    quantityUnits: c.quantityUnits || 'PCS',
-                    ...(c.harmonizedCode ? { harmonizedCode: String(c.harmonizedCode) } : {}),
-                    unitPrice: {
-                        amount: Number(c.unitPrice?.amount ?? 50),
-                        currency: c.unitPrice?.currency || currency,
-                    },
-                    customsValue: {
-                        amount: Number(c.customsValue?.amount ?? c.unitPrice?.amount ?? 50),
-                        currency: c.customsValue?.currency || currency,
-                    },
-                    weight: {
-                        units: 'KG',
-                        value: Number(c.weight?.value ?? 1),
-                    },
-                })),
+                commodities: (commodities || []).map((c) => {
+                    const qty = Number(c.quantity || 1) || 1;
+                    const unit = Number(c.unitPrice?.amount ?? 0) || 0;
+
+                    // total da linha: usa o que veio pronto; senão calcula unit*qty
+                    const customsAmount = Number.isFinite(Number(c.customsValue?.amount))
+                        ? Number(c.customsValue.amount)
+                        : (unit * qty);
+                    console.log("customs AMOUNT: ", customsAmount, "value", c.customsValue?.currency)
+                    return {
+                        description: c.description || 'Item',
+                        countryOfManufacture: iso2Country(c.countryOfManufacture || 'BR') || 'BR',
+                        quantity: Number(c.quantity || 1),
+                        quantityUnits: c.quantityUnits || 'PCS',
+                        ...(c.harmonizedCode ? { harmonizedCode: String(c.harmonizedCode) } : {}),
+                        unitPrice: {
+                            amount: unit,
+                            currency: c.unitPrice?.currency || currency,
+                        },
+                        customsValue: {
+                            amount: customsAmount,
+                            currency: c.customsValue?.currency || currency,
+                        },
+                        weight: {
+                            units: 'KG',
+                            value: Number(c.weight?.value),
+                        },
+                    }
+                }),
             },
 
             shippingDocumentSpecification: {
@@ -489,68 +536,76 @@ async function fetchUrlAsBase64(url) {
     return buf.toString('base64');
 }
 
+async function loadCaixaImport(packId, clienteId) {
+    const ids = Array.isArray(packId) ? packId.filter(Boolean) : [packId].filter(Boolean);
+    if (!ids.length) return [];
+
+    const rows = await db.Caixa.findAll({
+        where: { id: ids, id_cliente: clienteId },
+    });
+
+    // findAll retorna array
+    const caixas = rows.map(r => r.toJSON());
+
+    // mapeia pro formato "packages" (weightKg + dimCm)
+    return caixas.map((cx) => {
+        const dims = getBoxDimsCm(cx);
+
+        // ajuste pro seu campo novo: "peso" (em gramas) -> kg
+        // se seu campo for "peso" em gramas:
+        const pesoG = Number(cx.peso ?? cx.peso_g ?? cx.pesoG ?? 500); // default 500g
+        const weightKg = round3(pesoG / 1000);
+
+        return {
+            ...cx,
+            weightKg,
+            dimCm: {
+                length: dims.length || 20,
+                width: dims.width || 10,
+                height: dims.height || 10,
+            },
+        };
+    });
+}
+
+
+
 // ========== CONTROLLER ==========
 
 module.exports = {
     // ---------- RATE ----------
     rate: async (req, res) => {
         try {
-            const body = req.body || {};
+            const cliente = await getClienteAtual(req, res);
+            const { pedidoId, packagesId, pesoTotalPedidoKg } = req.body || {};
 
-            // exemplo: cliente_id vindo do token ou do body
-            const clienteId = body.clienteId || req.user?.clienteId;
-            const pedidoId = body.pedidoId;              // vem do front (pedido selecionado)
+            if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatória.' });
+            if (!pedidoId) return res.status(400).json({ ok: false, error: 'pedidoId é obrigatório.' });
+            if (!pesoTotalPedidoKg) return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg é obrigatório.' });
 
-            let shipper;
-            let recipient;
-            let packages;
+            // 1) carrega N caixas
+            let packages = await loadCaixaImport(packagesId, cliente.id);
+            if (!packages.length) return res.status(404).json({ ok: false, error: 'Caixa(s) não encontrada(s).' });
 
-            // ========= CASO 1: payload nativo FedEx (igual o do Postman) =========
-            if (body.requestedShipment) {
-                const rs = body.requestedShipment;
+            // 2) divide o peso total do pedido entre as caixas (isso alimenta requestedPackageLineItems)
+            packages = distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
 
-                // shipper / recipient no formato FedEx
-                shipper = mapToFedexRateAddress(rs.shipper || {});
-                recipient = mapToFedexRateAddress(rs.recipient || rs.shipTo || {});
+            const pedido = await loadPedidoImport(pedidoId, cliente.id);
+            if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
 
-                // converte requestedPackageLineItems -> formato "biz" para mapToFedexRatePackages
-                const pkgsRaw = rs.requestedPackageLineItems || [];
-                const pkgsBiz = pkgsRaw.map((p) => ({
-                    weightKg: p.weight?.value,
-                    dimCm: {
-                        length: p.dimensions?.length,
-                        width: p.dimensions?.width,
-                        height: p.dimensions?.height,
-                    },
-                }));
+            const shipper = mapClienteToFedexShipper(cliente);
+            const recipient = mapPedidoToFedexRecipient(pedido);
+            const { commodities } = buildCommoditiesFromPedido(pedido, packages);
 
-                packages = mapToFedexRatePackages(pkgsBiz);
-            } else {
-                // ========= CASO 2: payload "de negócio" (shipper/shipTo/packages) =========
-                let shipperRaw = body.shipper || {};
-                if (clienteId && !body.shipper) {
-                    const cliente = await db.Cliente.findByPk(clienteId);
-                    if (cliente) {
-                        shipperRaw = cliente.toJSON(); // aqui tem enderecoPais, enderecoCEP, etc.
-                    }
-                }
-
-                shipper = mapToFedexRateAddress(shipperRaw);
-                recipient = mapToFedexRateAddress(body.shipTo || body.recipient || {});
-                packages = mapToFedexRatePackages(body.packages || []);
-            }
-
-            console.log('[FEDEX/RATE] shipper, recipient, packages:', shipper, '>>>>>>>>RECIPIENT: ', recipient);
-
-            if (!shipper.postalCode || !recipient.postalCode) {
-                return res.status(400).json({
-                    ok: false,
-                    error: 'Cadastro/pedido sem CEP/ZIP para FedEx.',
-                    debug: { shipper, recipient },
-                });
-            }
-
-            const rate_payload = await quoteRates({ shipper, recipient, packages, pedidoId, clienteId });
+            // IMPORTANTE: quoteRates AINDA precisa de packages (pra montar requestedPackageLineItems)
+            const rate_payload = await quoteRates({
+                shipper,
+                recipient,
+                packages,
+                pedidoId,
+                clienteId: cliente.id,
+                commodities
+            });
 
             const details = rate_payload.rows || [];
             const services = details.map((r) => ({
@@ -561,33 +616,35 @@ module.exports = {
                 itemized: r.itemized || [],
             }));
 
-            return res.json({
-                ok: true,
-                services,
-                raw: rate_payload.raw,
-            });
+            return res.json({ ok: true, services, raw: rate_payload.raw });
         } catch (err) {
             console.error('[FEDEX/RATE][ERR]', err);
             const { status, message, raw } = normalizeFedexError(err);
             return res.status(status).json({ ok: false, error: message, raw });
         }
     },
+
     // ---------- SHIP ----------
     ship: async (req, res) => {
         try {
             const cliente = await getClienteAtual(req, res);
-            const { pedidoId, packages } = req.body || {};
+            const { pedidoId, packagesId, pesoTotalPedidoKg } = req.body || {};
 
+            if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatória.' });
             if (!pedidoId) return res.status(400).json({ ok: false, error: 'pedidoId é obrigatório.' });
-            if (!Array.isArray(packages) || !packages.length) {
-                return res.status(400).json({ ok: false, error: 'packages é obrigatório.' });
-            }
+            if (!pesoTotalPedidoKg) return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg é obrigatório.' });
+
+            let packages = await loadCaixaImport(packagesId, cliente.id);
+            if (!packages.length) return res.status(404).json({ ok: false, error: 'Caixa(s) não encontrada(s).' });
+
+            // divide o peso total entre caixas (peso por volume)
+            packages = distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
 
             const pedido = await loadPedidoImport(pedidoId, cliente.id);
             if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
 
+            // commodities: se você não tem peso por item, essa função já vai ratear usando o totalKgFromPackages
             const { commodities, currency } = buildCommoditiesFromPedido(pedido, packages);
-
 
             const shipper = mapClienteToFedexShipper(cliente);
             const recipient = mapPedidoToFedexRecipient(pedido);
@@ -597,11 +654,11 @@ module.exports = {
                 recipient,
                 packages,
                 commodities,
-                currency
+                currency,
+                pesoTotalPedidoKg
             });
 
             const data = await createShipment(payload);
-
             return res.json({ ok: true, raw: data });
         } catch (err) {
             return res.status(err.status || 500).json({
@@ -618,16 +675,23 @@ module.exports = {
             const raw =
                 (req.params && req.params.tracking) ||
                 (req.query && (req.query.tn || req.query.tracking)) ||
-                '';
-            const tn = String(raw).trim().replace(/['"`\s]/g, '').toUpperCase();
-            if (!tn) return res.status(400).json({ ok: false, error: 'Tracking vazio.' });
+                "";
 
-            const data = await trackNumbers([tn]);
-            return res.json({ ok: true, raw: data });
-        } catch (err) {
-            console.error('[FEDEX/TRACK][ERR]', err);
-            const { status, message, raw } = normalizeFedexError(err);
-            return res.status(status).json({ ok: false, error: message, raw });
+            const tn = String(raw).trim().replace(/['"`\s]/g, "").toUpperCase();
+            if (!tn) return res.status(400).json({ error: "Tracking vazio." });
+
+            const data = await tracking.getByNumber(tn, { includeDetailedScans: true });
+            return res.json(data);
+        } catch (e) {
+            const http = e?.http || e?.status || 400;
+            const msg =
+                e?.details?.errors?.[0]?.message ||
+                e?.details?.error_description ||
+                e?.message ||
+                "Falha ao rastrear";
+
+            console.error("[FEDEX/TRACK][ERR]", msg, e?.details || e);
+            return res.status(http).json({ error: msg, details: e?.details });
         }
     },
 };

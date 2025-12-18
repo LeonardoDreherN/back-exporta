@@ -64,13 +64,38 @@ function buildCommoditiesFromPedido(pedido, packages) {
     };
 }
 
+function normalizePackagesForShip(packages = []) {
+    const pkgs = Array.isArray(packages) ? packages : [];
+    if (!pkgs.length) {
+        return [{
+            weight: { units: 'KG', value: 1 },
+            dimensions: { length: 20, width: 10, height: 10, units: 'CM' }
+        }];
+    }
+
+    return pkgs.map((p, idx) => {
+        const weightKg = Number(p.weightKg ?? p.pesoKg ?? 1) || 1;
+
+        const length = Number(p.length ?? p.lengthCm ?? p.dimCm?.length ?? 20) || 20;
+        const width = Number(p.width ?? p.widthCm ?? p.dimCm?.width ?? 10) || 10;
+        const height = Number(p.height ?? p.heightCm ?? p.dimCm?.height ?? 10) || 10;
+
+        return {
+            sequenceNumber: idx + 1,
+            groupPackageCount: 1,
+            weight: { units: 'KG', value: weightKg },
+            dimensions: { length, width, height, units: 'CM' },
+        };
+    });
+}
+
 
 /**
  * shipper/destination:
  * { countryCode, postalCode, city, stateOrProvinceCode }
  * packages: [{ weightKg, dimCm: {length,width,height} }]
 */
-async function quoteRates({ shipper, recipient, packages, pedidoId, clienteId }) {
+async function quoteRates({ shipper, recipient, packages, commodities, currency }) {
     const token = await getToken();
     const url = `${baseUrl()}/rate/v1/rates/quotes`;
     function ymdLocal(date = new Date()) {
@@ -83,133 +108,61 @@ async function quoteRates({ shipper, recipient, packages, pedidoId, clienteId })
         return `${y}-${m}-${day}`;
     }
 
-    const pedido = await loadPedidoImport(pedidoId, clienteId);
-    if (!pedido) {
-        const e = new Error('Pedido não encontrado para montar commodities (pedidoId inválido).');
-        e.http = 400;
-        throw e;
-    }
-    console.log("PEDIDO",pedido)
-    console.log("PACKAGES", packages)
-
-    const { commodities, currency } = buildCommoditiesFromPedido(pedido, packages);
-    // console.log(">><< pedido: ", pedido);
-    // console.log(">><< commodities: ", commodities);
-    // console.log(">><< currency: ", currency);
-
-    // console.log(">><<: ", shipper)
-    // console.log(">><<: ", recipient)
-    // console.log(">><<: ", packages)
-
-    const requestedPackageLineItems = packages.map((p, idx) => ({
-        weight: { units: 'LB', value: kgToLb(p.weightKg || 0.5) },
-        dimensions: {
-            length: cmToIn(p.dimCm?.length || 10),
-            width: cmToIn(p.dimCm?.width || 10),
-            height: cmToIn(p.dimCm?.height || 10),
-            units: 'IN',
-        },
-        groupPackageCount: 1,
-        sequenceNumber: idx + 1,
-    }));
+    const requestedPackageLineItems = normalizePackagesForShip(packages);
 
     const acct = String(accountNumberObj().value);
 
     const body = {
         accountNumber: { value: acct },
-
         rateRequestControlParameters: {
             returnTransitTimes: true,
             servicesNeededOnRateFailure: true,
             variableOptions: "FREIGHT_GUARANTEE",
             rateSortOrder: "SERVICENAMETRADITIONAL"
         },
-
         requestedShipment: {
-            shipper: {
-                address: {
-                    streetLines: [
-                        "Rua Teste, 123" //COLOCAR A RUA REAL, VAMOS DEIXAR ASSIM PARA NAO SOLICITAR DADOS REAIS AQUI
-                    ],
-                    postalCode: shipper.postalCode,
-                    countryCode: shipper.countryCode,
-                    stateOrProvinceCode: shipper.stateOrProvinceCode,
-                    city: shipper.city,
-                },
-            },
-
-            recipient: {
-                address: {
-                    streetLines: [
-                        "Test Street, 456"
-                    ],
-                    postalCode: recipient.postalCode,
-                    countryCode: recipient.countryCode,
-                    stateOrProvinceCode: recipient.stateOrProvinceCode,
-                    city: recipient.city,
-                    residential: false,
-                },
-            },
+            shipper,     // mesmo formato que você usa no SHIP (contact + address)
+            recipient,   // idem
 
             preferredCurrency: "USD",
-            rateRequestType: [
-                "LIST",
-                "ACCOUNT"
-            ],
+            rateRequestType: ["LIST", "ACCOUNT"],
 
             shipDateStamp: ymdLocal(),
             pickupType: "DROPOFF_AT_FEDEX_LOCATION",
             packagingType: "YOUR_PACKAGING",
+
             shippingChargesPayment: {
                 paymentType: "SENDER",
-                payor: {
-                    responsibleParty: {
-                        accountNumber: {
-                            value: acct
-                        }
-                    }
-                }
+                payor: { responsibleParty: { accountNumber: { value: acct } } }
             },
+
             customsClearanceDetail: {
                 dutiesPayment: {
                     paymentType: "SENDER",
-                    payor: {
-                        responsibleParty: {
-                            accountNumber: {
-                                value: acct
-                            }
-                        }
-                    }
+                    payor: { responsibleParty: { accountNumber: { value: acct } } }
                 },
-                commodities: [
-                    {
-                        description: "Sample Product",
-                        weight: {
-                            units: "KG",
-                            value: "5" // peso total da mercadoria
-                        },
-                        quantity: 1,
-                        customsValue: {
-                            amount: "100", //temos que pegar do pedido, ver como faz na UPS
-                            currency: "USD"
-                        },
-                        countryOfManufacture: "BR",
-                        // unitPrice: {
-                        //     amount: "100",
-                        //     currency: "USD"
-                        // },
-                        // numberOfPieces: 1,
-                        // quantityUnits: "PCS",
-                        // name: "Sample Product"
-                    }
-                ]
+                commodities: (commodities || []).map((c) => ({
+                    description: c.description || 'Item',
+                    countryOfManufacture: 'BR',
+                    quantity: Number(c.quantity || 1),
+                    quantityUnits: c.quantityUnits || 'PCS',
+                    ...(c.harmonizedCode ? { harmonizedCode: String(c.harmonizedCode) } : {}),
+                    unitPrice: {
+                        amount: Number(c.unitPrice?.amount ?? 50),
+                        currency: c.unitPrice?.currency || currency || 'USD',
+                    },
+                    customsValue: {
+                        amount: Number(c.customsValue?.amount ?? c.unitPrice?.amount ?? 50),
+                        currency: c.customsValue?.currency || currency || 'USD',
+                    },
+                    weight: { units: 'KG', value: Number(c.weight?.value || 0.1) },
+                })),
             },
+
             requestedPackageLineItems,
-            totalPackageCount: 1
+            totalPackageCount: requestedPackageLineItems.length || 1,
         },
-        carrierCodes: [
-            "FDXE"
-        ]
+        carrierCodes: ["FDXE"]
     };
 
     const { data } = await axios.post(url, body, {
