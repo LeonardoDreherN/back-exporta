@@ -250,7 +250,7 @@ function normalize(carrier, evt) {
 }
 
 // API compatível com o seu UPS tracking.js
-async function getTimeline(carrier, trackingNumber) {
+async function getTimelineFedex(carrier, trackingNumber) {
     if (carrier !== 'FEDEX') return [];
     const json = await getByNumber(trackingNumber, { includeDetailedScans: true });
     return getTimelineArrayFEDEX(json);
@@ -262,7 +262,7 @@ async function getLatestEvent(carrier, trackingNumber) {
     return pickLatestFedexActivity(json);
 }
 
-function normalizeFedexStatusFromTimeline(events) {
+function normalizeFedexStatusFromTimelineFedex(events) {
     if (!Array.isArray(events) || events.length === 0) return 'CRIADO';
 
     for (const ev of events) {
@@ -286,7 +286,7 @@ function normalizeFedexStatusFromTimeline(events) {
 module.exports = {
     getByNumber,
     getLatestEvent,
-    getTimeline,
+    getTimelineFedex,
     normalize,
-    normalizeFedexStatusFromTimeline,
+    normalizeFedexStatusFromTimelineFedex,
 };

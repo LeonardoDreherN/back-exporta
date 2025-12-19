@@ -2,8 +2,7 @@
 const { Op, literal, Transaction } = require('sequelize');
 const { Cotacao, Cliente, sequelize } = require('../models');
 const { keepFirstPageFromPdfB64 } = require('../utils/pdfTools');
-const { normalizeUpsStatusFromTimeline } = require('../services/ups/tracking');
-const tracking = require('../services/ups/tracking');
+const { getStatusOnly } = require('../services/trackingStatus');
 const { aplicarPlano } = require('../utils/regrasPlanos');
 const { cotarCarrier } = require('../services/carriers');
 const { sse } = require('../server'); // usa a mesma instância criada no app.js
@@ -637,9 +636,6 @@ async function listCotacoes(req, res) {
             const lastAt = plain.last_tracking_at ? new Date(plain.last_tracking_at).getTime() : 0;
             const elapsedMin = (nowMs - lastAt) / 60000;
 
-            const forceRefresh = String(refresh) === '1';
-            const REFRESH_COOLDOWN_MIN = 5;
-
             // 🔒 Quarentena de 30min para cotação “CRIADO” sem tracking visto ainda (evita falso trânsito)
             if (!forceRefresh && statusNorm === 'CRIADO' && !lastAt && ageMin < 30) {
                 return plain; // mantém CRIADO
@@ -650,45 +646,30 @@ async function listCotacoes(req, res) {
             }
 
             try {
-                const carrier = plain.carrier || 'UPS';
-                const timeline = await tracking.getTimeline(carrier, tn);
-                if (!Array.isArray(timeline) || timeline.length === 0) return plain;
-
-                // ✅ Mais conservador: só troca para EM_TRANSITO se houver scan físico OU status I
-                const newestEvt = timeline[0];
-                const txt = [newestEvt.statusDescription, newestEvt.description, newestEvt.activity]
-                    .filter(Boolean).join(' ').toUpperCase();
-                const code = String(newestEvt.statusCode || '').toUpperCase();
-
-                const physicalScanHints = [
-                    'ORIGIN SCAN',
-                    'DEPARTURE SCAN',
-                    'ARRIVAL SCAN',
-                    'OUT FOR DELIVERY',
-                    'IMPORT SCAN',
-                    'EXPORT SCAN'
-                ];
-
-                let novo = normalizeUpsStatusFromTimeline(timeline);
-
-                if (novo === 'EM_TRANSITO') {
-                    const hasPhysical = code === 'I' || physicalScanHints.some(k => txt.includes(k));
-                    if (!hasPhysical) {
-                        // Mantém CRIADO enquanto só houver “billing info received/label created”
-                        novo = 'CRIADO';
-                    }
+                const carrier = plain.carrier;
+                if(!plain.carrier){
+                    throw new Error('Carrier não definido na cotação');
                 }
 
-                const eventTime = new Date(newestEvt.eventTime || newestEvt.activityDateTime || nowMs);
-                const isNewer = !plain.last_tracking_at || eventTime > new Date(plain.last_tracking_at);
-                const changed = statusNorm !== novo;
+                const { status_norm: novo, last_event, raw } = await getStatusOnly({
+                    carrier,
+                    trackingNumber: tn,
+                });
 
-                if ((isNewer || changed) && novo) {
+                if (!novo) return plain;
+
+                const nowMs = Date.now();
+                const eventTime = last_event ? new Date(last_event) : new Date(nowMs);
+                const isNewer = !plain.last_tracking_at || eventTime > new Date(plain.last_tracking_at);
+                const changed = (plain.status_norm || 'CRIADO') !== novo;
+
+                if ((isNewer || changed)) {
                     await r.update({
                         status_norm: novo,
                         last_tracking_at: eventTime,
-                        tracking_raw: newestEvt,
+                        tracking_raw: raw, // se você quiser guardar o último evento “cru”
                     });
+
                     plain.status_norm = novo;
                     plain.last_tracking_at = eventTime;
 

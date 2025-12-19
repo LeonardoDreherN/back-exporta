@@ -7,7 +7,7 @@
 
 const fetch = global.fetch || ((...a) => import('node-fetch').then(m => m.default(...a)));
 
-const UPS_BASE = process.env.UPS_BASE_URL || 'https://onlinetools.ups.com';
+const UPS_BASE = process.env.UPS_BASE_URL_PROD || 'https://onlinetools.ups.com';
 const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || '';
 const UPS_CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || '';
 const UPS_TRACK_LOCALE = process.env.UPS_TRACK_LOCALE || 'en_US';
