@@ -180,28 +180,44 @@ async function quoteRates({ shipper, recipient, packages, commodities, currency 
     for (const svc of details) {
         const serviceType = svc.serviceType || svc.serviceName;
         // tente pegar o primeiro cenário de preço calculado
-        const rated = svc.ratedShipmentDetails?.[0] || svc.ratedShipmentDetails || svc?.ratedShipmentDetail;
-        const total = rated?.totalNetCharge?.amount
-            ?? rated?.shipmentRateDetail?.totalNetCharge?.amount
-            ?? rated?.totalBaseCharge?.amount
-            ?? null;
+        const rds = Array.isArray(svc?.ratedShipmentDetails) ? svc.ratedShipmentDetails : [];
+        const rated = rds.find(r => r.rateType === 'ACCOUNT') || rds[0] || null;
 
-        // surcharges (quando expostas)
-        const surs = rated?.shipmentRateDetail?.surcharges || [];
+        const pkg = rated?.ratedPackages?.[0]?.packageRateDetail || null;
+
+        // valores retornados pela FedEx (podem vir BRL)
+        const freightBRL = Number(pkg?.netFreight);
+        const surBRL = Number(pkg?.totalSurcharges);
+        const totalBRL = Number(pkg?.netCharge);
+
+        const carrierCurrency = String(pkg?.currency || rated?.currency || 'BRL').toUpperCase();
+
+        // taxa de câmbio que vem na resposta
+        const fx = Number(rated?.shipmentRateDetail?.currencyExchangeRate?.rate);
+
+        // fallback seguro: se não veio fx, não converte
+        const rate = (Number.isFinite(fx) && fx > 0) ? fx : 1;
+
+        const toUSD = (v) => {
+            if (!Number.isFinite(v)) return 0;
+            if (carrierCurrency === 'BRL') return v / rate; // BRL -> USD
+            return v; // já veio USD
+        };
+
         out.push({
             carrier: 'FEDEX',
             serviceType,
-            currency: rated?.totalNetCharge?.currency || 'USD',
-            // ajuste ao tipo do seu grid
-            base: Number(total) || 0,
-            itemized: (surs || []).map(s => ({
-                code: s?.surchargeType || s?.description,
-                amount: s?.amount?.amount || s?.amount,
-            })),
+            currency: 'USD',
+            freight: Number(toUSD(freightBRL).toFixed(2)),
+            surcharges: Number(toUSD(surBRL).toFixed(2)),
+            total: Number(toUSD(totalBRL).toFixed(2)),
+            fx_used: carrierCurrency === 'BRL' ? rate : null,
+            carrier_currency: carrierCurrency,
             raw: svc,
         });
     }
-    return { raw: data, rows: out };
+    const onlyIcp = out.filter(r => r.serviceType === 'FEDEX_INTERNATIONAL_CONNECT_PLUS');
+    return { raw: data, rows: onlyIcp.length ? onlyIcp : out };
 }
 
 module.exports = {

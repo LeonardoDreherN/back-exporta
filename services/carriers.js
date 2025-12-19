@@ -74,7 +74,38 @@ async function cotarCarrier(args = {}) {
             throw err;
         }
     } else {
+        if (carrier === "FEDEX") {
+            // ratingFedex.quote(payload) precisa retornar { rows, raw }
+            const rows = resp?.rows || [];
+            const pick = rows.find(r => r.serviceType === 'FEDEX_INTERNATIONAL_CONNECT_PLUS') || rows[0];
 
+            if (!pick || !Number.isFinite(pick.total)) {
+                const err = new Error('FedEx não retornou total válido');
+                err.upstream = resp;
+                throw err;
+            }
+
+            negotiated = pick.total; // pra manter compat
+            published = pick.total;
+            amount = pick.total;
+
+            return {
+                precoBase: amount,
+                negotiated,
+                published,
+                amount,
+                carrier,
+                currency: 'USD',
+                breakdown: {
+                    freight: pick.freight,
+                    surcharges: pick.surcharges,
+                    total: pick.total,
+                    fx_used: pick.fx_used || null,
+                    carrier_currency: pick.carrier_currency || null,
+                },
+                raw: resp,
+            };
+        }
     }
 
     return {

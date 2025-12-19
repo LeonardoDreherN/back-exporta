@@ -10,6 +10,7 @@ const db = require('../models');
 // const { getToken, baseUrl } = require('../services/fedex/authFedex');
 const { verClienteAtual, getClienteAtual } = require('./ClientesController');
 const tracking = require('../services/fedex/trackingFedex');
+const { accountNumber } = require('../config/fedex');
 
 // ========== HELPERS ==========
 const onlyDigits = (s) => String(s || '').replace(/\D+/g, '');
@@ -229,20 +230,52 @@ function mapClienteToFedexShipper(cliente) {
             personName: cliente.razaoSocial || cliente.nomeFantasia || 'Shipper',
             companyName: cliente.razaoSocial || cliente.nomeFantasia || 'Shipper Company',
             phoneNumber: String(cliente.telefoneCelular || cliente.telefone || '11999999999'),
+            emailAddress: cliente.emailPrincipal || cliente.email || ""
         },
         address: {
             streetLines: ['Rua Teste, 123'] /*[line1 || 'Rua Teste, 123'].filter(Boolean)*/,
             city: cliente.enderecoCidade || 'Sao Paulo',
             stateOrProvinceCode: (cliente.enderecoEstado || 'SP').toUpperCase(),
-            postalCode: onlyDigits(cliente.enderecoCEP || '04795100'),
+            postalCode: onlyDigits(cliente.enderecoCEP || ''),
             countryCode: iso2Country(cliente.enderecoPais || 'BR') || 'BR',
         },
+        tins: [
+            {
+                number: safeStr(cliente.cnpjCpf || cliente.cnpj || cliente.cpf || ''),
+            }
+        ]
+    };
+}
+
+function mapClienteToFedexShipperIOR(cliente) {
+    const line1 = [cliente.enderecoIOR, cliente.numeroIOR].filter(Boolean).join(', ');
+    return {
+        contact: {
+            personName: cliente.nomeIOR || 'Shipper',
+            companyName: cliente.nomeIOR || 'Shipper Company',
+            phoneNumber: String(cliente.telefoneIOR || '11999999999'),
+            emailAddress: cliente.emailIOR || ""
+        },
+        address: {
+            streetLines: ['Rua Teste, 123'] /*[line1 || 'Rua Teste, 123'].filter(Boolean)*/,
+            city: cliente.enderecoCidade || 'Sao Paulo',
+            stateOrProvinceCode: (cliente.enderecoEstado || 'SP').toUpperCase(),
+            postalCode: onlyDigits(cliente.enderecoCEP || ''),
+            countryCode: iso2Country(cliente.enderecoPais || 'BR') || 'BR',
+        },
+        tins: [
+            {
+                number: safeStr(cliente.state_tax_idIOR || ''),
+            }
+        ]
     };
 }
 
 function mapPedidoToFedexRecipient(pedido) {
     const dest = pedido?.endereco || pedido?.shipping_address || pedido?.shippingAddress || {};
     const ruaNum = splitEndereco(dest.rua || dest.address1 || pedido.endereco || '');
+
+    console.log("DESTINO FEDEX: ", pedido)
 
     const line1 = [ruaNum.rua, ruaNum.numero].filter(Boolean).join(', ') || dest.address1 || 'Test Street, 456';
 
@@ -257,10 +290,19 @@ function mapPedidoToFedexRecipient(pedido) {
             streetLines: ["Test Street 318"] /*[line1].filter(Boolean)*/,
             city: dest.cidade || dest.city || pedido.cidade || 'Miami',
             stateOrProvinceCode: (dest.estado || dest.province || pedido.estado || 'FL').toUpperCase(),
-            postalCode: onlyDigits(dest.cep || dest.zip || pedido.CEP || '33136'),
+            postalCode: onlyDigits(dest.cep || dest.zip || pedido.CEP || ''),
             countryCode: iso2Country(dest.pais || dest.countryCode || pedido.pais || 'US') || 'US',
             residential: Boolean(dest.residential ?? false),
         },
+        tins: [
+            {
+                tinType: 'BUSINESS_NATIONAL',
+                number: safeStr(dest.cnpjCpf || dest.cnpj || dest.cpf || ''),
+            }
+        ],
+        accountNumber: {
+            value: accountNumber
+        }
     };
 }
 
@@ -282,8 +324,8 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
         const unitPrice = Number(it.preco || 0) || 0;
 
         const lineTotal = (unitPrice * qty); // Number(it.valorTotalLinha || 0)
-            console.log("LINE TOTAL: ", lineTotal)
-            console.log("MULT", unitPrice * qty)
+        console.log("LINE TOTAL: ", lineTotal)
+        console.log("MULT", unitPrice * qty)
 
         // peso por item: prioridade -> pesoUnit (se vier) -> rateio do total dos packages
         const pesoUnitKg = Number(it.pesoUnit || 0); // se você salvar em kg
@@ -311,10 +353,11 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
 
 
 
-async function buildFedexShipPayload({ shipper, recipient, packages = [], commodities = [], currency = 'USD', pesoTotalPedidoKg }) {
+async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = [], commodities = [], currency = 'USD', pesoTotalPedidoKg }) {
     const acct = process.env.FEDEX_ACCOUNT_NUMBER
     console.log("PEDIDO: ", recipient)
     console.log("CLIENTE: ", shipper)
+    console.log("SOLD TO: ", soldTo)
     const requestedPackageLineItems = normalizePackagesForShip(packages, pesoTotalPedidoKg);
     console.log("CAIXAS: ", requestedPackageLineItems)
     console.log("packs: ", packages)
@@ -329,6 +372,7 @@ async function buildFedexShipPayload({ shipper, recipient, packages = [], commod
         // accountNumber: será injetado no service se não vier; aqui pode omitir
 
         requestedShipment: {
+            shipDateStamp: toYMDDate(new Date()),
             shipper,
             // CLIENTE: {
             //     contact: {
@@ -362,8 +406,8 @@ async function buildFedexShipPayload({ shipper, recipient, packages = [], commod
             //         residential: false
             //     }
             // }
+            // soldTo,
 
-            shipDatestamp: toYMDDate(new Date()),
             serviceType: 'FEDEX_INTERNATIONAL_CONNECT_PLUS',
             packagingType: 'YOUR_PACKAGING',
             pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
@@ -393,6 +437,23 @@ async function buildFedexShipPayload({ shipper, recipient, packages = [], commod
             },
 
             customsClearanceDetail: {
+                importerOfRecord: soldTo,
+                commercialInvoice: {
+                    invoiceNumber: "INV-2025-000123",
+
+                    customerReferences: [
+                        { customerReferenceType: "INVOICE_NUMBER", value: "INV-2025-000123" },
+                        // se quiser preencher PO também:
+                        // { customerReferenceType: "PURCHASE_ORDER_NUMBER", value: "PO-123" },
+                    ],
+
+                    termsOfSale: "DDP", //colocar o selecionado no front
+                    paymentTerms: "Paid in Advance",
+                    freightCharge: {
+                        amount: 12.45, // colocar valor puxando do rate
+                        currency
+                    }
+                },
                 dutiesPayment: {
                     paymentType: 'SENDER'
                 },
@@ -648,10 +709,12 @@ module.exports = {
 
             const shipper = mapClienteToFedexShipper(cliente);
             const recipient = mapPedidoToFedexRecipient(pedido);
+            const soldTo = mapClienteToFedexShipperIOR(cliente);
 
             const payload = await buildFedexShipPayload({
                 shipper,
                 recipient,
+                soldTo,
                 packages,
                 commodities,
                 currency,
