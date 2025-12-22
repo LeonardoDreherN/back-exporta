@@ -11,12 +11,13 @@ function accountNumberObj() {
     return { value: process.env.FEDEX_ACCOUNT_NUMBER };
 }
 
-async function loadPedidoImport(pedidoId, clienteId) {
-    if (!pedidoId) return null;
+async function loadPedidoImport(pedido_ref, clienteId) {
+    const ref = String(pedido_ref || "").trim()
+    if (!ref) return null;
 
     // garante multi-tenant
     const row = await db.PedidoImport.findOne({
-        where: { id: pedidoId, cliente_id: clienteId },
+        where: { pedido_ref: ref, cliente_id: clienteId },
         // attributes: ['id', 'cliente_id', 'moeda', 'total', 'itens'],
     });
 

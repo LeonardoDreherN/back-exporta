@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const { autenticarUsuario } = require('../middleware/auth');
 const ctrl = require('../controller/fedexController');
-const cfgFedex = require('../config/fedex')
+const fedexCfg = require('../config/fedex')
 
 const router = express.Router();
 

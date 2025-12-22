@@ -233,7 +233,7 @@ function mapClienteToFedexShipper(cliente) {
             emailAddress: cliente.emailPrincipal || cliente.email || ""
         },
         address: {
-            streetLines: ['Rua Teste, 123'] /*[line1 || 'Rua Teste, 123'].filter(Boolean)*/,
+            streetLines: [line1 || 'Rua Teste, 123'].filter(Boolean),
             city: cliente.enderecoCidade || 'Sao Paulo',
             stateOrProvinceCode: (cliente.enderecoEstado || 'SP').toUpperCase(),
             postalCode: onlyDigits(cliente.enderecoCEP || ''),
@@ -257,7 +257,7 @@ function mapClienteToFedexShipperIOR(cliente) {
             emailAddress: cliente.emailIOR || ""
         },
         address: {
-            streetLines: ['Rua Teste, 123'] /*[line1 || 'Rua Teste, 123'].filter(Boolean)*/,
+            streetLines: [line1 || 'Rua Teste, 123'].filter(Boolean),
             city: cliente.enderecoCidade || 'Sao Paulo',
             stateOrProvinceCode: (cliente.enderecoEstado || 'SP').toUpperCase(),
             postalCode: onlyDigits(cliente.enderecoCEP || ''),
@@ -287,7 +287,7 @@ function mapPedidoToFedexRecipient(pedido) {
             emailAddress: dest.email || pedido.emailComprador || undefined,
         },
         address: {
-            streetLines: ["Test Street 318"] /*[line1].filter(Boolean)*/,
+            streetLines: [line1].filter(Boolean),
             city: dest.cidade || dest.city || pedido.cidade || 'Miami',
             stateOrProvinceCode: (dest.estado || dest.province || pedido.estado || 'FL').toUpperCase(),
             postalCode: onlyDigits(dest.cep || dest.zip || pedido.CEP || ''),
@@ -638,10 +638,10 @@ module.exports = {
     rate: async (req, res) => {
         try {
             const cliente = await getClienteAtual(req, res);
-            const { pedidoId, packagesId, pesoTotalPedidoKg } = req.body || {};
+            const { pedido_ref, packagesId, pesoTotalPedidoKg } = req.body || {};
 
             if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatória.' });
-            if (!pedidoId) return res.status(400).json({ ok: false, error: 'pedidoId é obrigatório.' });
+            if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório.' });
             if (!pesoTotalPedidoKg) return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg é obrigatório.' });
 
             // 1) carrega N caixas
@@ -651,7 +651,7 @@ module.exports = {
             // 2) divide o peso total do pedido entre as caixas (isso alimenta requestedPackageLineItems)
             packages = distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
 
-            const pedido = await loadPedidoImport(pedidoId, cliente.id);
+            const pedido = await loadPedidoImport(pedido_ref, cliente.id);
             if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
 
             const shipper = mapClienteToFedexShipper(cliente);
@@ -663,7 +663,7 @@ module.exports = {
                 shipper,
                 recipient,
                 packages,
-                pedidoId,
+                pedido_ref,
                 clienteId: cliente.id,
                 commodities
             });
@@ -689,10 +689,10 @@ module.exports = {
     ship: async (req, res) => {
         try {
             const cliente = await getClienteAtual(req, res);
-            const { pedidoId, packagesId, pesoTotalPedidoKg } = req.body || {};
+            const { pedido_ref, packagesId, pesoTotalPedidoKg } = req.body || {};
 
             if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatória.' });
-            if (!pedidoId) return res.status(400).json({ ok: false, error: 'pedidoId é obrigatório.' });
+            if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório.' });
             if (!pesoTotalPedidoKg) return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg é obrigatório.' });
 
             let packages = await loadCaixaImport(packagesId, cliente.id);
@@ -701,7 +701,7 @@ module.exports = {
             // divide o peso total entre caixas (peso por volume)
             packages = distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
 
-            const pedido = await loadPedidoImport(pedidoId, cliente.id);
+            const pedido = await loadPedidoImport(pedido_ref, cliente.id);
             if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
 
             // commodities: se você não tem peso por item, essa função já vai ratear usando o totalKgFromPackages
