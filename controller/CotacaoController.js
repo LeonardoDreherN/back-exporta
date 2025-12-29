@@ -283,8 +283,8 @@ async function createCotacaoReal(req, res) {
 
         // ===== Idempotência =====
         const existente = await Cotacao.findOne({
-            where: { cliente_id, pedido_ref },
-            attributes: ['id', 'pedido_ref', 'createdAt'],
+            where: { cliente_id, pedido_ref, carrier },
+            attributes: ['id', 'pedido_ref', 'carrier', 'createdAt'],
             transaction: t,
             lock: Transaction.LOCK.UPDATE,
         });
@@ -294,6 +294,7 @@ async function createCotacaoReal(req, res) {
                 ok: false, created: false,
                 cotacao_id: existente.id,
                 pedido_ref: existente.pedido_ref,
+                carrier: existente.carrier,
                 error: 'Já existe uma cotação para este pedido'
             });
         }
@@ -453,9 +454,22 @@ async function createCotacaoReal(req, res) {
             carrier: carrierCode,
         });
     } catch (err) {
-        try { await t.rollback(); } catch (_) { }
-        console.error('[COTACAO][ERROR]', err?.message, err?.stack);
-        return res.status(500).json({ ok: false, error: 'Erro ao criar cotação' });
+        try { await t.rollback(); } catch (_) {}
+        console.error('[COTACAO][ERROR]', {
+            message: err?.message,
+            name: err?.name,
+            parent: err?.parent?.message,
+            detail: err?.parent?.detail,
+            sql: err?.sql,
+            code: err?.parent?.code,
+            errors: err?.errors?.map?.(e => ({ message: e.message, path: e.path, value: e.value })),
+            stack: err?.stack,
+        });
+
+        return res.status(500).json({
+            ok: false,
+            error: err?.message || 'Erro ao criar cotação',
+        });
     }
 }
 
@@ -647,7 +661,7 @@ async function listCotacoes(req, res) {
 
             try {
                 const carrier = plain.carrier;
-                if(!plain.carrier){
+                if (!plain.carrier) {
                     throw new Error('Carrier não definido na cotação');
                 }
 

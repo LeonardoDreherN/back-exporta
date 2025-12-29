@@ -187,10 +187,10 @@ async function quoteRates({ shipper, recipient, packages, commodities, currency 
         const pkg = rated?.ratedPackages?.[0]?.packageRateDetail || null;
 
         // valores retornados pela FedEx (podem vir BRL)
-        const freightBRL = Number(pkg?.netFreight);
-        const surBRL = Number(pkg?.totalSurcharges);
-        const totalBRL = Number(pkg?.netCharge);
-
+        const surBRL = Number(rated?.shipmentRateDetail?.totalSurcharges);
+        const totalBRL = Number(pkg?.totalNetCharge);
+        const freightBRL = totalBRL - surBRL;
+        
         const carrierCurrency = String(pkg?.currency || rated?.currency || 'BRL').toUpperCase();
 
         // taxa de câmbio que vem na resposta

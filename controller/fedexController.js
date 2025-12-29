@@ -2,13 +2,13 @@
 const axios = require('axios');
 const { iso2Country, splitEndereco } = require('../services/cotacoesHelpers');
 const { createShipment } = require('../services/fedex/shippingFedex');
-const Cotacao = require('../models/Cotacao');
+// const Cotacao = require('../models/Cotacao');
 // const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
 const { quoteRates, loadPedidoImport } = require('../services/fedex/ratingFedex');
 const db = require('../models');
 // const { accountNumber } = require('../config/fedex');
 // const { getToken, baseUrl } = require('../services/fedex/authFedex');
-const { verClienteAtual, getClienteAtual } = require('./ClientesController');
+const { getClienteAtual } = require('./ClientesController');
 const tracking = require('../services/fedex/trackingFedex');
 const { accountNumber } = require('../config/fedex');
 
@@ -18,6 +18,44 @@ const cleanZip = (s) =>
     String(s || '')
         .replace(/['"`\s]/g, '')
         .replace(/\D/g, '');
+
+const FEDEX_STREETLINE_MAX = 35;
+const FEDEX_STREETLINES_MAX_LINES = 3;
+
+function normalizeSpaces(s) {
+    return String(s || '')
+        .replace(/\s+/g, ' ')
+        .replace(/\s*,\s*/g, ', ')
+        .trim();
+}
+
+function splitByWordsMaxLen(text, maxLen) {
+    const t = normalizeSpaces(text);
+    if (!t) return [];
+    const words = t.split(' ');
+    const out = [];
+    let cur = '';
+    for (const w of words) {
+        if (!cur) { cur = w; continue; }
+        if ((cur + ' ' + w).length <= maxLen) cur = cur + ' ' + w;
+        else { out.push(cur); cur = w; }
+    }
+    if (cur) out.push(cur);
+
+    // fallback: se algum pedaço ainda passar, corta bruto
+    return out.flatMap((ln) => {
+        if (ln.length <= maxLen) return [ln];
+        const parts = [];
+        for (let i = 0; i < ln.length; i += maxLen) parts.push(ln.slice(i, i + maxLen));
+        return parts;
+    });
+}
+
+function buildFedexStreetLines(...lines) {
+    const raw = lines.map(normalizeSpaces).filter(Boolean);
+    const expanded = raw.flatMap((ln) => splitByWordsMaxLen(ln, FEDEX_STREETLINE_MAX));
+    return expanded.slice(0, FEDEX_STREETLINES_MAX_LINES);
+}
 
 // FedEx: estamos usando LABEL em PDF
 function labelTypeToMimeFedex(type) {
@@ -233,7 +271,10 @@ function mapClienteToFedexShipper(cliente) {
             emailAddress: cliente.emailPrincipal || cliente.email || ""
         },
         address: {
-            streetLines: [line1 || 'Rua Teste, 123'].filter(Boolean),
+            streetLines: buildFedexStreetLines(
+                line1 || 'Rua Teste, 123',
+                cliente.enderecoComplemento || cliente.complemento || ''
+            ),
             city: cliente.enderecoCidade || 'Sao Paulo',
             stateOrProvinceCode: (cliente.enderecoEstado || 'SP').toUpperCase(),
             postalCode: onlyDigits(cliente.enderecoCEP || ''),
@@ -257,7 +298,10 @@ function mapClienteToFedexShipperIOR(cliente) {
             emailAddress: cliente.emailIOR || ""
         },
         address: {
-            streetLines: [line1 || 'Rua Teste, 123'].filter(Boolean),
+            streetLines: buildFedexStreetLines(
+                line1 || 'Rua Teste, 123',
+                cliente.complementoIOR || cliente.enderecoComplementoIOR || ''
+            ),
             city: cliente.enderecoCidade || 'Sao Paulo',
             stateOrProvinceCode: (cliente.enderecoEstado || 'SP').toUpperCase(),
             postalCode: onlyDigits(cliente.enderecoCEP || ''),
@@ -276,8 +320,15 @@ function mapPedidoToFedexRecipient(pedido) {
     const ruaNum = splitEndereco(dest.rua || dest.address1 || pedido.endereco || '');
 
     console.log("DESTINO FEDEX: ", pedido)
-
-    const line1 = [ruaNum.rua, ruaNum.numero].filter(Boolean).join(', ') || dest.address1 || 'Test Street, 456';
+    const base1 = dest.rua || dest.address1 || pedido.endereco || '';
+    const base2 = dest.address2 || dest.complemento || dest.complement || '';
+    const line1 =
+        [ruaNum?.rua, ruaNum?.numero].filter(Boolean).join(', ') ||
+        normalizeSpaces(base1) ||
+        'Test Street, 456';
+    const line2 =
+        normalizeSpaces(base2) ||
+        normalizeSpaces(ruaNum?.complemento || '');
 
     return {
         contact: {
@@ -287,7 +338,7 @@ function mapPedidoToFedexRecipient(pedido) {
             emailAddress: dest.email || pedido.emailComprador || undefined,
         },
         address: {
-            streetLines: [line1].filter(Boolean),
+            streetLines: buildFedexStreetLines(line1, line2),
             city: dest.cidade || dest.city || pedido.cidade || 'Miami',
             stateOrProvinceCode: (dest.estado || dest.province || pedido.estado || 'FL').toUpperCase(),
             postalCode: onlyDigits(dest.cep || dest.zip || pedido.CEP || ''),
@@ -363,7 +414,12 @@ async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = []
     console.log("packs: ", packages)
     console.log("COMMODITIES: ", commodities)
 
-
+    try {
+        const s1 = shipper?.address?.streetLines || [];
+        const r1 = recipient?.address?.streetLines || [];
+        console.log('[FEDEX][SHIPPER] streetLines:', s1, s1.map(x => String(x).length));
+        console.log('[FEDEX][RECIP] streetLines:', r1, r1.map(x => String(x).length));
+    } catch (_) { }
 
     // total da linha (preferência: customsValue vindo do builder; fallback: unit*qty)
 
@@ -689,7 +745,7 @@ module.exports = {
     ship: async (req, res) => {
         try {
             const cliente = await getClienteAtual(req, res);
-            const { pedido_ref, packagesId, pesoTotalPedidoKg } = req.body || {};
+            const { packagesId, pedido_ref, pesoTotalPedidoKg } = req.body || {};
 
             if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatória.' });
             if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório.' });

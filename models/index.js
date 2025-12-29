@@ -41,7 +41,7 @@ const db = {
   Cotacao: CotacaoModel(sequelize),
   PedidoImport: PedidoImportModel(sequelize),
   AsaasBoletos: AsaasBoletosModel(sequelize),
-  // Shipment: ShipmentModel(sequelize),
+  Shipment: ShipmentModel(sequelize),
 };
 
 module.exports = db;

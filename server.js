@@ -35,6 +35,7 @@ cron.schedule('*/15 * * * *', pool)
 // const shopifyModule = require('./routes/shopifyRoutes.js');
 const upsRoutes = require('./routes/upsRoutes.js');
 const fedexRoutes = require('./routes/fedexRoutes.js');
+const shipmentsRoutes = require('./routes/shipmentsRoutes.js')
 const sse = require('./routes/SSE.js');
 
 const allowlist = (process.env.CORS_ALLOWED_ORIGINS || '')
@@ -332,8 +333,9 @@ app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req, res) => {
 });
 
 // API UPS
+app.use('/api/shipments', shipmentsRoutes)
 app.use('/api/cotacoes', autenticarUsuario, vincularCliente, require('./routes/cotacoesRoutes.js'));
-app.use('/api/cotacoesFedex', require('./routes/fedexRoutes.js'))
+// app.use('/api/cotacoesFedex', require('./routes/fedexRoutes.js'))
 app.use('/api/relatorio', autenticarUsuario, vincularCliente, require('./routes/relatorioPagamentos.js'))
 const debugFedex = require('./routes/debugFedex.js');
 app.use(debugFedex);
