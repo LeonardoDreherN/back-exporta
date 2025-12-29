@@ -179,18 +179,42 @@ async function quoteRates({ shipper, recipient, packages, commodities, currency 
     const out = [];
     const details = data?.output?.rateReplyDetails || data?.rateReplyDetails || [];
     for (const svc of details) {
-        const serviceType = svc.serviceType || svc.serviceName;
+        const serviceType = 'FEDEX_INTERNATIONAL_CONNECT_PLUS';
         // tente pegar o primeiro cenário de preço calculado
         const rds = Array.isArray(svc?.ratedShipmentDetails) ? svc.ratedShipmentDetails : [];
         const rated = rds.find(r => r.rateType === 'ACCOUNT') || rds[0] || null;
 
-        const pkg = rated?.ratedPackages?.[0]?.packageRateDetail || null;
+        const pkg = rated?.ratedPackages?.[0]?.packageRateDetail || {};
 
-        // valores retornados pela FedEx (podem vir BRL)
-        const surBRL = Number(rated?.shipmentRateDetail?.totalSurcharges);
-        const totalBRL = Number(pkg?.totalNetCharge);
-        const freightBRL = totalBRL - surBRL;
-        
+        const toNum = (v) => {
+            const n = Number(v?.amount ?? v);
+            return Number.isFinite(n) ? n : null;
+        };
+        const sumSurcharges = (arr) =>
+            Array.isArray(arr)
+                ? arr.reduce((acc, s) => acc + (toNum(s?.amount) ?? 0), 0)
+                : null;
+
+        // comentario informal: esses campos mudam de nome na resposta, entao pegamos varios jeitos
+        const surBRL =
+            toNum(rated?.shipmentRateDetail?.totalSurcharges) ??
+            sumSurcharges(rated?.shipmentRateDetail?.surcharges) ??
+            sumSurcharges(rated?.shipmentRateDetail?.surCharges) ??
+            toNum(pkg?.totalSurcharges) ??
+            0;
+
+        const totalBRL =
+            toNum(pkg?.totalNetCharge) ??
+            toNum(pkg?.netCharge) ??
+            toNum(rated?.shipmentRateDetail?.totalNetCharge) ??
+            toNum(rated?.totalNetCharge) ??
+            toNum(rated?.totalNetFedExCharge) ??
+            null;
+
+        const freightBRL = Number.isFinite(totalBRL)
+            ? totalBRL - surBRL
+            : (toNum(pkg?.netFreight) ?? toNum(pkg?.baseCharge) ?? 0);
+
         const carrierCurrency = String(pkg?.currency || rated?.currency || 'BRL').toUpperCase();
 
         // taxa de câmbio que vem na resposta
@@ -209,9 +233,13 @@ async function quoteRates({ shipper, recipient, packages, commodities, currency 
             carrier: 'FEDEX',
             serviceType,
             currency: 'USD',
-            freight: Number(toUSD(freightBRL).toFixed(2)),
-            surcharges: Number(toUSD(surBRL).toFixed(2)),
+            base: Number(toUSD(freightBRL).toFixed(2)),
             total: Number(toUSD(totalBRL).toFixed(2)),
+            itemized: [{
+                code: 'FEDEX-SUR',
+                amount: Number(toUSD(surBRL).toFixed(2)),
+                label: 'FedEx surcharges (consolidado)',
+            }],
             fx_used: carrierCurrency === 'BRL' ? rate : null,
             carrier_currency: carrierCurrency,
             raw: svc,

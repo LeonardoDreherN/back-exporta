@@ -41,9 +41,9 @@ module.exports = (sequelize) => {
         preco_base: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
         preco_final: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
         surcharges: { type: DataTypes.JSONB, allowNull: true, defaultValue: null },
-        data_coleta: { type: DataTypes.STRING(8), allowNull: true},
-        ready_hora : { type: DataTypes.STRING(4), allowNull: true},
-        close_hora : { type: DataTypes.STRING(4), allowNull: true},
+        data_coleta: { type: DataTypes.STRING(8), allowNull: true },
+        ready_hora: { type: DataTypes.STRING(4), allowNull: true },
+        close_hora: { type: DataTypes.STRING(4), allowNull: true },
         carrier: { type: DataTypes.STRING, allowNull: false },
         serviceCode: { type: DataTypes.STRING(64), allowNull: true }
     }, {
@@ -53,7 +53,7 @@ module.exports = (sequelize) => {
         indexes: [
             { fields: ['cliente_id', 'created_at'] },
             { fields: ['pedido'], using: 'gin' },
-            { unique: true, fields: ['cliente_id', 'pedido_ref'] },
+            { unique: true, fields: ['cliente_id', 'pedido_ref', 'carrier'] },
             // busca rápida por tracking
             { fields: ['tracking_number'] },
         ],

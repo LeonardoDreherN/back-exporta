@@ -222,6 +222,10 @@ async function confirmRate(req, res) {
             });
         }
 
+        console.log(`[SHIPMENTS/CONFIRM] ${chosen})`);
+        console.log(`[SHIPMENTS/CONFIRM] ${Object.keys(rate_result)})`);
+        console.log(`[SHIPMENTS/CONFIRM] ${Object.keys(quote)})`);
+
         // Monta um req "fake" pro seu createCotacaoReal (pra reaproveitar o mesmo código)
         // Aqui é o ponto: vamos salvar APENAS 1 cotação.
         const fakeReq = {
@@ -229,8 +233,9 @@ async function confirmRate(req, res) {
             cliente: { id: cliente_id },
             body: {
                 pedido_ref,
-                pais_remetente: null,
-                pais_dest: null,
+                // comentario informal: tenta preencher pais pra nao salvar null
+                pais_remetente: rate_result?.pedido?.pais_remetente || rate_result?.pedido?.endereco?.pais || null,
+                pais_dest: rate_result?.pedido?.pais_dest || rate_result?.pedido?.shipping_address?.country_code || null,
                 pedido: rate_result.pedido || {},
                 caixa: rate_result.caixa || {},
 
@@ -238,7 +243,7 @@ async function confirmRate(req, res) {
                 rate_payload: quote.carrier_raw, // isso é o que seus prepararCotacao* esperam como "raw"
                 preco_base: quote.base,          // override para garantir consistência
                 freightValueNum: null,
-                serviceCode: (rate_result?.pedido?.serviceCode || rate_result?.pedido?.pricing?.serviceCode || null),
+                serviceCode: quote.serviceCode || rate_result?.pedido?.serviceCode || null,
             }
         };
 

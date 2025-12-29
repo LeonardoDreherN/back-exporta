@@ -5,24 +5,35 @@ const { toNumSafe, up } = require('../cotacoesHelpers');
  * Espera receber rate_payload no formato bruto da FedEx
  * (output de /rate/v1/rates/quotes, ou o pedaço escolhido).
  */
-function extractFedexBreakdown(rateRaw) {
+function extractFedexBreakdown(rateRaw, preferredServiceType) {
     if (!rateRaw) return null;
 
     // se vier { raw, rows } (ex.: retorno do quoteRates)
     if (rateRaw.raw && rateRaw.rows) {
-        // pega a primeira linha por padrão
-        const firstRow = rateRaw.rows[0];
+        const firstRow = preferredServiceType
+            ? rateRaw.rows.find(r => r?.serviceType === preferredServiceType) || rateRaw.rows[0]
+            : rateRaw.rows[0];
         if (!firstRow) return null;
+
+        const base = Number(firstRow.base ?? firstRow.freight ?? 0) || 0;
+        const total = Number(firstRow.total ?? 0) || base;
+        const sur =
+            Number(firstRow.surcharges ?? firstRow.sur ?? 0) ||
+            Math.max(0, total - base);
+        const itemized = Array.isArray(firstRow.itemized) ? firstRow.itemized : [];
+
         return {
-            serviceType: firstRow.serviceType,
-            currency: firstRow.currency || 'USD',
-            base: firstRow.base,
-            total: firstRow.base, // se você ainda não separar base/total, deixa igual
-            itemized: (firstRow.itemized || []).map(it => ({
-                code: up(it.code || ''),
-                label: it.code || it.label || 'Surcharge',
-                value: Number(it.amount || 0) || 0,
-            })),
+            serviceType: firstRow.serviceType || preferredServiceType || "FEDEX_INTERNATIONAL_CONNECT_PLUS",
+            currency: firstRow.currency || "USD",
+            base,
+            total,
+            itemized: itemized.length
+                ? itemized.map(it => ({
+                    code: up(it?.code || ""),
+                    label: it?.label || it?.code || "Surcharge",
+                    value: Number(it?.value ?? it?.amount ?? 0) || 0,
+                }))
+                : (sur > 0 ? [{ code: "FEDEX-SUR", label: "FedEx surcharges (consolidado)", value: sur }] : []),
         };
     }
 
@@ -32,7 +43,12 @@ function extractFedexBreakdown(rateRaw) {
         rateRaw?.rateReplyDetails ||
         [];
 
-    const svc = Array.isArray(details) ? details[0] : details;
+    const svc = Array.isArray(details)
+        ? (preferredServiceType
+            ? details.find(d => d?.serviceType === preferredServiceType) || details[0]
+            : details[0])
+        : details;
+    console.log('extractFedexBreakdown svc=', svc);
     if (!svc) return null;
 
     const rated =
@@ -41,26 +57,38 @@ function extractFedexBreakdown(rateRaw) {
         svc?.ratedShipmentDetail ||
         {};
 
+    const toNum = (v) => {
+        const n = Number(v?.amount ?? v);
+        return Number.isFinite(n) ? n : null;
+    };
+
     const totalNet =
-        rated?.totalNetCharge?.amount ??
-        rated?.shipmentRateDetail?.totalNetCharge?.amount ??
-        rated?.totalBaseCharge?.amount ??
+        toNum(rated?.totalNetCharge) ??
+        toNum(rated?.shipmentRateDetail?.totalNetCharge) ??
+        toNum(rated?.totalNetFedExCharge) ??
+        toNum(rated?.totalNetChargeWithDutiesAndTaxes) ??
         null;
 
-    const baseCharge =
-        rated?.shipmentRateDetail?.totalBaseCharge?.amount ??
-        rated?.totalBaseCharge?.amount ??
-        totalNet;
+    const totalBase =
+        toNum(rated?.totalBaseCharge) ??
+        null;
+
+    const totalDiscounts = toNum(rated?.totalDiscounts) ?? 0;
+    const baseCharge = Number.isFinite(totalBase) ? Math.max(0, totalNet - totalDiscounts) : totalNet;
 
     const currency =
+        rated?.shipmentRateDetail?.currency ||
         rated?.totalNetCharge?.currency ||
         rated?.shipmentRateDetail?.totalNetCharge?.currency ||
         'USD';
 
-    const surs = rated?.shipmentRateDetail?.surcharges || [];
+    const surs =
+        rated?.shipmentRateDetail?.surcharges ||
+        rated?.shipmentRateDetail?.surCharges ||
+        [];
 
     return {
-        serviceType: svc.serviceType || svc.serviceName || '',
+        serviceType: preferredServiceType || svc.serviceType || svc.serviceName || '',
         currency,
         base: Number(baseCharge) || 0,
         total: Number(totalNet) || Number(baseCharge) || 0,
@@ -72,12 +100,19 @@ function extractFedexBreakdown(rateRaw) {
     };
 }
 
-async function prepararCotacaoFedex({ rate_payload, preco_base, freightValueNum }) {
+function isFedexRateRaw(obj) {
+    if (!obj || typeof obj !== 'object') return false;
+    return !!(obj.output?.rateReplyDetails || obj.RateReplyDetails || obj.transactionId);
+}
+
+async function prepararCotacaoFedex({ req, rate_payload, preco_base, freightValueNum, plano }) {
     let precoBase = null;
     let breakdown = null;
+    let carrier_raw = null;
 
     const precoBaseOverride = toNumSafe(preco_base ?? freightValueNum);
-    const overrideUsado = Number.isFinite(precoBaseOverride);
+    // comentario informal: 0 nao vale como override, senao zera tudo
+    const overrideUsado = Number.isFinite(precoBaseOverride) && precoBaseOverride > 0;
 
     if (!rate_payload && !overrideUsado) {
         const err = new Error(
@@ -87,8 +122,22 @@ async function prepararCotacaoFedex({ rate_payload, preco_base, freightValueNum 
         throw err;
     }
 
-    if (rate_payload) {
-        breakdown = extractFedexBreakdown(rate_payload);
+    const rawFromWrapper = rate_payload?.raw;
+    const ratePayloadRaw = isFedexRateRaw(rawFromWrapper)
+        ? rawFromWrapper
+        : (isFedexRateRaw(rate_payload) ? rate_payload : null);
+
+    const preferredServiceType = 'FEDEX_INTERNATIONAL_CONNECT_PLUS';
+
+    if (ratePayloadRaw) {
+        carrier_raw = ratePayloadRaw;
+        breakdown = extractFedexBreakdown(ratePayloadRaw, preferredServiceType);
+    } else if (rate_payload) {
+        // comentario informal: se vier estranho, pelo menos guarda o raw pra debugar
+        carrier_raw = rate_payload;
+        breakdown = null;
+    } else {
+        breakdown = null;
     }
 
     if (overrideUsado) {
@@ -140,13 +189,13 @@ async function prepararCotacaoFedex({ rate_payload, preco_base, freightValueNum 
 
     return {
         carrier: 'FEDEX',
-        serviceType: 'FEDEX_INTERNATIONAL_CONNECT_PLUS',
+        serviceCode: 'FEDEX_INTERNATIONAL_CONNECT_PLUS',
         base: fedexBase,
         total: totalCalc,
         taxesTotal: fedexTaxesTotal,
         currency,
         surcharges: savedSurcharges,
-        carrier_raw: rate_payload || null,
+        carrier_raw,
         fonte_base: overrideUsado ? 'OVERRIDE' : 'FEDEX',
     };
 

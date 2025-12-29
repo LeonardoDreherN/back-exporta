@@ -12,7 +12,7 @@ const { createClient } = require('@supabase/supabase-js');
 const { getUpsToken } = require('../services/upsAuth');
 const axios = require('axios');
 const { prepararCotacaoUPS } = require('../services/ups/cotacaoUps');
-const { toNumSafe, up } = require('../services/cotacoesHelpers');
+const { toNumSafe, up, iso2Country } = require('../services/cotacoesHelpers');
 const { prepararCotacaoFedex } = require('../services/fedex/cotacaoFedex');
 
 const supabase = createClient(
@@ -260,6 +260,15 @@ async function createCotacaoReal(req, res) {
         const cliente_id = Number(req.cliente?.id ?? req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId);
         if (!cliente_id) { await t.rollback(); return res.status(401).json({ ok: false, error: 'Cliente não autenticado' }); }
 
+        console.log('[createCotacaoReal] body keys:', Object.keys(req.body || {}));
+        console.log('[createCotacaoReal] body sample:', {
+            pedido_ref: req.body?.pedido_ref,
+            pais_remetente: req.body?.pais_remetente,
+            pais_dest: req.body?.pais_dest,
+            carrier: req.body?.carrier,
+            serviceCode: req.body?.serviceCode,
+        });
+
         const {
             pedido_ref: pedido_ref_raw,
             pais_remetente,
@@ -411,6 +420,16 @@ async function createCotacaoReal(req, res) {
             pedidoJson.serviceCode = service_code;
         }
 
+        // comentario informal: tenta preencher pais mesmo se o front nao mandar
+        const paisRemetenteNorm =
+            iso2Country(pais_remetente ?? cli?.dataValues?.enderecoPais) || null;
+        const paisDestNorm =
+            iso2Country(pais_dest ?? pedidoJson?.pais) || null;
+
+        console.log('cli?.enderecoPais:', cli);
+        console.log('pedidoJson?.pais_remetente:', pedidoJson);
+        console.log('pedidoJson?.endereco?.pais:', pedidoJson?.endereco);
+
         const registro = await Cotacao.create(
             {
                 cliente_id,
@@ -423,8 +442,8 @@ async function createCotacaoReal(req, res) {
                 plano_aplicado: pricingBase.plano_aplicado,
                 preco_base: carrierBase,
                 preco_final: precoFinalCliente,
-                pais_remetente: pais_remetente ?? null,
-                pais_dest: pais_dest ?? null,
+                pais_remetente: paisRemetenteNorm,
+                pais_dest: paisDestNorm,
                 pedido: pedidoJson,
                 surcharges: pedidoJson?.pricing?.surcharges || null,
                 caixa:
@@ -438,7 +457,7 @@ async function createCotacaoReal(req, res) {
                 ready_hora: null,
                 close_hora: null,
                 carrier: carrierCode,
-                serviceCode: service_code
+                serviceCode: carrierResult?.serviceCode ?? service_code
             },
             { transaction: t }
         );
@@ -454,7 +473,7 @@ async function createCotacaoReal(req, res) {
             carrier: carrierCode,
         });
     } catch (err) {
-        try { await t.rollback(); } catch (_) {}
+        try { await t.rollback(); } catch (_) { }
         console.error('[COTACAO][ERROR]', {
             message: err?.message,
             name: err?.name,
@@ -481,6 +500,8 @@ async function attachDocs(req, res) {
             etiqueta_mime,
             invoice_base64,
             invoice_mime,
+            etiqueta_url,
+            invoice_url,
             tracking_number,
             carrier,
         } = req.body || {};
@@ -503,25 +524,45 @@ async function attachDocs(req, res) {
             await cot.update(patch);
         }
 
-        // ===== LABEL → Supabase Storage =====
+        async function fetchUrlAsBase64(url) {
+            const resp = await axios.get(url, { responseType: 'arraybuffer' });
+            const mime = resp?.headers?.['content-type'] || null;
+            const b64 = Buffer.from(resp.data).toString('base64');
+            return { b64, mime };
+        }
+        // ===== LABEL -> Supabase Storage =====
         if (typeof etiqueta_base64 === 'string' && etiqueta_base64.trim()) {
             const mime = typeof etiqueta_mime === 'string' && etiqueta_mime.trim()
                 ? etiqueta_mime.trim()
                 : 'application/pdf';
 
             await salvarEtiquetaNaStorage(cot.id, etiqueta_base64, mime);
+        } else if (typeof etiqueta_url === 'string' && etiqueta_url.trim()) {
+            // comentario informal: FedEx manda URL, entao baixa e salva igual UPS
+            const fetched = await fetchUrlAsBase64(etiqueta_url.trim());
+            const mime = typeof etiqueta_mime === 'string' && etiqueta_mime.trim()
+                ? etiqueta_mime.trim()
+                : (fetched.mime || 'application/pdf');
+            await salvarEtiquetaNaStorage(cot.id, fetched.b64, mime);
         }
 
-        // ===== INVOICE → Supabase Storage =====
+        // ===== INVOICE -> Supabase Storage =====
         if (typeof invoice_base64 === 'string' && invoice_base64.trim()) {
             const mime = typeof invoice_mime === 'string' && invoice_mime.trim()
                 ? invoice_mime.trim()
                 : 'application/pdf';
 
             await salvarInvoiceNaStorage(cot.id, invoice_base64, mime);
+        } else if (typeof invoice_url === 'string' && invoice_url.trim()) {
+            // comentario informal: mesma coisa pra invoice via URL
+            const fetched = await fetchUrlAsBase64(invoice_url.trim());
+            const mime = typeof invoice_mime === 'string' && invoice_mime.trim()
+                ? invoice_mime.trim()
+                : (fetched.mime || 'application/pdf');
+            await salvarInvoiceNaStorage(cot.id, fetched.b64, mime);
         }
 
-        // recarrega a cotação pra pegar paths atualizados
+        // recarrega a cotacao pra pegar paths atualizados
         await cot.reload();
 
         return res.json({
@@ -853,3 +894,6 @@ module.exports = {
     salvarEtiquetaNaStorage,
     salvarInvoiceNaStorage,
 };
+
+
+

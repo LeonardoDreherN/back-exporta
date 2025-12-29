@@ -730,6 +730,8 @@ module.exports = {
                 carrier: r.carrier || 'FEDEX',
                 currency: r.currency || 'USD',
                 base: r.base || 0,
+                // comentario informal: total ajuda o front a nao mandar override 0
+                total: r.total || r.base || 0,
                 itemized: r.itemized || [],
             }));
 
