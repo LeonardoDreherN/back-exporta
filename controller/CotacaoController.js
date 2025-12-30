@@ -833,6 +833,12 @@ async function getCotacaoDetails(req, res) {
             ? Number(pricing.preco_base)       // já “aplicarPlano(base)”
             : (Number(basePura) + Number(planAdj));  // fallback: base + ajuste
 
+        const carrierCode = String(pricing?.carrier || cot.carrier || '').toUpperCase();
+        const consolidatedCode = carrierCode === 'FEDEX' ? 'FEDEX-SUR' : 'UPS-SUR';
+        const consolidatedLabel = carrierCode === 'FEDEX'
+            ? 'FedEx surcharges (consolidado)'
+            : 'UPS surcharges (consolidado)';
+
         let itemized = Array.isArray(sur?.itemized)
             ? sur.itemized.map(i => ({
                 code: up(i?.code ?? i?.Code ?? '') || undefined,
@@ -856,7 +862,7 @@ async function getCotacaoDetails(req, res) {
             const already = planAdj + (svc || 0);
             const diff = (total || 0) - (base || 0) - already;
             if (diff > 0.009) {
-                itemized.unshift({ code: 'UPS-SUR', label: 'UPS surcharges (consolidado)', value: diff });
+                itemized.unshift({ code: consolidatedCode, label: consolidatedLabel, value: diff });
             }
         }
 

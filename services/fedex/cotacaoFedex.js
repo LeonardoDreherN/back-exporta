@@ -72,13 +72,30 @@ async function extractFedexBreakdown(rateRaw, preferredServiceType) {
     console.log('extractFedexBreakdown rated=', rated);
 
     const toNum = (v) => {
-        const n = Number(v?.amount ?? v);
+        const n = Number(v?.amount ?? v?.value ?? v);
         return Number.isFinite(n) ? n : null;
+    };
+    const pickSurchargeAmount = (s) =>
+        toNum(
+            s?.amount?.amount ??
+            s?.amount ??
+            s?.surchargeAmount ??
+            s?.netCharge ??
+            s?.chargeAmount ??
+            s?.value
+        );
+    const mapSurcharge = (s, fxRate) => {
+        const raw = pickSurchargeAmount(s);
+        const val = Number.isFinite(raw) ? raw / fxRate : 0;
+        if (!(val > 0)) return null;
+        const code = up(s?.surchargeType || s?.type || s?.code || s?.description || '');
+        const label = s?.description || s?.surchargeDescription || s?.surchargeType || s?.type || 'Surcharge';
+        return { code, label, value: Number(val) || 0 };
     };
 
     const totalNet =
         toNum(rated?.totalNetCharge) ?? null;
-    
+
     const totalSurcharges = toNum(rated?.shipmentRateDetail?.totalSurcharges) ?? 0;
 
     // const totalBase =
@@ -89,26 +106,29 @@ async function extractFedexBreakdown(rateRaw, preferredServiceType) {
 
     const currency = 'USD';
 
+    const ratedPkg = rated?.ratedPackages?.[0]?.packageRateDetail || {};
     const surs =
         rated?.shipmentRateDetail?.surcharges ||
         rated?.shipmentRateDetail?.surCharges ||
+        ratedPkg?.surcharges ||
+        ratedPkg?.surCharges ||
         [];
     const conversaoRaw = await valorConversao();
     const conversao = (toNumSafe(conversaoRaw) || 0);
     const fx = Number.isFinite(conversao) && conversao > 0 ? conversao : 1;
     const base = baseCharge / fx;
     const total = totalNet / fx
-    
+
+    const itemized = Array.isArray(surs)
+        ? surs.map((s) => mapSurcharge(s, fx)).filter(Boolean)
+        : [];
+
     return {
         serviceType: preferredServiceType || svc.serviceType || svc.serviceName || '',
         currency,
         base,
         total,
-        itemized: surs.map(s => ({
-            code: up(s?.surchargeType || s?.description || ''),
-            label: s?.description || s?.surchargeType || 'Surcharge',
-            value: Number((s?.amount?.amount ?? s?.amount ?? 0) / fx) || 0,
-        })),
+        itemized,
     };
 }
 
@@ -167,13 +187,12 @@ async function prepararCotacaoFedex({ req, rate_payload, preco_base, freightValu
         err.status = 400;
         throw err;
     }
+    const fedexBase = precoBase;
+    const fedexTotal =
+        toNumSafe(breakdown?.total) ??
+        fedexBase; // se nao tiver total separado, usa base
 
-    // const fedexBase = precoBase;
-    // const fedexTotal =
-    //     toNumSafe(breakdown?.total) ??
-    //     fedexBase; // se não tiver total separado, usa base
-
-    const fedexTaxesTotal = Math.max(0, breakdown.total - breakdown.base);
+    const fedexTaxesTotal = Math.max(0, fedexTotal - fedexBase);
     const currency = breakdown?.currency || 'USD';
 
     const items = Array.isArray(breakdown?.itemized)
@@ -184,20 +203,27 @@ async function prepararCotacaoFedex({ req, rate_payload, preco_base, freightValu
         }))
         : [];
 
-    // const itemsSum = items.reduce((a, b) => a + (b.value || 0), 0);
+    const itemsSum = items.reduce((a, b) => a + (b.value || 0), 0);
 
-    // let totalCalc = toNumSafe(breakdown?.total);
-    // if (!Number.isFinite(totalCalc) || totalCalc <= 0) {
-    //     totalCalc = fedexBase + itemsSum;
-    // }
+    let totalCalc = toNumSafe(breakdown?.total);
+    if (!Number.isFinite(totalCalc) || totalCalc <= 0) {
+        totalCalc = fedexBase + itemsSum;
+    }
 
-    // const savedSurcharges = {
-    //     currency,
-    //     base: fedexBase,
-    //     serviceOptions: 0,
-    //     itemized: items,
-    //     total: totalCalc,
-    // };
+    const savedSurcharges = {
+        currency,
+        base: fedexBase,
+        serviceOptions: 0,
+        itemized: items,
+        total: totalCalc,
+    };
+
+    console.log('[prepararCotacaoFedex] prepared breakdown:', {
+        precoBase: fedexBase,
+        total: totalCalc,
+        surcharges: items,
+        savedSurcharges,
+    });
 
     return {
         carrier: 'FEDEX',
@@ -206,7 +232,7 @@ async function prepararCotacaoFedex({ req, rate_payload, preco_base, freightValu
         total: breakdown.total,
         taxesTotal: fedexTaxesTotal,
         currency,
-        surcharges: breakdown.itemized,
+        surcharges: savedSurcharges,
         carrier_raw,
         fonte_base: overrideUsado ? 'OVERRIDE' : 'FEDEX',
     };
@@ -214,5 +240,7 @@ async function prepararCotacaoFedex({ req, rate_payload, preco_base, freightValu
 }
 
 module.exports = { prepararCotacaoFedex, extractFedexBreakdown };
+
+
 
 
