@@ -215,7 +215,7 @@ async function quoteRates({ shipper, recipient, packages, commodities, currency 
             ? totalBRL - surBRL
             : (toNum(pkg?.netFreight) ?? toNum(pkg?.baseCharge) ?? 0);
 
-        const carrierCurrency = String(pkg?.currency || rated?.currency || 'BRL').toUpperCase();
+        const carrierCurrency = String(pkg?.currency || rated?.currency || 'USD').toUpperCase();
 
         // taxa de câmbio que vem na resposta
         const fx = Number(rated?.shipmentRateDetail?.currencyExchangeRate?.rate);

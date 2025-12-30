@@ -87,11 +87,7 @@ async function extractFedexBreakdown(rateRaw, preferredServiceType) {
 
     const baseCharge = totalNet - totalSurcharges;
 
-    const currency =
-        rated?.shipmentRateDetail?.currency ||
-        rated?.totalNetCharge?.currency ||
-        rated?.shipmentRateDetail?.totalNetCharge?.currency ||
-        'USD';
+    const currency = 'USD';
 
     const surs =
         rated?.shipmentRateDetail?.surcharges ||
