@@ -492,7 +492,7 @@ async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = []
             },
 
             labelSpecification: {
-                imageType: 'PDF',
+                imageType: 'PNG',
                 labelStockType: 'PAPER_85X11_TOP_HALF_LABEL',
             },
 
@@ -602,7 +602,7 @@ function extractFedexShipmentDocs(data = {}) {
     }
 
     let labelUrl = null;
-    let labelType = 'PDF';
+    let labelType = 'PNG';
 
     if (Array.isArray(shipment.pieceResponses)) {
         for (const p of shipment.pieceResponses) {
@@ -613,7 +613,7 @@ function extractFedexShipmentDocs(data = {}) {
                 if (t.includes('LABEL')) {
                     if (d.url) {
                         labelUrl = d.url;
-                        labelType = d.imageType || d.imageFormat || 'PDF';
+                        labelType = d.imageType || d.imageFormat || 'PNG';
                         break;
                     }
                 }
