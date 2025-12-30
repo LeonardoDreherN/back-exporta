@@ -12,7 +12,7 @@ function aplicarPlano(precoBase, plano = 'basico') {
     const planoKey = String(plano || 'basico').toLowerCase();
     const f = regrasPorPlano[planoKey] || regrasPorPlano.basico;
     const final = f(base);
-    console.log('aplicarPlano', planoKey, base, final);
+    // console.log('aplicarPlano', planoKey, base, final);
     return {
         plano_aplicado: planoKey,
         preco_base: base,

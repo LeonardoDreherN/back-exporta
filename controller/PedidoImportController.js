@@ -371,11 +371,11 @@ async function enrichPedidosWithProdutos(pedidos, cliente_id) {
         pedidos.flatMap(p => (p.itens || []).map(it => normSku(it.sku)).filter(Boolean))
     ));
 
-    console.log('[enrich] skus extraidos:', skus);
+    // console.log('[enrich] skus extraidos:', skus);
     if (!skus.length) return pedidos;
 
     const prodMap = await loadProdutosPorSku(cliente_id, skus);
-    console.log('[enrich] encontrados:', Array.from(prodMap.keys()));
+    // console.log('[enrich] encontrados:', Array.from(prodMap.keys()));
 
     for (const ped of pedidos) {
         for (const it of (ped.itens || [])) {
@@ -405,7 +405,7 @@ async function enrichPedidosWithProdutos(pedidos, cliente_id) {
 
 // ---------- NOVO: função reutilizável para importar ----------
 async function importPedidosInternal(cliente_id, linhas) {
-    console.log('[importPedidosInternal] cliente_id =', cliente_id, 'linhas =', Array.isArray(linhas) ? linhas.length : 'NÃO É ARRAY');
+    // console.log('[importPedidosInternal] cliente_id =', cliente_id, 'linhas =', Array.isArray(linhas) ? linhas.length : 'NÃO É ARRAY');
 
     if (!cliente_id) throw new Error("cliente_id obrigatório");
     if (!Array.isArray(linhas) || !linhas.length) return { created: 0, updated: 0, grouped_orders: 0 };
@@ -423,8 +423,8 @@ async function importPedidosInternal(cliente_id, linhas) {
     //     console.log('[importPedidosInternal] usando groupRowsByOrder');
     // }
 
-    console.log('[importPedidosInternal] pedidos agrupados =', pedidos.length);
-    if (pedidos[0]) console.log('[importPedidosInternal] primeiro pedido =', pedidos[0]);
+    // console.log('[importPedidosInternal] pedidos agrupados =', pedidos.length);
+    // if (pedidos[0]) console.log('[importPedidosInternal] primeiro pedido =', pedidos[0]);
 
     pedidos = await enrichPedidosWithProdutos(pedidos, cliente_id);
 
@@ -468,7 +468,7 @@ async function importPedidosInternal(cliente_id, linhas) {
 
     }
 
-    console.log('[importPedidosInternal] FIM: created =', created, 'skipped =', skipped, 'grouped_orders =', pedidos.length);
+    // console.log('[importPedidosInternal] FIM: created =', created, 'skipped =', skipped, 'grouped_orders =', pedidos.length);
 
     return { created, skipped, grouped_orders: pedidos.length };
 }
@@ -482,7 +482,7 @@ async function importPedidos(req, res) {
         if (!linhas || !linhas.length) {
             return res.status(400).json({ ok: false, error: 'Envie "linhas" como array' });
         }
-        console.log("#########chegou aqui importPedidos#########");
+        // console.log("#########chegou aqui importPedidos#########");
         const r = await importPedidosInternal(cliente_id, linhas);
         return res.json({ ok: true, cliente_id, ...r });
     } catch (e) {
@@ -530,15 +530,15 @@ async function listPedidos(req, res) {
                 "itens",
             ],
         });
-        console.log('[listPedidos] rows count =', rows.length);
+        // console.log('[listPedidos] rows count =', rows.length);
 
         if (rows[0]) {
-            console.log('[listPedidos] primeiro row =', {
-                id: rows[0].id,
-                cliente_id: rows[0].cliente_id,
-                pedido_ref: rows[0].pedido_ref,
-                total: rows[0].total,
-            });
+            // console.log('[listPedidos] primeiro row =', {
+            //     id: rows[0].id,
+            //     cliente_id: rows[0].cliente_id,
+            //     pedido_ref: rows[0].pedido_ref,
+            //     total: rows[0].total,
+            // });
         }
 
         return res.json({ ok: true, itens: rows, limit, offset });

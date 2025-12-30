@@ -11,7 +11,7 @@ async function valorConversao() {
 
     // Se tiver valor recente em cache, usa e evita chamar a API externa
     if (cache.valor && (agora - cache.atualizadoEm) < CACHE_MS) {
-        console.log("[DOLAR BACK] USANDO CACHE. valor =", cache.valor);
+        // console.log("[DOLAR BACK] USANDO CACHE. valor =", cache.valor);
         return cache.valor;
     }
 
@@ -34,7 +34,7 @@ async function valorConversao() {
             // se em algum momento preferir por querystring, seria algo tipo:
             // params: { token: process.env.AWESOMEAPI_TOKEN },
         });
-        console.log(">>>>>>>", resp?.data.USDBRL.high)
+        // console.log(">>>>>>>", resp?.data.USDBRL.high)
 
         // const valor = resp.USDBRL.high;
 

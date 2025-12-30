@@ -16,14 +16,14 @@ function extrairToken(req) {
 
 function logAuthDebug(req, stage, extra = {}) {
   if (process.env.AUTH_DEBUG === '1') {
-    console.log(`[auth:${stage}]`, {
-      hasAuthHeader: !!req.headers.authorization,
-      hasAccessCookie: !!req.cookies?.access_token,
-      hasLegacyCookie: !!req.cookies?.token,
-      clienteId: req.clienteId,
-      usuario: req.usuario?.id,
-      ...extra,
-    });
+    // console.log(`[auth:${stage}]`, {
+    //   hasAuthHeader: !!req.headers.authorization,
+    //   hasAccessCookie: !!req.cookies?.access_token,
+    //   hasLegacyCookie: !!req.cookies?.token,
+    //   clienteId: req.clienteId,
+    //   usuario: req.usuario?.id,
+    //   ...extra,
+    // });
   }
 }
 
@@ -62,23 +62,23 @@ function autenticarShopify(req, res, next) {
 }
 
 function autenticarUsuario(req, res, next) {
-  console.log('==================== [auth] INICIO ====================');
-  console.log('[auth] headers.authorization =', req.headers.authorization);
-  console.log('[auth] cookies =', req.cookies);
+  // console.log('==================== [auth] INICIO ====================');
+  // console.log('[auth] headers.authorization =', req.headers.authorization);
+  // console.log('[auth] cookies =', req.cookies);
 
   const token = extrairToken(req);
-  console.log('[auth] token extraído =', token ? 'OK' : 'NENHUM');
+  // console.log('[auth] token extraído =', token ? 'OK' : 'NENHUM');
 
   if (!token) {
-    console.log('[auth] SAINDO: Token não fornecido');
+    // console.log('[auth] SAINDO: Token não fornecido');
     return res.status(401).json({ erro: "Token não fornecido" });
   }
 
   try {
-    console.log('[auth] JWT_SECRET length =', (process.env.JWT_SECRET || '').length);
+    // console.log('[auth] JWT_SECRET length =', (process.env.JWT_SECRET || '').length);
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log('[auth] decoded =', decoded);
+    // console.log('[auth] decoded =', decoded);
 
     const userId = decoded.userId ?? decoded.id ?? decoded.sub ?? null;
     const clienteId = decoded.clienteId ?? decoded.clientId ?? decoded.cid ?? userId ?? null;
@@ -108,13 +108,13 @@ function autenticarUsuario(req, res, next) {
     };
     if (req.usuario.clienteId) req.clienteId = req.usuario.clienteId;
 
-    console.log('[auth] usuario montado =', usuario);
-    console.log('==================== [auth] FIM OK ====================');
+    // console.log('[auth] usuario montado =', usuario);
+    // console.log('==================== [auth] FIM OK ====================');
     return next();
   } catch (e) {
     console.error('[auth] erro ao verificar token', e);
     const msg = e?.name === "TokenExpiredError" ? "Token expirado" : "Token inválido";
-    console.log('[auth] SAINDO:', msg);
+    // console.log('[auth] SAINDO:', msg);
     return res.status(401).json({ erro: msg });
   }
 }

@@ -174,7 +174,7 @@ router.get('/auth', async (req, res) => {
     url.searchParams.set('scope', SCOPES);
 
 
-    console.log('Auth redirect_uri =>', redirectUri);
+    // console.log('Auth redirect_uri =>', redirectUri);
     return res.redirect(url.toString());
 });
 
@@ -306,9 +306,9 @@ router.post(
             const { importPedidosInternal } = require('../controller/PedidoImportController');
             const imported = await importPedidosInternal(req.clienteId, linhas);
 
-            console.log('REQ HEADERS', req.headers['content-type'], req.headers['authorization']);
-            console.log('FILES KEYS', Object.keys(req.files || {}));
-            console.log('HAS FILE?', !!(req.files?.file && req.files.file[0]), req.files?.file?.[0]?.originalname);
+            // console.log('REQ HEADERS', req.headers['content-type'], req.headers['authorization']);
+            // console.log('FILES KEYS', Object.keys(req.files || {}));
+            // console.log('HAS FILE?', !!(req.files?.file && req.files.file[0]), req.files?.file?.[0]?.originalname);
 
             // >>> única resposta do request <<<
             return res.json({ ok: true, linhas, linhas_count: linhas.length, imported });

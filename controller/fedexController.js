@@ -5,6 +5,7 @@ const { createShipment } = require('../services/fedex/shippingFedex');
 // const Cotacao = require('../models/Cotacao');
 // const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
 const { quoteRates, loadPedidoImport } = require('../services/fedex/ratingFedex');
+const { extractFedexBreakdown } = require('../services/fedex/cotacaoFedex');
 const db = require('../models');
 // const { accountNumber } = require('../config/fedex');
 // const { getToken, baseUrl } = require('../services/fedex/authFedex');
@@ -404,7 +405,7 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
 
 
 
-async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = [], commodities = [], currency = 'USD', pesoTotalPedidoKg }) {
+async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = [], commodities = [], currency = 'USD', pesoTotalPedidoKg, invoiceNumber, freightTotal }) {
     const acct = process.env.FEDEX_ACCOUNT_NUMBER
     console.log("PEDIDO: ", recipient)
     console.log("CLIENTE: ", shipper)
@@ -414,11 +415,14 @@ async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = []
     console.log("packs: ", packages)
     console.log("COMMODITIES: ", commodities)
 
+    const invNumber = String(invoiceNumber || `INV-${Date.now()}`);
+    const freightAmount = Number(freightTotal || 0) || 0;
+
     try {
         const s1 = shipper?.address?.streetLines || [];
         const r1 = recipient?.address?.streetLines || [];
-        console.log('[FEDEX][SHIPPER] streetLines:', s1, s1.map(x => String(x).length));
-        console.log('[FEDEX][RECIP] streetLines:', r1, r1.map(x => String(x).length));
+        // console.log('[FEDEX][SHIPPER] streetLines:', s1, s1.map(x => String(x).length));
+        // console.log('[FEDEX][RECIP] streetLines:', r1, r1.map(x => String(x).length));
     } catch (_) { }
 
     // total da linha (preferência: customsValue vindo do builder; fallback: unit*qty)
@@ -495,10 +499,10 @@ async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = []
             customsClearanceDetail: {
                 importerOfRecord: soldTo,
                 commercialInvoice: {
-                    invoiceNumber: "INV-2025-000123",
+                    invoiceNumber: invNumber,
 
                     customerReferences: [
-                        { customerReferenceType: "INVOICE_NUMBER", value: "INV-2025-000123" },
+                        { customerReferenceType: "INVOICE_NUMBER", value: invNumber }, //pedido_ref para numerar as invoices
                         // se quiser preencher PO também:
                         // { customerReferenceType: "PURCHASE_ORDER_NUMBER", value: "PO-123" },
                     ],
@@ -506,7 +510,7 @@ async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = []
                     termsOfSale: "DDP", //colocar o selecionado no front
                     paymentTerms: "Paid in Advance",
                     freightCharge: {
-                        amount: 12.45, // colocar valor puxando do rate
+                        amount: freightAmount, // valor total do frete
                         currency
                     }
                 },
@@ -747,7 +751,7 @@ module.exports = {
     ship: async (req, res) => {
         try {
             const cliente = await getClienteAtual(req, res);
-            const { packagesId, pedido_ref, pesoTotalPedidoKg } = req.body || {};
+            const { packagesId, pedido_ref, pesoTotalPedidoKg, rate_payload } = req.body || {};
 
             if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatória.' });
             if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório.' });
@@ -761,9 +765,36 @@ module.exports = {
 
             const pedido = await loadPedidoImport(pedido_ref, cliente.id);
             if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
+            console.log("PEDIDO PARA SHIP: ", pedido)
 
             // commodities: se você não tem peso por item, essa função já vai ratear usando o totalKgFromPackages
             const { commodities, currency } = buildCommoditiesFromPedido(pedido, packages);
+
+            let breakdown = null;
+            try {
+                if (rate_payload) {
+                    breakdown = await extractFedexBreakdown(rate_payload, 'FEDEX_INTERNATIONAL_CONNECT_PLUS');
+                }
+            } catch (_) {
+                breakdown = null;
+            }
+
+            const invoiceNumber = `INV-2025-${String(pedido_ref || '').trim()}`;
+            console.log("body>>>:", req.body)
+            const freightTotalRaw =
+                (Number.isFinite(Number(breakdown?.total)) ? Number(breakdown.total) : null) ??
+                req.body?.freight_total ??
+                req.body?.frete_total ??
+                pedido?.freight_total ??
+                pedido?.frete_total ??
+                pedido?.shipping_price ??
+                pedido?.shippingPrice ??
+                pedido?.total_frete ??
+                pedido?.totalFrete ??
+                pedido?.valor_frete ??
+                pedido?.valorFrete ??
+                0;
+            const freightTotal = Number(freightTotalRaw || 0) || 0;
 
             const shipper = mapClienteToFedexShipper(cliente);
             const recipient = mapPedidoToFedexRecipient(pedido);
@@ -776,7 +807,9 @@ module.exports = {
                 packages,
                 commodities,
                 currency,
-                pesoTotalPedidoKg
+                pesoTotalPedidoKg,
+                invoiceNumber,
+                freightTotal
             });
 
             const data = await createShipment(payload);

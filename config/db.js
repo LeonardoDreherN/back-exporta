@@ -24,7 +24,7 @@ const connectionString = process.env.SUPABASE_DB_URL;
 const sql = postgres(connectionString)
 
 
-console.log('SUPABASE_DB_URL EM USO:', process.env.SUPABASE_DB_URL);
+// console.log('SUPABASE_DB_URL EM USO:', process.env.SUPABASE_DB_URL);
 const sequelize = new Sequelize(
   process.env.SUPABASE_DB_URL,
   {

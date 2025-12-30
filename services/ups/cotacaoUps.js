@@ -298,7 +298,7 @@ async function agendarPickupCotacao(req, res) {
             });
         }
         if (!okPessoa(destinatario)) {
-            console.log(">>>#", destinatario)
+            // console.log(">>>#", destinatario)
             await t.rollback();
             return res.status(400).json({
                 ok: false,
@@ -337,7 +337,7 @@ async function agendarPickupCotacao(req, res) {
             cotacao?.service_code ||
             ""; // fallback
 
-        console.log("SERVICE CODE HERE: ", serviceCode)
+        // console.log("SERVICE CODE HERE: ", serviceCode)
 
         const pickUpPayload = {
             PickupCreationRequest: {
@@ -430,7 +430,7 @@ async function agendarPickupCotacao(req, res) {
         }
 
         const upsData = resp.data || {};
-        console.log("[UPS][PICKUP][OK]", JSON.stringify(upsData, null, 2));
+        // console.log("[UPS][PICKUP][OK]", JSON.stringify(upsData, null, 2));
 
         // Atualiza apenas a cotação existente (SEM recriar)
         await cotacao.update(

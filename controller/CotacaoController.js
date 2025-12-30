@@ -428,7 +428,7 @@ async function createCotacaoReal(req, res) {
 
         console.log('cli?.enderecoPais:', cli);
         console.log('pedidoJson?.pais_remetente:', pedidoJson);
-        console.log('pedidoJson?.endereco?.pais:', pedidoJson?.endereco);
+        // console.log('pedidoJson?.endereco?.pais:', pedidoJson?.endereco);
 
         const registro = await Cotacao.create(
             {
