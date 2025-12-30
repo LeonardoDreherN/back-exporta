@@ -8,7 +8,7 @@ const { getUpsToken } = require("../upsAuth");
 
 const SHIPPER_NUMBER = process.env.UPS_ACCOUNT_NUMBER
 
-async function prepararCotacaoUPS({ rate_payload, preco_base, freightValueNum }) {
+async function prepararCotacaoUPS({ req, rate_payload, preco_base, freightValueNum }) {
     let precoBase = null;      // valor base retornado/override
     let carrierResp = null;    // resposta do adapter UPS
     let breakdown = null;      // resultado do extractUpsBreakdown
@@ -158,6 +158,7 @@ async function prepararCotacaoUPS({ rate_payload, preco_base, freightValueNum })
         surcharges: savedSurcharges,
         carrier_raw: carrierRawToSave,
         fonte_base: overrideUsado ? 'OVERRIDE' : 'UPS',
+        serviceCode: "08",
     };
 }
 

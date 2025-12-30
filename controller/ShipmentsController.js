@@ -36,6 +36,7 @@ function normalizeRateResult(carrierResult) {
         fonte_base: carrierResult.fonte_base || null,
         surcharges: carrierResult.surcharges ?? null,
         carrier_raw: carrierResult.carrier_raw ?? null,
+        serviceCode: carrierResult.serviceCode || null,
     };
 }
 
