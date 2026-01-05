@@ -1,43 +1,43 @@
 # Intrex Backend
 
-API server for the Intrex platform. Provides authentication, customer/box/product management, shipping quotes and shipments, Shopify integration, and billing support.
+Servidor de API da plataforma Intrex. Oferece autenticacao, gestao de clientes/caixas/produtos, cotacoes e remessas, integracao com Shopify e suporte a cobranca.
 
 ## Stack
 - Node.js + Express
 - PostgreSQL (via Sequelize)
-- Integrations: UPS, FedEx, Shopify, Asaas
+- Integracoes: UPS, FedEx, Shopify, Asaas
 
-## Project structure
-- `server.js`: app bootstrap, middleware, and route mounting
-- `routes/`: API route modules
-- `controller/`: request handlers and business logic
-- `models/`: Sequelize models
-- `services/`: carrier integrations and helpers
-- `utils/`: shared helpers (validation, normalization, currency)
-- `middleware/`: auth, Shopify session, uploads
-- `jobs/`: scheduled jobs
+## Estrutura do projeto
+- `server.js`: bootstrap do app, middlewares e montagem de rotas
+- `routes/`: modulos de rotas da API
+- `controller/`: handlers e logica de negocio
+- `models/`: modelos do Sequelize
+- `services/`: integracoes de transportadoras e helpers
+- `utils/`: helpers compartilhados (validacao, normalizacao, moeda)
+- `middleware/`: auth, sessao Shopify, uploads
+- `jobs/`: tarefas agendadas
 
-## Running locally
+## Rodando localmente
 
-1) Install dependencies
+1) Instale dependencias
 
 ```bash
 npm install
 ```
 
-2) Create a `.env` file (see Environment Variables below)
+2) Crie um arquivo `.env` (veja Variaveis de ambiente abaixo)
 
-3) Start the server
+3) Inicie o servidor
 
 ```bash
 npm run dev
 ```
 
-Server defaults to `http://localhost:3001`.
+Servidor padrao em `http://localhost:3001`.
 
-## Environment variables
+## Variaveis de ambiente
 
-Set these in `back-exporta/.env` (names referenced by code):
+Defina em `back-exporta/.env` (nomes referenciados no codigo):
 
 - `NODE_ENV`
 - `PORT`
@@ -95,9 +95,9 @@ Other:
 - `LOG_LEVEL`
 - `HTTP_LOG`
 
-## Main endpoints (high level)
+## Principais endpoints (alto nivel)
 
-Auth and users:
+Auth e usuarios:
 - `POST /login`
 - `POST /auth/refresh`
 - `POST /auth/logout`
@@ -106,23 +106,23 @@ Auth and users:
 - `GET /verClienteAtual`
 - `GET /me`
 
-Validation:
+Validacao:
 - `GET /validate/cnpj`
 - `GET /validate/cnae`
 
-Boxes:
+Caixas:
 - `POST /registrarCaixa`
 - `GET /verCaixas`
 - `PUT /editarCaixa/:id`
 - `DELETE /excluirCaixa/:id`
 
-Products:
+Produtos:
 - `GET /verProdutos`
 - `POST /registrarProduto`
 - `PUT /editarProduto/:id`
 - `DELETE /excluirProduto/:id`
 
-Quotes and shipments:
+Cotacoes e remessas:
 - `POST /api/cotacoes`
 - `GET /api/cotacoes`
 - `GET /api/cotacoes/:id`
@@ -133,10 +133,10 @@ Shopify:
 - `POST /conectarLoja`
 - `POST /shopify/import-pedidos`
 
-Health:
+Saude:
 - `GET /health`
 - `GET /healthz`
 
-## Notes
-- CSRF is required for mutation endpoints (except login/refresh).
-- Cron job runs every 15 minutes: `jobs/poolTracking.js`.
+## Notas
+- CSRF e obrigatorio para endpoints de mutacao (exceto login/refresh).
+- O cron roda a cada 15 minutos: `jobs/poolTracking.js`.
