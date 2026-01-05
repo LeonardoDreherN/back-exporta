@@ -1,5 +1,5 @@
 // app.js
-//deploy fedex
+//deploy
 const express = require('express');
 const app = express();
 const dotenv = require('dotenv');
