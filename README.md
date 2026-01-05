@@ -139,4 +139,4 @@ Saude:
 
 ## Notas
 - CSRF e obrigatorio para endpoints de mutacao (exceto login/refresh).
-- O cron roda a cada 15 minutos: `jobs/poolTracking.js`.
+- O cron roda a cada 60 minutos: `jobs/poolTracking.js`.

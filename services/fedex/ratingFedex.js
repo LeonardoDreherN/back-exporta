@@ -179,7 +179,7 @@ async function quoteRates({ shipper, recipient, packages, commodities, currency 
     const out = [];
     const details = data?.output?.rateReplyDetails || data?.rateReplyDetails || [];
     for (const svc of details) {
-        const serviceType = 'FEDEX_INTERNATIONAL_CONNECT_PLUS';
+        const serviceType = String(svc?.serviceType || svc?.serviceName || '').trim() || 'UNKNOWN_SERVICE';
         // tente pegar o primeiro cenário de preço calculado
         const rds = Array.isArray(svc?.ratedShipmentDetails) ? svc.ratedShipmentDetails : [];
         const rated = rds.find(r => r.rateType === 'ACCOUNT') || rds[0] || null;
@@ -253,3 +253,4 @@ module.exports = {
     quoteRates,
     loadPedidoImport
 };
+

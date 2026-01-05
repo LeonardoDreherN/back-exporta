@@ -34,7 +34,7 @@ async function extractFedexBreakdown(rateRaw, preferredServiceType) {
         const itemized = Array.isArray(firstRow.itemized) ? firstRow.itemized : [];
 
         return {
-            serviceType: firstRow.serviceType || preferredServiceType || "FEDEX_INTERNATIONAL_CONNECT_PLUS",
+            serviceType: firstRow.serviceType || preferredServiceType,
             currency: firstRow.currency || "USD",
             base,
             total,

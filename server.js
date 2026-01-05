@@ -29,7 +29,7 @@ const cron = require('node-cron');
 const { pool } = require('./jobs/poolTracking.js');
 const { valorConversao } = require('./utils/dolar.js');
 
-cron.schedule('*/15 * * * *', pool)
+cron.schedule('*/60 * * * *', pool)
 
 // Módulo de rotas da Shopify (inclui auth/conexao/produtos + upload-minimal + find)
 // const shopifyModule = require('./routes/shopifyRoutes.js');
