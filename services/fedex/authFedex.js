@@ -17,11 +17,11 @@ async function getToken() {
     const url = cfg.oauth || "https://apis-sandbox.fedex.com/oauth/token";
 
     try {
-        // console.log("[FEDEX] base:", cfg.base);
-        // console.log("[FEDEX] oauth:", url);
-        // console.log("[FEDEX] rate:", cfg.rateQuotes);
-        // console.log("[FEDEX] clientId(first8):", String(cfg.clientId || "").slice(0, 8));
-        // console.log("[FEDEX] NODE_ENV:", process.env.NODE_ENV);
+        console.log("[FEDEX] base:", cfg.base);
+        console.log("[FEDEX] oauth:", url);
+        console.log("[FEDEX] rate:", cfg.rateQuotes);
+        console.log("[FEDEX] clientId(first8):", String(cfg.clientId || "").slice(0, 8));
+        console.log("[FEDEX] NODE_ENV:", process.env.NODE_ENV);
 
         const res = await axios.post(url, params.toString(), {
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
