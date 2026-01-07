@@ -6,11 +6,11 @@ const { valorConversao } = require("../utils/dolar.js");
 const axios = require("axios");
 
 const URL_ASAAS =
-    process.env.NODE_ENV === "production"
+    process.env.ASAAS_AMB === "production"
         ? "https://api.asaas.com/v3"
         : "https://api-sandbox.asaas.com/v3";
 
-const ASAAS_TOKEN = process.env.NODE_ENV === "production" ? process.env.ASAAS_TOKEN_PROD : process.env.ASAAS_TOKEN_SANDBOX
+const ASAAS_TOKEN = process.env.ASAAS_AMB === "production" ? process.env.ASAAS_TOKEN_PROD : process.env.ASAAS_TOKEN_SANDBOX
 
 function n(v) {
     if (v === null || v === undefined) return 0;

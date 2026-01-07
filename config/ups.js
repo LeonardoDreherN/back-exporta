@@ -8,7 +8,7 @@ module.exports = {
     rate: `${base}/api/rating/v2407/Rate`,
     ship: `${base}/api/shipments/v2407/ship`,
     track: `${base}/api/track/v1/details`,
-    account: process.env.UPS_ACCOUNT,
+    account: process.env.UPS_ACCOUNT_NUMBER,
     clientId: process.env.UPS_CLIENT_ID,
     clientSecret: process.env.UPS_CLIENT_SECRET,
     timeoutMs: 15000,
