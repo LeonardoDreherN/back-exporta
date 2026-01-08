@@ -76,13 +76,13 @@ async function downloadFromBucket(bucket, path) {
 async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'image/png') {
     try {
         let b64toSave = base64;
-        if (mime === 'application/pdf') {
-            try {
-                b64toSave = await keepFirstPageFromPdfB64(base64);
-            } catch (err) {
-                console.error('Erro ao extrair primeira página do PDF da etiqueta:', err);
-            }
-        }
+        // if (mime === 'application/pdf') {
+        //     try {
+        //         b64toSave = await keepFirstPageFromPdfB64(base64);
+        //     } catch (err) {
+        //         console.error('Erro ao extrair primeira página do PDF da etiqueta:', err);
+        //     }
+        // }
         const buf = Buffer.from(b64toSave, 'base64');
         const ext = guessLabelFilename(mime)
         const path = `cotacoes/${cotacaoId}/label-${Date.now()}.${ext}`;

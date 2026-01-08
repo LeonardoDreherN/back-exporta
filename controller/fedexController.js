@@ -569,7 +569,7 @@ async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = []
             },
 
             labelSpecification: {
-                imageType: 'PNG',
+                imageType: 'PDF',
                 labelStockType: 'PAPER_85X11_TOP_HALF_LABEL',
             },
 
@@ -690,7 +690,7 @@ function extractFedexShipmentDocs(data = {}) {
                 if (t.includes('LABEL')) {
                     if (d.url) {
                         labelUrl = d.url;
-                        labelType = d.imageType || d.imageFormat || 'PNG';
+                        labelType = d.imageType || d.imageFormat || 'PDF';
                         break;
                     }
                 }
@@ -894,6 +894,7 @@ module.exports = {
             });
 
             const data = await createShipment(payload);
+            console.log("[FEDEX][SHIP][RAW]", JSON.stringify(data, null, 2));
             return res.json({ ok: true, raw: data });
         } catch (err) {
             return res.status(err.status || 500).json({
