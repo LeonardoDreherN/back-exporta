@@ -164,6 +164,76 @@ function safeStr(v, fallback = '') {
     return String(v);
 }
 
+function firstNonEmpty(...vals) {
+    for (const v of vals) {
+        if (v === null || v === undefined) continue;
+        const s = String(v).trim();
+        if (s) return s;
+    }
+    return '';
+}
+
+function mapEnderecoToFedexParty(raw, fallback) {
+    if (!raw || typeof raw !== 'object') return fallback;
+    if (raw.contact && raw.address) return raw; // ja esta no formato FedEx
+
+    const base = fallback || {};
+    const contact = { ...(base.contact || {}) };
+    const address = { ...(base.address || {}) };
+
+    const name = firstNonEmpty(raw.nome, raw.name);
+    const company = firstNonEmpty(raw.empresa, raw.company);
+    const phone = firstNonEmpty(raw.telefone, raw.phone);
+    const email = firstNonEmpty(raw.email);
+
+    if (name) {
+        contact.personName = name;
+        if (!company) contact.companyName = name;
+    }
+    if (company) contact.companyName = company;
+    if (phone) contact.phoneNumber = phone;
+    if (email) contact.emailAddress = email;
+
+    const rua = firstNonEmpty(raw.rua, raw.street, raw.address1);
+    const numero = firstNonEmpty(raw.numero, raw.number);
+    const line1 = normalizeSpaces([rua, numero].filter(Boolean).join(', '));
+    const line2 = firstNonEmpty(raw.complemento, raw.address2, raw.complement);
+
+    const baseStreetLines = Array.isArray(address.streetLines) ? address.streetLines : [];
+    const fallbackLine1 = baseStreetLines[0] || '';
+    const fallbackLine2 = baseStreetLines[1] || '';
+    const streetLines = buildFedexStreetLines(line1 || fallbackLine1, line2 || fallbackLine2);
+    if (streetLines.length) address.streetLines = streetLines;
+
+    const city = firstNonEmpty(raw.cidade, raw.city);
+    const state = firstNonEmpty(raw.estado, raw.state, raw.province);
+    const postal = firstNonEmpty(raw.cep, raw.postalCode, raw.zip);
+    const country = firstNonEmpty(raw.pais, raw.countryCode, raw.country);
+
+    if (city) address.city = city;
+    if (state) address.stateOrProvinceCode = String(state).toUpperCase();
+    if (postal) address.postalCode = onlyDigits(postal);
+    if (country) address.countryCode = iso2Country(country) || address.countryCode;
+    if (typeof raw.residential === 'boolean') address.residential = raw.residential;
+
+    let tins = base.tins;
+    const tax = firstNonEmpty(
+        raw.cnpjOuTaxId,
+        raw.taxId,
+        raw.tax_id,
+        raw.cnpjCpf,
+        raw.cnpj,
+        raw.cpf
+    );
+    if (tax) {
+        const first = Array.isArray(tins) && tins[0] ? { ...tins[0] } : {};
+        first.number = safeStr(tax);
+        tins = [first].concat(Array.isArray(tins) ? tins.slice(1) : []);
+    }
+
+    return { ...base, contact, address, tins };
+}
+
 function normalizePackagesForShip(packages = [], pesoTotalPedidoKg) {
     const pkgs = Array.isArray(packages) ? packages : [];
     if (!pkgs.length) {
@@ -714,8 +784,10 @@ module.exports = {
             const pedido = await loadPedidoImport(pedido_ref, cliente.id);
             if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
 
-            const shipper = mapClienteToFedexShipper(cliente);
-            const recipient = mapPedidoToFedexRecipient(pedido);
+            const shipperOverride = req.body?.shipper || req.body?.remetente || null;
+            const recipientOverride = req.body?.recipient || req.body?.destinatario || null;
+            const shipper = mapEnderecoToFedexParty(shipperOverride, mapClienteToFedexShipper(cliente));
+            const recipient = mapEnderecoToFedexParty(recipientOverride, mapPedidoToFedexRecipient(pedido));
             const { commodities } = buildCommoditiesFromPedido(pedido, packages);
 
             // IMPORTANTE: quoteRates AINDA precisa de packages (pra montar requestedPackageLineItems)
@@ -796,8 +868,10 @@ module.exports = {
                 0;
             const freightTotal = Number(freightTotalRaw || 0) || 0;
 
-            const shipper = mapClienteToFedexShipper(cliente);
-            const recipient = mapPedidoToFedexRecipient(pedido);
+            const shipperOverride = req.body?.shipper || req.body?.remetente || null;
+            const recipientOverride = req.body?.recipient || req.body?.destinatario || null;
+            const shipper = mapEnderecoToFedexParty(shipperOverride, mapClienteToFedexShipper(cliente));
+            const recipient = mapEnderecoToFedexParty(recipientOverride, mapPedidoToFedexRecipient(pedido));
             const soldTo = mapClienteToFedexShipperIOR(cliente);
 
             const payload = await buildFedexShipPayload({
