@@ -206,12 +206,19 @@ function mapEnderecoToFedexParty(raw, fallback) {
     if (streetLines.length) address.streetLines = streetLines;
 
     const city = firstNonEmpty(raw.cidade, raw.city);
-    const state = firstNonEmpty(raw.estado, raw.state, raw.province);
+    const hasStateField =
+        Object.prototype.hasOwnProperty.call(raw, 'estado') ||
+        Object.prototype.hasOwnProperty.call(raw, 'state') ||
+        Object.prototype.hasOwnProperty.call(raw, 'province') ||
+        Object.prototype.hasOwnProperty.call(raw, 'stateOrProvinceCode');
+    const state = firstNonEmpty(raw.estado, raw.state, raw.province, raw.stateOrProvinceCode);
     const postal = firstNonEmpty(raw.cep, raw.postalCode, raw.zip);
     const country = firstNonEmpty(raw.pais, raw.countryCode, raw.country);
 
     if (city) address.city = city;
-    if (state) address.stateOrProvinceCode = String(state).toUpperCase();
+    if (hasStateField) {
+        address.stateOrProvinceCode = state ? String(state).toUpperCase() : undefined;
+    }
     if (postal) address.postalCode = onlyDigits(postal);
     if (country) address.countryCode = iso2Country(country) || address.countryCode;
     if (typeof raw.residential === 'boolean') address.residential = raw.residential;
@@ -374,7 +381,7 @@ function mapClienteToFedexShipperIOR(cliente) {
                 cliente.complementoIOR || cliente.enderecoComplementoIOR || ''
             ),
             city: cliente.enderecoCidade || 'Sao Paulo',
-            stateOrProvinceCode: (cliente.enderecoEstado || 'SP').toUpperCase(),
+            stateOrProvinceCode: (cliente.enderecoEstado || '').toUpperCase(),
             postalCode: onlyDigits(cliente.enderecoCEP || ''),
             countryCode: iso2Country(cliente.enderecoPais || 'BR') || 'BR',
         },
@@ -411,7 +418,7 @@ function mapPedidoToFedexRecipient(pedido) {
         address: {
             streetLines: buildFedexStreetLines(line1, line2),
             city: dest.cidade || dest.city || pedido.cidade || 'Miami',
-            stateOrProvinceCode: (dest.estado || dest.province || pedido.estado || 'FL').toUpperCase(),
+            stateOrProvinceCode: (dest.estado || dest.province || pedido.estado || '').toUpperCase(),
             postalCode: onlyDigits(dest.cep || dest.zip || pedido.CEP || ''),
             countryCode: iso2Country(dest.pais || dest.countryCode || pedido.pais || 'US') || 'US',
             residential: Boolean(dest.residential ?? false),
