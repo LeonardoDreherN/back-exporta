@@ -28,11 +28,13 @@ const corsOpts = cors({
 router.options('/rating', corsOpts, (_req, res) => res.sendStatus(204));
 router.options('/shipping', corsOpts, (_req, res) => res.sendStatus(204));
 router.options('/tracking/:tracking', corsOpts, (_req, res) => res.sendStatus(204));
+router.options('/pickup', corsOpts, (_req, res) => res.sendStatus(204));
 
 // Rotas
 router.post('/rating', corsOpts, autenticarUsuario, ctrl.rate);
 router.post('/shipping', corsOpts, autenticarUsuario, ctrl.ship);
 router.post('/tracking/:tracking', corsOpts, autenticarUsuario, ctrl.track);
+router.post('/pickup', corsOpts, autenticarUsuario, ctrl.pickUp);
 
 router.get('/_debug/fedex', (req, res) => {
     res.json({

@@ -12,6 +12,7 @@ const db = require('../models');
 const { getClienteAtual } = require('./ClientesController');
 const tracking = require('../services/fedex/trackingFedex');
 const { accountNumber } = require('../config/fedex');
+const { createPickup } = require('../services/fedex/pickupFedex');
 
 // ========== HELPERS ==========
 const onlyDigits = (s) => String(s || '').replace(/\D+/g, '');
@@ -930,4 +931,27 @@ module.exports = {
             return res.status(http).json({ error: msg, details: e?.details });
         }
     },
+    pickUp: async (req, res) => {
+        try {
+            const payload = req.body || {};
+            if (!payload || typeof payload !== 'object') {
+                return res.status(400).json({ ok: false, error: 'Payload de pickup obrigatório.' });
+            }
+
+            const data = await createPickup(payload, {
+                idempotencyKey: req.headers['x-idempotency-key'] || null
+            });
+            console.log("Pickup payload:", JSON.stringify(payload, null, 2));
+
+            console.log("[FEDEX][PICKUP][RAW]", JSON.stringify(data, null, 2));
+
+            return res.json({ ok: true, raw: data})
+        }catch(err){
+            return res.status(err.status || 500).json({
+                ok: false,
+                error: err.message || 'Falha no pickup FedEx',
+                raw: err.upstream || null,
+            })
+        }
+    }
 };

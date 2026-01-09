@@ -885,6 +885,55 @@ async function getCotacaoDetails(req, res) {
     }
 }
 
+async function getCotacaoRemetente(req, res) {
+    const { id } = req.params;
+    const cliente_id = Number(
+        req.cliente?.id ?? req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId
+    );
+
+    if (!cliente_id) return res.status(401).json({ ok: false, error: "Cliente não autenticado." });
+
+    const cot = await Cotacao.findByPk(id, { attributes: ["id", "cliente_id"] });
+    if (!cot || Number(cot.cliente_id) !== cliente_id) {
+        return res.status(404).json({ ok: false, error: "Cotação não encontrada." });
+    }
+
+    const cli = await Cliente.findByPk(cliente_id, {
+        attributes: [
+            "razaoSocial",
+            "telefoneCelular",
+            "emailPrincipal",
+            "enderecoRua",
+            "enderecoNumero",
+            "enderecoComplemento",
+            "enderecoCidade",
+            "enderecoEstado",
+            "enderecoCEP",
+            "enderecoPais",
+            "cnpj",
+        ],
+    });
+
+    if (!cli) return res.status(404).json({ ok: false, error: "Cliente não encontrado." });
+
+    return res.json({
+        ok: true,
+        remetente: {
+            nome: cli.razaoSocial,
+            telefone: cli.telefoneCelular,
+            email: cli.emailPrincipal,
+            rua: cli.enderecoRua,
+            numero: cli.enderecoNumero,
+            complemento: cli.enderecoComplemento,
+            cidade: cli.enderecoCidade,
+            estado: cli.enderecoEstado,
+            cep: cli.enderecoCEP,
+            pais: cli.enderecoPais,
+            cnpjOuTaxId: cli.cnpj,
+        },
+    });
+}
+
 module.exports = {
     createCotacaoReal,
     attachDocs,
@@ -899,6 +948,7 @@ module.exports = {
     getCotacaoDetails,
     salvarEtiquetaNaStorage,
     salvarInvoiceNaStorage,
+    getCotacaoRemetente
 };
 
 
