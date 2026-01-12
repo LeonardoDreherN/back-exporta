@@ -429,6 +429,10 @@ async function createCotacaoReal(req, res) {
         console.log('cli?.enderecoPais:', cli);
         console.log('pedidoJson?.pais_remetente:', pedidoJson);
         // console.log('pedidoJson?.endereco?.pais:', pedidoJson?.endereco);
+        let status_pagamento = null
+        if(carrier == "FEDEX"){
+            status_pagamento = 'NAOGERADO';
+        }
 
         const registro = await Cotacao.create(
             {
@@ -457,7 +461,8 @@ async function createCotacaoReal(req, res) {
                 ready_hora: null,
                 close_hora: null,
                 carrier: carrierCode,
-                serviceCode: carrierResult?.serviceCode ?? service_code
+                serviceCode: carrierResult?.serviceCode ?? service_code,
+                status_pagamento: status_pagamento,
             },
             { transaction: t }
         );
