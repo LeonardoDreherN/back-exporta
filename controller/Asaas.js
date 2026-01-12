@@ -91,6 +91,8 @@ async function pegarValor({ from, to, clienteId }) {
                 ],
             };
         }
+        where.carrier = 'FEDEX';
+        where.status_pagamento = 'NAOGERADO';
 
         const cotacoes = await Cotacao.findAll({
             where,
