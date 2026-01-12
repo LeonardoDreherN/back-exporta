@@ -100,6 +100,12 @@ async function pegarValor({ from, to, clienteId }) {
             raw: true
         });
 
+        const [updated] = await Cotacao.update(
+            { status_pagamento: "GERADO" },
+            { where }
+        );
+        console.log("updated:", updated);
+
         const linhas = cotacoes.map(c => {
             const sur = fromSurcharges(c);
             // usa SEMPRE o preço final já salvo no seu banco (ajuste o nome do campo abaixo)
@@ -133,6 +139,7 @@ async function pegarValor({ from, to, clienteId }) {
 
 
 const gerarBoleto = async (req, res) => {
+    console.log("gerarBoleto called", { path: req.path, body: req.body });
     const t = await db.sequelize.transaction();
     try {
         const clienteId = Number(
