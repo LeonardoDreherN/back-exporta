@@ -5,6 +5,7 @@ const { extractUpsBreakdown } = require("../../utils/extractUpsBreakdown");
 const { cotarCarrier } = require("../carriers");
 const { toNumSafe, up, normalizeTimeToHHMM, iso2Country, splitEndereco } = require("../cotacoesHelpers");
 const { getUpsToken } = require("../upsAuth");
+const { cleanPostal } = require("../../utils/postalcode");
 
 const SHIPPER_NUMBER = process.env.UPS_ACCOUNT_NUMBER
 
@@ -281,7 +282,7 @@ async function agendarPickupCotacao(req, res) {
             numero: splitEndereco(dest.rua || dest.address1 || pedido.rua || "").numero,
             cidade: dest.cidade || pedido.cidade || "",
             estado: dest.estado || pedido.estado || "",
-            cep: onlyDigits(pedido.CEP || ""),
+            cep: cleanPostal(dest.pais || pedido.pais, pedido.CEP || ""),
             pais:
                 iso2Country(dest.pais || pedido.pais) || "",
             email: dest.emailComprador || pedido.emailComprador || "",
