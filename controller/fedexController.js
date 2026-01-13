@@ -220,7 +220,7 @@ function mapEnderecoToFedexParty(raw, fallback) {
     if (hasStateField) {
         address.stateOrProvinceCode = state ? String(state).toUpperCase() : undefined;
     }
-    if (postal) address.postalCode = onlyDigits(postal);
+    if (postal) address.postalCode = cleanPostal(country, postal);
     if (country) address.countryCode = iso2Country(country) || address.countryCode;
     if (typeof raw.residential === 'boolean') address.residential = raw.residential;
 
@@ -356,7 +356,7 @@ function mapClienteToFedexShipper(cliente) {
             ),
             city: cliente.enderecoCidade || 'Sao Paulo',
             stateOrProvinceCode: (cliente.enderecoEstado || 'SP').toUpperCase(),
-            postalCode: onlyDigits(cliente.enderecoCEP || ''),
+            postalCode: cleanPostal(cliente.enderecoCEP || ''),
             countryCode: iso2Country(cliente.enderecoPais || 'BR') || 'BR',
         },
         tins: [
@@ -383,7 +383,7 @@ function mapClienteToFedexShipperIOR(cliente) {
             ),
             city: cliente.enderecoCidade || 'Sao Paulo',
             stateOrProvinceCode: (cliente.enderecoEstado || '').toUpperCase(),
-            postalCode: onlyDigits(cliente.enderecoCEP || ''),
+            postalCode: cleanPostal(cliente.enderecoPais || 'BR', cliente.enderecoCEP || ''),
             countryCode: iso2Country(cliente.enderecoPais || 'BR') || 'BR',
         },
         tins: [
@@ -392,6 +392,13 @@ function mapClienteToFedexShipperIOR(cliente) {
             }
         ]
     };
+}
+
+function cleanPostal(countryCode, value) {
+    const raw = String(value || "").trim().toUpperCase();
+    if (!raw) return "";
+    if (countryCode === "BR") return raw.replace(/\D/g, "");
+    return raw.replace(/\s+/g, ""); // UK: TN235RZ
 }
 
 function mapPedidoToFedexRecipient(pedido) {
@@ -409,6 +416,8 @@ function mapPedidoToFedexRecipient(pedido) {
         normalizeSpaces(base2) ||
         normalizeSpaces(ruaNum?.complemento || '');
 
+    console.log("POSTALCODE: ", dest.postalCode, "CEP: ", dest.zip)
+
     return {
         contact: {
             personName: dest.nome || dest.name || pedido.nomeComprador || 'Recipient',
@@ -420,7 +429,7 @@ function mapPedidoToFedexRecipient(pedido) {
             streetLines: buildFedexStreetLines(line1, line2),
             city: dest.cidade || dest.city || pedido.cidade || 'Miami',
             stateOrProvinceCode: (dest.estado || dest.province || pedido.estado || '').toUpperCase(),
-            postalCode: onlyDigits(dest.cep || dest.zip || pedido.CEP || ''),
+            postalCode: cleanPostal(dest.cep || dest.zip || pedido.CEP || ''),
             countryCode: iso2Country(dest.pais || dest.countryCode || pedido.pais || 'US') || 'US',
             residential: Boolean(dest.residential ?? false),
         },
@@ -945,8 +954,8 @@ module.exports = {
 
             console.log("[FEDEX][PICKUP][RAW]", JSON.stringify(data, null, 2));
 
-            return res.json({ ok: true, raw: data})
-        }catch(err){
+            return res.json({ ok: true, raw: data })
+        } catch (err) {
             return res.status(err.status || 500).json({
                 ok: false,
                 error: err.message || 'Falha no pickup FedEx',
