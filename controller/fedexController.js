@@ -641,7 +641,7 @@ async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = []
                 commercialInvoiceDetail: {
                     customerImageUsages: [
                         {
-                            id: "IMAGE_1",
+                            id: "IMAGE_2",
                             type: "LETTER_HEAD",
                             providedImageType: "LETTER_HEAD"
                         },
