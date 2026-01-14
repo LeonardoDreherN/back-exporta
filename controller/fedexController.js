@@ -252,7 +252,7 @@ function normalizePackagesForShip(packages = [], pesoTotalPedidoKg) {
     }
 
     return pkgs.map((p, idx) => {
-        const weightKgRaw = Number(pesoTotalPedidoKg);
+        const weightKg = Number(pesoTotalPedidoKg);
         if (!Number.isFinite(weightKg) || weightKg <= 0) {
             throw new Error('pesoTotalPedidoKg invÃ¡lido (precisa ser > 0).');
         }
