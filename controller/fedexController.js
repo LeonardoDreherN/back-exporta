@@ -1,4 +1,4 @@
-// backend/controller/fedexController.js
+﻿// backend/controller/fedexController.js
 const axios = require('axios');
 const { iso2Country, splitEndereco } = require('../services/cotacoesHelpers');
 const { createShipment } = require('../services/fedex/shippingFedex');
@@ -44,7 +44,7 @@ function splitByWordsMaxLen(text, maxLen) {
     }
     if (cur) out.push(cur);
 
-    // fallback: se algum pedaço ainda passar, corta bruto
+    // fallback: se algum pedaÃ§o ainda passar, corta bruto
     return out.flatMap((ln) => {
         if (ln.length <= maxLen) return [ln];
         const parts = [];
@@ -105,7 +105,7 @@ function normalizeFedexError(err) {
 }
 
 /**
- * Monta endereço simplificado para o serviço de rate FedEx
+ * Monta endereÃ§o simplificado para o serviÃ§o de rate FedEx
  * { countryCode, postalCode, city, stateOrProvinceCode }
  */
 function mapToFedexRateAddress(raw = {}) {
@@ -137,7 +137,7 @@ function mapToFedexRateAddress(raw = {}) {
 }
 
 /**
- * Monta packages para o serviço de rate FedEx
+ * Monta packages para o serviÃ§o de rate FedEx
  * Espera packages: [{ weightKg, dimCm: {length,width,height} }]
  */
 function mapToFedexRatePackages(packages = []) {
@@ -252,9 +252,9 @@ function normalizePackagesForShip(packages = [], pesoTotalPedidoKg) {
     }
 
     return pkgs.map((p, idx) => {
-        const weightKg = Number(pesoTotalPedidoKg);
+        const weightKgRaw = Number(pesoTotalPedidoKg);
         if (!Number.isFinite(weightKg) || weightKg <= 0) {
-            throw new Error('pesoTotalPedidoKg inválido (precisa ser > 0).');
+            throw new Error('pesoTotalPedidoKg invÃ¡lido (precisa ser > 0).');
         }
 
         const length = Number(p.length ?? p.lengthCm ?? p.dimCm?.length ?? 20) || 20;
@@ -330,12 +330,12 @@ function getBoxDimsCm(cx = {}) {
 function boxVolumeScore(cx = {}) {
     const d = getBoxDimsCm(cx);
     const vol = (d.length > 0 && d.width > 0 && d.height > 0) ? (d.length * d.width * d.height) : 0;
-    return vol > 0 ? vol : 1; // se não tiver dimensão, score 1 (divide igual)
+    return vol > 0 ? vol : 1; // se nÃ£o tiver dimensÃ£o, score 1 (divide igual)
 }
 
 function distributePedidoWeightAcrossCaixas(totalKg, caixas = []) {
     const total = Number(totalKg);
-    if (!Number.isFinite(total) || total <= 0) throw new Error('pesoTotalPedidoKg inválido (precisa ser > 0).');
+    if (!Number.isFinite(total) || total <= 0) throw new Error('pesoTotalPedidoKg invÃ¡lido (precisa ser > 0).');
     if (!Array.isArray(caixas) || !caixas.length) throw new Error('Nenhuma caixa para dividir peso.');
 
     const scores = caixas.map(boxVolumeScore);
@@ -347,7 +347,7 @@ function distributePedidoWeightAcrossCaixas(totalKg, caixas = []) {
         weightKg: round3(total * (scores[i] / sum)),
     }));
 
-    // garante soma exata ajustando a última caixa
+    // garante soma exata ajustando a Ãºltima caixa
     const sumRounded = parts.reduce((acc, p) => acc + (Number(p.weightKg) || 0), 0);
     const diff = round3(total - sumRounded);
     parts[parts.length - 1].weightKg = round3((parts[parts.length - 1].weightKg || 0) + diff);
@@ -463,7 +463,7 @@ function mapPedidoToFedexRecipient(pedido) {
 function buildCommoditiesFromPedido(pedido, packages = []) {
     const currency = (pedido.moeda || 'USD').toUpperCase();
 
-    // tenta usar peso total vindo dos packages e dividir proporcionalmente se não tiver pesoUnit
+    // tenta usar peso total vindo dos packages e dividir proporcionalmente se nÃ£o tiver pesoUnit
     const totalKgFromPackages = (Array.isArray(packages) ? packages : []).reduce((acc, p) => {
         const w = Number(p.weightKg ?? p.pesoKg ?? 0);
         return acc + (Number.isFinite(w) ? w : 0);
@@ -473,6 +473,7 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
     const itens = Array.isArray(pedido.itens) ? pedido.itens : [];
     const totalQty = itens.reduce((acc, it) => acc + (Number(it.qty || 0) || 0), 0) || 1;
     console.log("[FEDEX][COMMODITIES] totalQty:", totalQty, "itens:", itens.length);
+    const itensSemPesoUnit = itens.every((it) => Number(it.pesoUnit || 0) <= 0);
 
     const commodities = itens.map((it) => {
         const qty = Number(it.qty || 1) || 1;
@@ -484,10 +485,11 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
         console.log("MULT", unitPrice * qty)
 
         // peso por item: prioridade -> pesoUnit (se vier) -> rateio do total dos packages
-        const pesoUnitKg = Number(it.pesoUnit || 0); // se você salvar em kg
-        const weightKg =
+        const pesoUnitKg = Number(it.pesoUnit || 0); // se vocÃª salvar em kg
+        const weightKgRaw =
             (pesoUnitKg > 0 ? pesoUnitKg * qty : 0) ||
             (totalKgFromPackages > 0 ? (totalKgFromPackages * (qty / totalQty)) : 1);
+        const weightKg = round3(weightKgRaw);
         console.log("[FEDEX][COMMODITIES][ITEM]", {
             sku: it.sku,
             qty,
@@ -498,7 +500,7 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
         });
 
         return {
-            description: (it.titulo || 'Item').slice(0, 450), // FedEx tem limites, corta por segurança
+            description: (it.titulo || 'Item').slice(0, 450), // FedEx tem limites, corta por seguranÃ§a
             countryOfManufacture: 'BR',
             quantity: qty,
             quantityUnits: 'PCS',
@@ -508,7 +510,7 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
 
             unitPrice: { amount: unitPrice, currency },
             customsValue: { amount: lineTotal, currency },
-            weight: { units: 'KG', value: Number(weightKg.toFixed(3)) },
+            weight: { units: 'KG', value: weightKg },
         };
     });
     const totalCommoditiesKg = commodities.reduce((acc, c) => acc + (Number(c.weight?.value) || 0), 0);
@@ -539,11 +541,11 @@ async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = []
         // console.log('[FEDEX][RECIP] streetLines:', r1, r1.map(x => String(x).length));
     } catch (_) { }
 
-    // total da linha (preferência: customsValue vindo do builder; fallback: unit*qty)
+    // total da linha (preferÃªncia: customsValue vindo do builder; fallback: unit*qty)
 
     return {
         labelResponseOptions: 'URL_ONLY',
-        // accountNumber: será injetado no service se não vier; aqui pode omitir
+        // accountNumber: serÃ¡ injetado no service se nÃ£o vier; aqui pode omitir
 
         requestedShipment: {
             shipDateStamp: toYMDDate(new Date()),
@@ -617,7 +619,7 @@ async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = []
 
                     customerReferences: [
                         { customerReferenceType: "INVOICE_NUMBER", value: invNumber }, //pedido_ref para numerar as invoices
-                        // se quiser preencher PO também:
+                        // se quiser preencher PO tambÃ©m:
                         // { customerReferenceType: "PURCHASE_ORDER_NUMBER", value: "PO-123" },
                     ],
 
@@ -636,7 +638,7 @@ async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = []
                     const qty = Number(c.quantity || 1) || 1;
                     const unit = Number(c.unitPrice?.amount ?? 0) || 0;
 
-                    // total da linha: usa o que veio pronto; senão calcula unit*qty
+                    // total da linha: usa o que veio pronto; senÃ£o calcula unit*qty
                     const customsAmount = Number.isFinite(Number(c.customsValue?.amount))
                         ? Number(c.customsValue.amount)
                         : (unit * qty);
@@ -695,7 +697,7 @@ async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = []
 
 /**
  * Extrai tracking, labelUrl e invoiceUrl do retorno da FedEx Ship
- * Estrutura é meio variável, então fazemos defensivo.
+ * Estrutura Ã© meio variÃ¡vel, entÃ£o fazemos defensivo.
  */
 function extractFedexShipmentDocs(data = {}) {
     const out = data.output || data;
@@ -814,19 +816,19 @@ module.exports = {
             const cliente = await getClienteAtual(req, res);
             const { pedido_ref, packagesId, pesoTotalPedidoKg } = req.body || {};
 
-            if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatória.' });
-            if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório.' });
-            if (!pesoTotalPedidoKg) return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg é obrigatório.' });
+            if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatÃ³ria.' });
+            if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref Ã© obrigatÃ³rio.' });
+            if (!pesoTotalPedidoKg) return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg Ã© obrigatÃ³rio.' });
 
             // 1) carrega N caixas
             let packages = await loadCaixaImport(packagesId, cliente.id);
-            if (!packages.length) return res.status(404).json({ ok: false, error: 'Caixa(s) não encontrada(s).' });
+            if (!packages.length) return res.status(404).json({ ok: false, error: 'Caixa(s) nÃ£o encontrada(s).' });
 
             // 2) divide o peso total do pedido entre as caixas (isso alimenta requestedPackageLineItems)
             packages = distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
 
             const pedido = await loadPedidoImport(pedido_ref, cliente.id);
-            if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
+            if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido nÃ£o encontrado.' });
 
             const shipperOverride = req.body?.shipper || req.body?.remetente || null;
             const recipientOverride = req.body?.recipient || req.body?.destinatario || null;
@@ -869,21 +871,21 @@ module.exports = {
             const cliente = await getClienteAtual(req, res);
             const { packagesId, pedido_ref, pesoTotalPedidoKg, rate_payload } = req.body || {};
 
-            if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatória.' });
-            if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório.' });
-            if (!pesoTotalPedidoKg) return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg é obrigatório.' });
+            if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatÃ³ria.' });
+            if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref Ã© obrigatÃ³rio.' });
+            if (!pesoTotalPedidoKg) return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg Ã© obrigatÃ³rio.' });
 
             let packages = await loadCaixaImport(packagesId, cliente.id);
-            if (!packages.length) return res.status(404).json({ ok: false, error: 'Caixa(s) não encontrada(s).' });
+            if (!packages.length) return res.status(404).json({ ok: false, error: 'Caixa(s) nÃ£o encontrada(s).' });
 
             // divide o peso total entre caixas (peso por volume)
             packages = distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
 
             const pedido = await loadPedidoImport(pedido_ref, cliente.id);
-            if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
+            if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido nÃ£o encontrado.' });
             console.log("PEDIDO PARA SHIP: ", pedido)
 
-            // commodities: se você não tem peso por item, essa função já vai ratear usando o totalKgFromPackages
+            // commodities: se vocÃª nÃ£o tem peso por item, essa funÃ§Ã£o jÃ¡ vai ratear usando o totalKgFromPackages
             const { commodities, currency } = buildCommoditiesFromPedido(pedido, packages);
 
             let breakdown = null;
@@ -971,7 +973,7 @@ module.exports = {
         try {
             const payload = req.body || {};
             if (!payload || typeof payload !== 'object') {
-                return res.status(400).json({ ok: false, error: 'Payload de pickup obrigatório.' });
+                return res.status(400).json({ ok: false, error: 'Payload de pickup obrigatÃ³rio.' });
             }
 
             const data = await createPickup(payload, {
