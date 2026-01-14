@@ -261,6 +261,21 @@ function normalizePackagesForShip(packages = [], pesoTotalPedidoKg) {
         const width = Number(p.width ?? p.widthCm ?? p.dimCm?.width ?? 10) || 10;
         const height = Number(p.height ?? p.heightCm ?? p.dimCm?.height ?? 10) || 10;
 
+        console.log("[FEDEX][PACKAGES][SHIP]", {
+            idx,
+            pesoTotalPedidoKg,
+            weightKg,
+            dims: { length, width, height },
+            raw: {
+                weightKg: p.weightKg,
+                pesoKg: p.pesoKg,
+                length: p.length,
+                width: p.width,
+                height: p.height,
+                dimCm: p.dimCm
+            }
+        });
+
         return {
             sequenceNumber: idx + 1,
             groupPackageCount: 1,
@@ -453,9 +468,11 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
         const w = Number(p.weightKg ?? p.pesoKg ?? 0);
         return acc + (Number.isFinite(w) ? w : 0);
     }, 0);
+    console.log("[FEDEX][COMMODITIES] totalKgFromPackages:", totalKgFromPackages);
 
     const itens = Array.isArray(pedido.itens) ? pedido.itens : [];
     const totalQty = itens.reduce((acc, it) => acc + (Number(it.qty || 0) || 0), 0) || 1;
+    console.log("[FEDEX][COMMODITIES] totalQty:", totalQty, "itens:", itens.length);
 
     const commodities = itens.map((it) => {
         const qty = Number(it.qty || 1) || 1;
@@ -471,6 +488,14 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
         const weightKg =
             (pesoUnitKg > 0 ? pesoUnitKg * qty : 0) ||
             (totalKgFromPackages > 0 ? (totalKgFromPackages * (qty / totalQty)) : 1);
+        console.log("[FEDEX][COMMODITIES][ITEM]", {
+            sku: it.sku,
+            qty,
+            pesoUnit: it.pesoUnit,
+            pesoUnitKg,
+            weightKg,
+            unitPrice
+        });
 
         return {
             description: (it.titulo || 'Item').slice(0, 450), // FedEx tem limites, corta por segurança
@@ -486,6 +511,8 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
             weight: { units: 'KG', value: Number(weightKg.toFixed(3)) },
         };
     });
+    const totalCommoditiesKg = commodities.reduce((acc, c) => acc + (Number(c.weight?.value) || 0), 0);
+    console.log("[FEDEX][COMMODITIES] totalCommoditiesKg:", totalCommoditiesKg);
 
     return { commodities, currency };
 }
@@ -964,3 +991,4 @@ module.exports = {
         }
     }
 };
+
