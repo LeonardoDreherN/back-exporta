@@ -26,7 +26,7 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: 'basico',
       validate: {
-        isIn: [['basico', 'gold', 'premium']]
+        isIn: [['basico', 'gold', 'premium', 'minimo']]
       }
     },
     descIOR: { type: DataTypes.STRING, allowNull: false },
