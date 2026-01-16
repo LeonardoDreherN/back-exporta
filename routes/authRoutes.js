@@ -6,7 +6,7 @@ const router = express.Router();
 const ACCESS_TOKEN = 15 * 60;
 const cookieBase = { httpOnly: true, secure: false, sameSite: 'lax', path: '/' };
 
-function refresh (req, res) {
+function refresh(req, res) {
     const rt = req.cookies?.refresh_token;
     if (!rt) return res.status(401).json({ erro: 'Sem refresh' });
 
@@ -20,11 +20,19 @@ function refresh (req, res) {
     }
 };
 
-function logout (req, res) {
-    res.clearCookie('access_token', { path: '/' });
-    res.clearCookie('refresh_token', { path: '/' });
-    res.clearCookie('csrf_token', { path: '/' });
+function logout(req, res) {
+    const cookieOpts = {
+        path: '/',
+        httpOnly: true,
+        secure: false,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    }
+    res.clearCookie('access_token', cookieOpts);
+    res.clearCookie('refresh_token', cookieOpts);
+    res.clearCookie('csrf_token', cookieOpts);
+    res.clearCookie('token', cookieOpts);
     res.json({ ok: true });
 };
 
-module.exports = {refresh, logout};
+module.exports = { refresh, logout };
