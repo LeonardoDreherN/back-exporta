@@ -51,6 +51,7 @@ async function compareRates(req, res) {
         const {
             pedido_ref: pedido_ref_raw,
             pedido,
+            pedido_manual,
             caixa,
 
             // Você pode mandar os dois payloads ou só um, dependendo de como o front está hoje
@@ -113,9 +114,15 @@ async function compareRates(req, res) {
         // - rate_result guarda as duas cotações
         // - ship_result/track_result ficam null por enquanto
         // - carrier fica null até confirmar
+        const basePedido =
+            pedido_manual && typeof pedido_manual === 'object'
+                ? pedido_manual
+                : (pedido && typeof pedido === 'object' ? pedido : {});
+
         const rate_result = {
             pedido_ref,
-            pedido: pedido && typeof pedido === 'object' ? pedido : {},
+            pedido: basePedido,
+            pedido_manual: pedido_manual && typeof pedido_manual === 'object' ? pedido_manual : null,
             caixa: caixa && typeof caixa === 'object' ? caixa : {},
             plano,
             quotes: {
@@ -238,6 +245,7 @@ async function confirmRate(req, res) {
                 pais_remetente: rate_result?.pedido?.pais_remetente || rate_result?.pedido?.endereco?.pais || null,
                 pais_dest: rate_result?.pedido?.pais_dest || rate_result?.pedido?.shipping_address?.country_code || null,
                 pedido: rate_result.pedido || {},
+                pedido_manual: rate_result.pedido_manual || null,
                 caixa: rate_result.caixa || {},
 
                 carrier: chosen,

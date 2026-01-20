@@ -271,6 +271,7 @@ async function createCotacaoReal(req, res) {
 
         const {
             pedido_ref: pedido_ref_raw,
+            pedido_manual,
             pais_remetente,
             pais_dest,
             pedido,
@@ -283,8 +284,10 @@ async function createCotacaoReal(req, res) {
             serviceCode
         } = req.body || {};
 
-        const pedido_ref = normRef(pedido_ref_raw);
-        if (!pedido_ref) { await t.rollback(); return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório' }); }
+        const pedido_ref =
+            normRef(pedido_ref_raw) ||
+            normRef(pedido_manual?.ref || pedido_manual?.pedido_ref || pedido_manual?.id_envio || '');
+        if (!pedido_ref && !pedido_manual) { await t.rollback(); return res.status(400).json({ ok: false, error: 'pedido é obrigatório' }); }
 
         // ===== Carrega cliente (para aplicar plano) =====
         const cli = await Cliente.findByPk(cliente_id, { transaction: t });
@@ -393,8 +396,11 @@ async function createCotacaoReal(req, res) {
             carrierTaxesTotal;
 
         // ===== Monta surcharges / pricing dentro do pedido =====
-        const pedidoJson =
-            pedido && typeof pedido === 'object' ? { ...pedido } : {};
+        const basePedido =
+            pedido_manual && typeof pedido_manual === 'object'
+                ? pedido_manual
+                : (pedido && typeof pedido === 'object' ? pedido : {});
+        const pedidoJson = { ...basePedido };
 
         pedidoJson.pricing = {
             plano_aplicado: pricingBase.plano_aplicado,
@@ -421,6 +427,9 @@ async function createCotacaoReal(req, res) {
         }
 
         // comentario informal: tenta preencher pais mesmo se o front nao mandar
+        if (!pedidoJson.pais && pedidoJson?.endereco?.pais) {
+            pedidoJson.pais = pedidoJson.endereco.pais;
+        }
         const paisRemetenteNorm =
             iso2Country(pais_remetente ?? cli?.dataValues?.enderecoPais) || null;
         const paisDestNorm =

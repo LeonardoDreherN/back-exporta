@@ -460,6 +460,12 @@ function mapPedidoToFedexRecipient(pedido) {
     };
 }
 
+function normalizeTermsOfSale(value) {
+    const v = String(value || '').toUpperCase();
+    if (v === 'DDP' || v === 'DDU' || v === 'DAP') return v;
+    return 'DDP';
+}
+
 function buildCommoditiesFromPedido(pedido, packages = []) {
     const currency = (pedido.moeda || 'USD').toUpperCase();
 
@@ -521,7 +527,18 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
 
 
 
-async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = [], commodities = [], currency = 'USD', pesoTotalPedidoKg, invoiceNumber, freightTotal }) {
+async function buildFedexShipPayload({
+    shipper,
+    recipient,
+    soldTo,
+    packages = [],
+    commodities = [],
+    currency = 'USD',
+    pesoTotalPedidoKg,
+    invoiceNumber,
+    freightTotal,
+    termsOfSale
+}) {
     const acct = process.env.FEDEX_ACCOUNT_NUMBER
     console.log("PEDIDO: ", recipient)
     console.log("CLIENTE: ", shipper)
@@ -623,7 +640,7 @@ async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = []
                         // { customerReferenceType: "PURCHASE_ORDER_NUMBER", value: "PO-123" },
                     ],
 
-                    termsOfSale: "DDP", //colocar o selecionado no front
+                    termsOfSale: normalizeTermsOfSale(termsOfSale),
                     paymentTerms: "Paid in Advance",
                     freightCharge: {
                         amount: freightAmount, // valor total do frete
@@ -827,7 +844,10 @@ module.exports = {
             // 2) divide o peso total do pedido entre as caixas (isso alimenta requestedPackageLineItems)
             packages = distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
 
-            const pedido = await loadPedidoImport(pedido_ref, cliente.id);
+            let pedido = await loadPedidoImport(pedido_ref, cliente.id);
+            if (!pedido && req.body?.pedido_manual) {
+                pedido = req.body.pedido_manual;
+            }
             if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido nÃ£o encontrado.' });
 
             const shipperOverride = req.body?.shipper || req.body?.remetente || null;
@@ -881,7 +901,10 @@ module.exports = {
             // divide o peso total entre caixas (peso por volume)
             packages = distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
 
-            const pedido = await loadPedidoImport(pedido_ref, cliente.id);
+            let pedido = await loadPedidoImport(pedido_ref, cliente.id);
+            if (!pedido && req.body?.pedido_manual) {
+                pedido = req.body.pedido_manual;
+            }
             if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido nÃ£o encontrado.' });
             console.log("PEDIDO PARA SHIP: ", pedido)
 
@@ -919,6 +942,11 @@ module.exports = {
             const shipper = mapEnderecoToFedexParty(shipperOverride, mapClienteToFedexShipper(cliente));
             const recipient = mapEnderecoToFedexParty(recipientOverride, mapPedidoToFedexRecipient(pedido));
             const soldTo = mapClienteToFedexShipperIOR(cliente);
+            const termsOfSale =
+                req.body?.triangulacao ||
+                req.body?.termsOfSale ||
+                req.body?.terms_of_sale ||
+                'DDP';
 
             const payload = await buildFedexShipPayload({
                 shipper,
@@ -929,7 +957,8 @@ module.exports = {
                 currency,
                 pesoTotalPedidoKg,
                 invoiceNumber,
-                freightTotal
+                freightTotal,
+                termsOfSale
             });
 
             const data = await createShipment(payload);

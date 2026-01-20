@@ -6,6 +6,7 @@ const stripNulls = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) =>
 const CUBIC_FACTOR = 6000; // padrão internacional cm³→kg
 
 async function buildPedidoSnapshot(pedidoImportId, clienteId) {
+    console.log('Building pedido snapshot for pedidoImportId:', pedidoImportId, 'clienteId:', clienteId);
     const p = await db.PedidoImport.findOne({ where: { id: pedidoImportId, cliente_id: clienteId } });
     if (!p) throw new Error('Pedido não encontrado para este cliente');
 
@@ -27,6 +28,32 @@ async function buildPedidoSnapshot(pedidoImportId, clienteId) {
         },
         itens: Array.isArray(p.itens) ? p.itens : [],
         raw: p.toJSON(), // opcional: guarda tudo
+    });
+}
+
+async function buildPedidoSnapshotManual(pedidoManual) {
+    if (!pedidoManual) throw new Error('pedido_manual obrigatório');
+
+    const pedido = pedidoManual || {};
+
+    return stripNulls({
+        id: pedido.id,
+        ref: pedido.pedido_ref,
+        moeda: pedido.moeda,
+        total: toNum(pedido.total),
+        comprador: {
+            nome: pedido.nomeComprador,
+            email: pedido.emailComprador,
+            telefone: pedido.telefoneComprador,
+        },
+        endereco: {
+            cidade: pedido.cidade,
+            estado: pedido.estado,
+            cep: pedido.CEP,
+            pais: pedido.pais,
+        },
+        itens: Array.isArray(pedido.itens) ? pedido.itens : [],
+        raw: pedido.toJSON(), // opcional: guarda tudo
     });
 }
 
@@ -66,9 +93,9 @@ async function buildCaixasSnapshots(caixaIds = [], clienteId) {
 /**
  * Cria uma cotação consolidando snapshots
  */
-async function criarCotacao({ clienteId, pedidoImportId, caixaIds = [] }) {
+async function criarCotacao({ clienteId, pedidoImportId, pedidoManual, caixaIds = [] }) {
     const [pedidoSnap, caixasSnap] = await Promise.all([
-        buildPedidoSnapshot(pedidoImportId, clienteId),
+        pedidoImportId ? buildPedidoSnapshot(pedidoImportId, clienteId) : buildPedidoSnapshotManual(pedidoManual),
         buildCaixasSnapshots(caixaIds, clienteId),
     ]);
 
@@ -86,12 +113,12 @@ async function criarCotacao({ clienteId, pedidoImportId, caixaIds = [] }) {
 /**
  * Atualiza uma cotação existente (sobrescreve snapshots)
  */
-async function atualizarCotacao({ cotacaoId, clienteId, pedidoImportId, caixaIds = [] }) {
+async function atualizarCotacao({ cotacaoId, clienteId, pedidoImportId, pedidoManual, caixaIds = [] }) {
     const cot = await db.Cotacao.findOne({ where: { id: cotacaoId, cliente_id: clienteId } });
     if (!cot) throw new Error('Cotação não encontrada');
 
-    if (pedidoImportId) {
-        const pedidoSnap = await buildPedidoSnapshot(pedidoImportId, clienteId);
+    if (pedidoImportId || pedidoManual) {
+        const pedidoSnap = pedidoImportId ? await buildPedidoSnapshot(pedidoImportId, clienteId) : buildPedidoSnapshotManual(pedidoManual);
         cot.pedido = pedidoSnap;
         cot.moeda = pedidoSnap.moeda || null;
         cot.preco_total = pedidoSnap.total != null ? String(pedidoSnap.total) : null;
