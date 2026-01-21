@@ -31,6 +31,8 @@ const cron = require('node-cron');
 const { pool } = require('./jobs/poolTracking.js');
 const { valorConversao } = require('./utils/dolar.js');
 
+const dashboardModule = require('./routes/dashboardRoutes.js')
+
 cron.schedule('*/60 * * * *', pool)
 
 // Módulo de rotas da Shopify (inclui auth/conexao/produtos + upload-minimal + find)
@@ -113,6 +115,7 @@ setupSwagger(app);
 // app.use('/shopify', shopifyModule);
 app.use('/api/ups', upsRoutes);
 app.use('/api/fedex', fedexRoutes)
+app.use('/dashboard', dashboardModule)
 
 // Saúde
 app.get('/health', (_, res) => res.send('ok'));

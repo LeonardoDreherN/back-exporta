@@ -32,6 +32,7 @@ const options = {
             { name: 'Asaas' },
             { name: 'Debug' },
             { name: 'Misc' },
+            { name: 'Dashboard' }
         ],
         components: {
             securitySchemes: {
@@ -1472,6 +1473,29 @@ const options = {
                         200: { description: 'OK' },
                     },
                 },
+            },
+            '/valorTotal': {
+                post: {
+                    tags: ['Dashboard'],
+                    summary: 'Valor total de todas as cotações',
+                    requestBody: {
+                        required: true,
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    required: ['user_id'],
+                                    properties: {
+                                        user_id: { type: 'integer' },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    responses: {
+                        201: { description: 'ok' }
+                    }
+                }
             },
             '/_debug/shops': {
                 get: {
