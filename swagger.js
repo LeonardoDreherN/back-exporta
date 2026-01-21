@@ -1475,48 +1475,29 @@ const options = {
                 },
             },
             '/valorTotal': {
-                post: {
+                get: {
                     tags: ['Dashboard'],
                     summary: 'Valor total de todas as cotações',
-                    requestBody: {
-                        required: true,
-                        content: {
-                            'application/json': {
-                                schema: {
-                                    type: 'object',
-                                    required: ['user_id'],
-                                    properties: {
-                                        user_id: { type: 'integer' },
-                                    },
-                                },
-                            },
-                        },
-                    },
                     responses: {
-                        201: { description: 'ok', valorTotal }
+                        201: { description: 'ok' }
                     }
                 }
             },
             '/valorMedio': {
-                post: {
+                get: {
                     tags: ['Dashboard'],
                     summary: 'Valor medio de todas as cotações',
-                    requestBody: {
-                        required: true,
-                        content: {
-                            'application/json': {
-                                schema: {
-                                    type: 'object',
-                                    required: ['user_id'],
-                                    properties: {
-                                        user_id: { type: 'integer' },
-                                    },
-                                },
-                            },
-                        },
-                    },
                     responses: {
-                        201: { description: 'ok', valorMedio }
+                        201: { description: 'ok' }
+                    }
+                }
+            },
+            '/porcentagem/transportadora': {
+                get: {
+                    tags: ['Dashboard'],
+                    summary: 'Porcentagem de transportadora das cotações',
+                    responses: {
+                        201: { description: 'ok' }
                     }
                 }
             },

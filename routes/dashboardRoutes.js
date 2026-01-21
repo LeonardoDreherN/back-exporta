@@ -27,8 +27,9 @@ const corsOpts = cors({
     optionsSuccessStatus: 204,
 });
 
-router.post('/valorTotal', corsOpts, ctrl.valorTotalCotacoes)
-router.post('/valorMedio', corsOpts, ctrl.valorMedioPorCotacao)
+router.get('/valorTotal', corsOpts, ctrl.valorTotalCotacoes)
+router.get('/valorMedio', corsOpts, ctrl.valorMedioPorCotacao)
+router.get('/porcentagem/transportadora', corsOpts, ctrl.porcentagemTransportadora)
 
 
 

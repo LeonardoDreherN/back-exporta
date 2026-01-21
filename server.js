@@ -115,7 +115,7 @@ setupSwagger(app);
 // app.use('/shopify', shopifyModule);
 app.use('/api/ups', upsRoutes);
 app.use('/api/fedex', fedexRoutes)
-app.use('/dashboard', dashboardModule)
+app.use('/dashboard', autenticarUsuario, vincularCliente, dashboardModule)
 
 // Saúde
 app.get('/health', (_, res) => res.send('ok'));
