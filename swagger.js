@@ -1493,7 +1493,30 @@ const options = {
                         },
                     },
                     responses: {
-                        201: { description: 'ok' }
+                        201: { description: 'ok', valorTotal }
+                    }
+                }
+            },
+            '/valorMedio': {
+                post: {
+                    tags: ['Dashboard'],
+                    summary: 'Valor medio de todas as cotações',
+                    requestBody: {
+                        required: true,
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    required: ['user_id'],
+                                    properties: {
+                                        user_id: { type: 'integer' },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    responses: {
+                        201: { description: 'ok', valorMedio }
                     }
                 }
             },

@@ -28,6 +28,7 @@ const corsOpts = cors({
 });
 
 router.post('/valorTotal', corsOpts, ctrl.valorTotalCotacoes)
+router.post('/valorMedio', corsOpts, ctrl.valorMedioPorCotacao)
 
 
 
