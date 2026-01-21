@@ -76,13 +76,13 @@ async function downloadFromBucket(bucket, path) {
 async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'image/png') {
     try {
         let b64toSave = base64;
-        if (mime === 'application/pdf') {
-            try {
-                b64toSave = await keepFirstPageFromPdfB64(base64);
-            } catch (err) {
-                console.error('Erro ao extrair primeira página do PDF da etiqueta:', err);
-            }
-        }
+        // if (mime === 'application/pdf') {
+        //     try {
+        //         b64toSave = await keepFirstPageFromPdfB64(base64);
+        //     } catch (err) {
+        //         console.error('Erro ao extrair primeira página do PDF da etiqueta:', err);
+        //     }
+        // }
         const buf = Buffer.from(b64toSave, 'base64');
         const ext = guessLabelFilename(mime)
         const path = `cotacoes/${cotacaoId}/label-${Date.now()}.${ext}`;
@@ -429,6 +429,10 @@ async function createCotacaoReal(req, res) {
         console.log('cli?.enderecoPais:', cli);
         console.log('pedidoJson?.pais_remetente:', pedidoJson);
         // console.log('pedidoJson?.endereco?.pais:', pedidoJson?.endereco);
+        let status_pagamento = null
+        if(carrier == "FEDEX"){
+            status_pagamento = 'NAOGERADO';
+        }
 
         const registro = await Cotacao.create(
             {
@@ -457,7 +461,8 @@ async function createCotacaoReal(req, res) {
                 ready_hora: null,
                 close_hora: null,
                 carrier: carrierCode,
-                serviceCode: carrierResult?.serviceCode ?? service_code
+                serviceCode: carrierResult?.serviceCode ?? service_code,
+                status_pagamento: status_pagamento,
             },
             { transaction: t }
         );
@@ -885,6 +890,55 @@ async function getCotacaoDetails(req, res) {
     }
 }
 
+async function getCotacaoRemetente(req, res) {
+    const { id } = req.params;
+    const cliente_id = Number(
+        req.cliente?.id ?? req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId
+    );
+
+    if (!cliente_id) return res.status(401).json({ ok: false, error: "Cliente não autenticado." });
+
+    const cot = await Cotacao.findByPk(id, { attributes: ["id", "cliente_id"] });
+    if (!cot || Number(cot.cliente_id) !== cliente_id) {
+        return res.status(404).json({ ok: false, error: "Cotação não encontrada." });
+    }
+
+    const cli = await Cliente.findByPk(cliente_id, {
+        attributes: [
+            "razaoSocial",
+            "telefoneCelular",
+            "emailPrincipal",
+            "enderecoRua",
+            "enderecoNumero",
+            "enderecoComplemento",
+            "enderecoCidade",
+            "enderecoEstado",
+            "enderecoCEP",
+            "enderecoPais",
+            "cnpj",
+        ],
+    });
+
+    if (!cli) return res.status(404).json({ ok: false, error: "Cliente não encontrado." });
+
+    return res.json({
+        ok: true,
+        remetente: {
+            nome: cli.razaoSocial,
+            telefone: cli.telefoneCelular,
+            email: cli.emailPrincipal,
+            rua: cli.enderecoRua,
+            numero: cli.enderecoNumero,
+            complemento: cli.enderecoComplemento,
+            cidade: cli.enderecoCidade,
+            estado: cli.enderecoEstado,
+            cep: cli.enderecoCEP,
+            pais: cli.enderecoPais,
+            cnpjOuTaxId: cli.cnpj,
+        },
+    });
+}
+
 module.exports = {
     createCotacaoReal,
     attachDocs,
@@ -899,6 +953,7 @@ module.exports = {
     getCotacaoDetails,
     salvarEtiquetaNaStorage,
     salvarInvoiceNaStorage,
+    getCotacaoRemetente
 };
 
 

@@ -17,6 +17,7 @@ async function getToken() {
             Authorization: 'Basic ' + Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString('base64')
         }
     });
+    console.log("xxx: ", cfg.account)
     cache.token = res.data.access_token;
     cache.exp = now + (res.data.expires_in * 1000);
     return cache.token;

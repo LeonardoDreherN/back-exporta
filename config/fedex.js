@@ -11,6 +11,7 @@ module.exports = {
     oauth: `${base}/oauth/token`,
     rateQuotes: `${base}/rate/v1/rates/quotes`,
     ship: `${base}/ship/v1/shipments`,
+    pickup: `${base}/pickup/v1/pickups`,
     clientId: process.env.FEDEX_KEY,
     clientSecret: process.env.FEDEX_KEY_SECRET,
     clientIdTrack: process.env.FEDEX_KEY_TRACK,

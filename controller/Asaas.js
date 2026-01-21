@@ -6,11 +6,11 @@ const { valorConversao } = require("../utils/dolar.js");
 const axios = require("axios");
 
 const URL_ASAAS =
-    process.env.NODE_ENV === "production"
+    process.env.ASAAS_AMB === "production"
         ? "https://api.asaas.com/v3"
         : "https://api-sandbox.asaas.com/v3";
 
-const ASAAS_TOKEN = process.env.NODE_ENV === "production" ? process.env.ASAAS_TOKEN_PROD : process.env.ASAAS_TOKEN_SANDBOX
+const ASAAS_TOKEN = process.env.ASAAS_AMB === "production" ? process.env.ASAAS_TOKEN_PROD : process.env.ASAAS_TOKEN_SANDBOX
 
 function n(v) {
     if (v === null || v === undefined) return 0;
@@ -91,12 +91,20 @@ async function pegarValor({ from, to, clienteId }) {
                 ],
             };
         }
+        where.carrier = 'FEDEX';
+        where.status_pagamento = 'NAOGERADO';
 
         const cotacoes = await Cotacao.findAll({
             where,
             order: [["createdAt", "DESC"]],
             raw: true
         });
+
+        const [updated] = await Cotacao.update(
+            { status_pagamento: "GERADO" },
+            { where }
+        );
+        console.log("updated:", updated);
 
         const linhas = cotacoes.map(c => {
             const sur = fromSurcharges(c);
@@ -131,6 +139,7 @@ async function pegarValor({ from, to, clienteId }) {
 
 
 const gerarBoleto = async (req, res) => {
+    console.log("gerarBoleto called", { path: req.path, body: req.body });
     const t = await db.sequelize.transaction();
     try {
         const clienteId = Number(

@@ -15,10 +15,12 @@ const UPS_BASE =
         ? "https://onlinetools.ups.com"
         : "https://wwwcie.ups.com";
 
-const UPS_ACCOUNT_NUMBER = process.env.UPS_ACCOUNT_NUMBER || "JE8372";
+const UPS_ACCOUNT_NUMBER = process.env.UPS_ACCOUNT_NUMBER;
 const UPS_STUB = String(process.env.UPS_STUB || '') === 'true';
 const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || '';
 const UPS_CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || '';
+
+// console.log("UPS:::",UPS_ACCOUNT_NUMBER, UPS_BASE)
 
 const onlyDigits = (s) => String(s || '').replace(/\D+/g, '');
 const trunc = (s, n) => (s ? String(s).slice(0, n) : undefined);
@@ -287,11 +289,12 @@ function mapToUpsShipment(reqBody) {
         };
     };
 
+    const shipperNumber = UPS_ACCOUNT_NUMBER || payment?.account || undefined;
     const paymentInformation = (() => {
         const bill = payment?.bill;
         const account = payment?.account || UPS_ACCOUNT_NUMBER || undefined;
         if (bill === 'Shipper') {
-            return { ShipmentCharge: { Type: '01', BillShipper: { AccountNumber: account } } };
+            return { ShipmentCharge: { Type: '01', BillShipper: { AccountNumber: shipperNumber } } };
         } else if (bill === 'Receiver') {
             return { ShipmentCharge: { Type: '02', BillReceiver: { AccountNumber: account, Address: { PostalCode: addr(shipTo).Address.PostalCode, CountryCode: addr(shipTo).Address.CountryCode } } } };
         } else {
@@ -320,8 +323,6 @@ function mapToUpsShipment(reqBody) {
         LabelImageFormat: { Code: 'PNG' },
         LabelStockSize: { Height: '6', Width: '4' },
     };
-
-    const shipperNumber = UPS_ACCOUNT_NUMBER || payment?.account || undefined;
 
     // Dados da invoice (se vier pelo "biz")
     const invDate = toYMD(invoice?.date || invoice?.invoiceDate) || toYMD(new Date());
@@ -392,6 +393,8 @@ function mapToUpsShipment(reqBody) {
             },
         },
     };
+
+    console.log("SHIPPER:", shipperNumber)
 
     return shipment;
 }

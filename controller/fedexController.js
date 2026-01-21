@@ -12,6 +12,7 @@ const db = require('../models');
 const { getClienteAtual } = require('./ClientesController');
 const tracking = require('../services/fedex/trackingFedex');
 const { accountNumber } = require('../config/fedex');
+const { createPickup } = require('../services/fedex/pickupFedex');
 
 // ========== HELPERS ==========
 const onlyDigits = (s) => String(s || '').replace(/\D+/g, '');
@@ -164,6 +165,83 @@ function safeStr(v, fallback = '') {
     return String(v);
 }
 
+function firstNonEmpty(...vals) {
+    for (const v of vals) {
+        if (v === null || v === undefined) continue;
+        const s = String(v).trim();
+        if (s) return s;
+    }
+    return '';
+}
+
+function mapEnderecoToFedexParty(raw, fallback) {
+    if (!raw || typeof raw !== 'object') return fallback;
+    if (raw.contact && raw.address) return raw; // ja esta no formato FedEx
+
+    const base = fallback || {};
+    const contact = { ...(base.contact || {}) };
+    const address = { ...(base.address || {}) };
+
+    const name = firstNonEmpty(raw.nome, raw.name);
+    const company = firstNonEmpty(raw.empresa, raw.company);
+    const phone = firstNonEmpty(raw.telefone, raw.phone);
+    const email = firstNonEmpty(raw.email);
+
+    if (name) {
+        contact.personName = name;
+        if (!company) contact.companyName = name;
+    }
+    if (company) contact.companyName = company;
+    if (phone) contact.phoneNumber = phone;
+    if (email) contact.emailAddress = email;
+
+    const rua = firstNonEmpty(raw.rua, raw.street, raw.address1);
+    const numero = firstNonEmpty(raw.numero, raw.number);
+    const line1 = normalizeSpaces([rua, numero].filter(Boolean).join(', '));
+    const line2 = firstNonEmpty(raw.complemento, raw.address2, raw.complement);
+
+    const baseStreetLines = Array.isArray(address.streetLines) ? address.streetLines : [];
+    const fallbackLine1 = baseStreetLines[0] || '';
+    const fallbackLine2 = baseStreetLines[1] || '';
+    const streetLines = buildFedexStreetLines(line1 || fallbackLine1, line2 || fallbackLine2);
+    if (streetLines.length) address.streetLines = streetLines;
+
+    const city = firstNonEmpty(raw.cidade, raw.city);
+    const hasStateField =
+        Object.prototype.hasOwnProperty.call(raw, 'estado') ||
+        Object.prototype.hasOwnProperty.call(raw, 'state') ||
+        Object.prototype.hasOwnProperty.call(raw, 'province') ||
+        Object.prototype.hasOwnProperty.call(raw, 'stateOrProvinceCode');
+    const state = firstNonEmpty(raw.estado, raw.state, raw.province, raw.stateOrProvinceCode);
+    const postal = firstNonEmpty(raw.cep, raw.postalCode, raw.zip);
+    const country = firstNonEmpty(raw.pais, raw.countryCode, raw.country);
+
+    if (city) address.city = city;
+    if (hasStateField) {
+        address.stateOrProvinceCode = state ? String(state).toUpperCase() : undefined;
+    }
+    if (postal) address.postalCode = cleanPostal(country, postal);
+    if (country) address.countryCode = iso2Country(country) || address.countryCode;
+    if (typeof raw.residential === 'boolean') address.residential = raw.residential;
+
+    let tins = base.tins;
+    const tax = firstNonEmpty(
+        raw.cnpjOuTaxId,
+        raw.taxId,
+        raw.tax_id,
+        raw.cnpjCpf,
+        raw.cnpj,
+        raw.cpf
+    );
+    if (tax) {
+        const first = Array.isArray(tins) && tins[0] ? { ...tins[0] } : {};
+        first.number = safeStr(tax);
+        tins = [first].concat(Array.isArray(tins) ? tins.slice(1) : []);
+    }
+
+    return { ...base, contact, address, tins };
+}
+
 function normalizePackagesForShip(packages = [], pesoTotalPedidoKg) {
     const pkgs = Array.isArray(packages) ? packages : [];
     if (!pkgs.length) {
@@ -278,7 +356,7 @@ function mapClienteToFedexShipper(cliente) {
             ),
             city: cliente.enderecoCidade || 'Sao Paulo',
             stateOrProvinceCode: (cliente.enderecoEstado || 'SP').toUpperCase(),
-            postalCode: onlyDigits(cliente.enderecoCEP || ''),
+            postalCode: cleanPostal(cliente.enderecoCEP || ''),
             countryCode: iso2Country(cliente.enderecoPais || 'BR') || 'BR',
         },
         tins: [
@@ -304,8 +382,8 @@ function mapClienteToFedexShipperIOR(cliente) {
                 cliente.complementoIOR || cliente.enderecoComplementoIOR || ''
             ),
             city: cliente.enderecoCidade || 'Sao Paulo',
-            stateOrProvinceCode: (cliente.enderecoEstado || 'SP').toUpperCase(),
-            postalCode: onlyDigits(cliente.enderecoCEP || ''),
+            stateOrProvinceCode: (cliente.enderecoEstado || '').toUpperCase(),
+            postalCode: cleanPostal(cliente.enderecoPais || 'BR', cliente.enderecoCEP || ''),
             countryCode: iso2Country(cliente.enderecoPais || 'BR') || 'BR',
         },
         tins: [
@@ -314,6 +392,13 @@ function mapClienteToFedexShipperIOR(cliente) {
             }
         ]
     };
+}
+
+function cleanPostal(countryCode, value) {
+    const raw = String(value || "").trim().toUpperCase();
+    if (!raw) return "";
+    if (countryCode === "BR") return raw.replace(/\D/g, "");
+    return raw.replace(/\s+/g, ""); // UK: TN235RZ
 }
 
 function mapPedidoToFedexRecipient(pedido) {
@@ -331,6 +416,8 @@ function mapPedidoToFedexRecipient(pedido) {
         normalizeSpaces(base2) ||
         normalizeSpaces(ruaNum?.complemento || '');
 
+    console.log("POSTALCODE: ", dest.postalCode, "CEP: ", dest.zip)
+
     return {
         contact: {
             personName: dest.nome || dest.name || pedido.nomeComprador || 'Recipient',
@@ -341,8 +428,8 @@ function mapPedidoToFedexRecipient(pedido) {
         address: {
             streetLines: buildFedexStreetLines(line1, line2),
             city: dest.cidade || dest.city || pedido.cidade || 'Miami',
-            stateOrProvinceCode: (dest.estado || dest.province || pedido.estado || 'FL').toUpperCase(),
-            postalCode: onlyDigits(dest.cep || dest.zip || pedido.CEP || ''),
+            stateOrProvinceCode: (dest.estado || dest.province || pedido.estado || '').toUpperCase(),
+            postalCode: cleanPostal(dest.cep || dest.zip || pedido.CEP || ''),
             countryCode: iso2Country(dest.pais || dest.countryCode || pedido.pais || 'US') || 'US',
             residential: Boolean(dest.residential ?? false),
         },
@@ -492,7 +579,7 @@ async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = []
             },
 
             labelSpecification: {
-                imageType: 'PNG',
+                imageType: 'PDF',
                 labelStockType: 'PAPER_85X11_TOP_HALF_LABEL',
             },
 
@@ -554,7 +641,7 @@ async function buildFedexShipPayload({ shipper, recipient, soldTo, packages = []
                 commercialInvoiceDetail: {
                     customerImageUsages: [
                         {
-                            id: "IMAGE_1",
+                            id: "IMAGE_2",
                             type: "LETTER_HEAD",
                             providedImageType: "LETTER_HEAD"
                         },
@@ -613,7 +700,7 @@ function extractFedexShipmentDocs(data = {}) {
                 if (t.includes('LABEL')) {
                     if (d.url) {
                         labelUrl = d.url;
-                        labelType = d.imageType || d.imageFormat || 'PNG';
+                        labelType = d.imageType || d.imageFormat || 'PDF';
                         break;
                     }
                 }
@@ -714,8 +801,10 @@ module.exports = {
             const pedido = await loadPedidoImport(pedido_ref, cliente.id);
             if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
 
-            const shipper = mapClienteToFedexShipper(cliente);
-            const recipient = mapPedidoToFedexRecipient(pedido);
+            const shipperOverride = req.body?.shipper || req.body?.remetente || null;
+            const recipientOverride = req.body?.recipient || req.body?.destinatario || null;
+            const shipper = mapEnderecoToFedexParty(shipperOverride, mapClienteToFedexShipper(cliente));
+            const recipient = mapEnderecoToFedexParty(recipientOverride, mapPedidoToFedexRecipient(pedido));
             const { commodities } = buildCommoditiesFromPedido(pedido, packages);
 
             // IMPORTANTE: quoteRates AINDA precisa de packages (pra montar requestedPackageLineItems)
@@ -796,8 +885,10 @@ module.exports = {
                 0;
             const freightTotal = Number(freightTotalRaw || 0) || 0;
 
-            const shipper = mapClienteToFedexShipper(cliente);
-            const recipient = mapPedidoToFedexRecipient(pedido);
+            const shipperOverride = req.body?.shipper || req.body?.remetente || null;
+            const recipientOverride = req.body?.recipient || req.body?.destinatario || null;
+            const shipper = mapEnderecoToFedexParty(shipperOverride, mapClienteToFedexShipper(cliente));
+            const recipient = mapEnderecoToFedexParty(recipientOverride, mapPedidoToFedexRecipient(pedido));
             const soldTo = mapClienteToFedexShipperIOR(cliente);
 
             const payload = await buildFedexShipPayload({
@@ -813,6 +904,7 @@ module.exports = {
             });
 
             const data = await createShipment(payload);
+            console.log("[FEDEX][SHIP][RAW]", JSON.stringify(data, null, 2));
             return res.json({ ok: true, raw: data });
         } catch (err) {
             return res.status(err.status || 500).json({
@@ -848,4 +940,27 @@ module.exports = {
             return res.status(http).json({ error: msg, details: e?.details });
         }
     },
+    pickUp: async (req, res) => {
+        try {
+            const payload = req.body || {};
+            if (!payload || typeof payload !== 'object') {
+                return res.status(400).json({ ok: false, error: 'Payload de pickup obrigatório.' });
+            }
+
+            const data = await createPickup(payload, {
+                idempotencyKey: req.headers['x-idempotency-key'] || null
+            });
+            console.log("Pickup payload:", JSON.stringify(payload, null, 2));
+
+            console.log("[FEDEX][PICKUP][RAW]", JSON.stringify(data, null, 2));
+
+            return res.json({ ok: true, raw: data })
+        } catch (err) {
+            return res.status(err.status || 500).json({
+                ok: false,
+                error: err.message || 'Falha no pickup FedEx',
+                raw: err.upstream || null,
+            })
+        }
+    }
 };

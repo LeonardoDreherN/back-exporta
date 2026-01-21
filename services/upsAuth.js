@@ -3,6 +3,7 @@ const axios = require('axios')
 const UPS_BASE = process.env.UPS_BASE_URL_PROD || 'https://onlinetools.ups.com';
 const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || '';
 const UPS_CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || '';
+const UPS_ACCOUNT_NUMBER = process.env.UPS_ACCOUNT_NUMBER || process.env.UPS_ACCOUNT || '';
 
 let _upsTokenCache = { token: null, expTs: 0 }; // epoch ms
 async function getUpsToken(force = false) {
@@ -24,6 +25,7 @@ async function getUpsToken(force = false) {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Authorization': `Basic ${basic}`,
                 'Accept': 'application/json',
+                ...(UPS_ACCOUNT_NUMBER ? { 'x-merchant-id': UPS_ACCOUNT_NUMBER } : {}),
             },
             timeout: 15000,
         }

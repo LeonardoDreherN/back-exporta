@@ -36,6 +36,7 @@ router.get('/:id', requireAuth, ctrl.getCotacao);
 router.post('/:id/docs', requireAuth, ctrl.attachDocs);
 router.get('/:id/etiqueta', requireAuth, ctrl.downloadEtiqueta);
 router.get('/:id/invoice', requireAuth, ctrl.downloadInvoice);
+router.get('/:id/remetente', requireAuth, ctrl.getCotacaoRemetente);
 
 router.post('/:id/pickup', requireAuth, agendarPickupCotacao)
 

@@ -1,5 +1,7 @@
 // app.js
+
 //deploy com FEDEX
+
 const express = require('express');
 const app = express();
 const dotenv = require('dotenv');
@@ -18,6 +20,7 @@ const cookieParser = require('cookie-parser');
 const cfg = require('./config/ups.js')
 const uploadRouter = require('./routes/upload.js');
 const compression = require('compression');
+const { setupSwagger } = require('./swagger');
 
 const { autenticarUsuario, vincularCliente, autenticarShopify, csrfRequired } = require('./middleware/auth.js');
 const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js');
@@ -106,6 +109,7 @@ app.use("/upload", uploadRouter)
 app.use(compression({ threshold: 0 }));
 applySecurity(app);
 applyLogging(app);
+setupSwagger(app);
 
 // Monta TODAS as rotas da Shopify sob /shopify (NÃO duplicar)
 // app.use('/shopify', shopifyModule);
