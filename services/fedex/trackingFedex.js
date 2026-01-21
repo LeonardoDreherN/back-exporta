@@ -11,10 +11,13 @@ const fetch = global.fetch || ((...a) => import('node-fetch').then(m => m.defaul
 const FEDEX_BASE = process.env.NODE_ENV === 'production' ? process.env.FEDEX_BASE_URL_PROD : process.env.FEDEX_BASE_URL;
 const FEDEX_CLIENT_ID = process.env.FEDEX_KEY_TRACK || '';
 const FEDEX_CLIENT_SECRET = process.env.FEDEX_KEY_SECRET_TRACK || '';
-const FEDEX_STUB = String(process.env.FEDEX_STUB || '') === 'true';
+const FEDEX_STUB = String(process.env.FEDEX_STUB || '');
+
+console.log("FEDEX STUB: ", FEDEX_STUB)
 
 let _token = null;
 let _tokenExpTs = 0;
+const _stubFirstSeen = new Map();
 
 function cleanTN(s) {
     return String(s || '').trim().replace(/['"`\s]/g, '');
@@ -80,7 +83,28 @@ async function getByNumber(trackingNumber, opts = {}) {
         throw e;
     }
 
-    if (FEDEX_STUB) {
+    console.log('[FEDEX][TRACK] start', { tn, stub: FEDEX_STUB });
+
+    if (FEDEX_STUB && opts.forceStub === true) {
+        const now = Date.now();
+        const firstSeen = _stubFirstSeen.get(tn) || now;
+        if (!_stubFirstSeen.has(tn)) _stubFirstSeen.set(tn, firstSeen);
+
+        const ageMs = now - firstSeen;
+        const ageMin = ageMs / 60000;
+        let status = { code: 'OC', description: 'STUB: Shipment information sent to FedEx' };
+        if (ageMin >= 5 && ageMin < 30) status = { code: 'IT', description: 'STUB: In transit' };
+        if (ageMin >= 30) status = { code: 'DL', description: 'STUB: Delivered' };
+
+        const scanEvents = [{
+            date: new Date(now).toISOString(),
+            eventDescription: status.description,
+            derivedStatus: status.description,
+            scanLocation: { city: 'Stub City', stateOrProvinceCode: 'ST', countryCode: 'BR' },
+        }];
+
+        console.log(status)
+
         return {
             ok: true,
             stub: true,
@@ -88,8 +112,8 @@ async function getByNumber(trackingNumber, opts = {}) {
                 completeTrackResults: [{
                     trackResults: [{
                         trackingNumberInfo: { trackingNumber: tn },
-                        latestStatusDetail: { code: 'STUB', description: 'STUB: In transit' },
-                        scanEvents: []
+                        latestStatusDetail: status,
+                        scanEvents
                     }]
                 }]
             }
@@ -131,6 +155,23 @@ async function getByNumber(trackingNumber, opts = {}) {
         throw err;
     }
 
+    try {
+        const latest =
+            j?.output?.completeTrackResults?.[0]?.trackResults?.[0]?.latestStatusDetail ||
+            j?.output?.completeTrackResults?.[0]?.trackResults?.[0]?.statusDetail ||
+            null;
+        const scans =
+            j?.output?.completeTrackResults?.[0]?.trackResults?.[0]?.scanEvents ||
+            [];
+        console.log('[FEDEX][TRACK] ok', {
+            tn,
+            latestStatus: latest,
+            scansCount: Array.isArray(scans) ? scans.length : 0,
+        });
+    } catch (_) {
+        // no-op: avoid breaking tracking on logging
+    }
+
     return j; // retorno bruto (igual UPS)
 }
 
@@ -155,6 +196,8 @@ function getTimelineArrayFEDEX(json) {
                 events.push({
                     // campos no “padrão” que você usa em UPS
                     statusCode: tr?.latestStatusDetail?.code || tr?.statusDetail?.code || '',
+                    derivedCode: tr?.latestStatusDetail?.derivedCode || tr?.statusDetail?.derivedCode || '',
+                    statusByLocale: tr?.latestStatusDetail?.statusByLocale || tr?.statusDetail?.statusByLocale || '',
                     statusDescription: tr?.latestStatusDetail?.description || tr?.statusDetail?.description || '',
                     description: s?.eventDescription || s?.derivedStatus || '',
                     activity: s?.eventDescription || s?.derivedStatus || '',
@@ -174,6 +217,8 @@ function getTimelineArrayFEDEX(json) {
                 const latest = tr?.latestStatusDetail || tr?.statusDetail || {};
                 events.push({
                     statusCode: latest?.code || '',
+                    derivedCode: latest?.derivedCode || '',
+                    statusByLocale: latest?.statusByLocale || '',
                     statusDescription: latest?.description || latest?.statusByLocale || '',
                     description: latest?.description || '',
                     activity: latest?.description || '',
@@ -202,7 +247,9 @@ function pickLatestFedexActivity(json) {
  */
 function fromFEDEX(evt = {}) {
     const code = String(evt?.statusCode || '').toUpperCase();
+    const derived = String(evt?.derivedCode || '').toUpperCase();
     const text = [
+        evt?.statusByLocale,
         evt?.statusDescription,
         evt?.description,
         evt?.activity
@@ -225,11 +272,13 @@ function fromFEDEX(evt = {}) {
         'DELIVERY',
         'SIGNED'
     ];
-    if (code === 'DL' || deliveredHints.some(k => text.includes(k))) return 'ENTREGUE';
+    if (code === 'DL' || derived === 'DL' || deliveredHints.some(k => text.includes(k))) return 'ENTREGUE';
 
     // EM_TRANSITO
+    const transitHintsSiglas = new Set(['PU', 'IT', 'AR', 'DP', 'OD'])
     const transitHints = [
         'IN TRANSIT',
+        'ON THE WAY',
         'AT LOCAL FEDEX FACILITY',
         'ARRIVED',
         'DEPARTED',
@@ -239,7 +288,9 @@ function fromFEDEX(evt = {}) {
         'CLEARANCE',
         'INTERNATIONAL SHIPMENT RELEASE'
     ];
-    if (transitHints.some(k => text.includes(k))) return 'EM_TRANSITO';
+    if (transitHints.some(k => text.includes(k)) || transitHintsSiglas.has(code) || transitHintsSiglas.has(derived)) {
+        return 'EM_TRANSITO';
+    }
 
     return 'CRIADO';
 }
@@ -269,19 +320,31 @@ function normalizeFedexStatusFromTimelineFedex(events) {
         const text = [ev?.statusDescription, ev?.description, ev?.activity]
             .filter(Boolean).join(' ').toUpperCase();
         const code = String(ev?.statusCode || '').toUpperCase();
-        if (code === 'DL' || text.includes('DELIVERED')) return 'ENTREGUE';
+        const derived = String(ev?.derivedCode || '').toUpperCase();
+        if (code === 'DL' || derived === 'DL' || text.includes('DELIVERED')) return 'ENTREGUE';
     }
 
     for (const ev of events) {
-        const text = [ev?.statusDescription, ev?.description, ev?.activity]
+        const text = [ev?.statusByLocale, ev?.statusDescription, ev?.description, ev?.activity]
             .filter(Boolean).join(' ').toUpperCase();
-        if (text.includes('IN TRANSIT') || text.includes('OUT FOR DELIVERY') || text.includes('CUSTOMS')) {
+        const code = String(ev?.statusCode || '').toUpperCase();
+        const derived = String(ev?.derivedCode || '').toUpperCase();
+        if (
+            text.includes('IN TRANSIT') ||
+            text.includes('ON THE WAY') ||
+            text.includes('OUT FOR DELIVERY') ||
+            text.includes('CUSTOMS') ||
+            ['PU', 'IT', 'AR', 'DP', 'OD'].includes(code) ||
+            ['PU', 'IT', 'AR', 'DP', 'OD'].includes(derived)
+        ) {
             return 'EM_TRANSITO';
         }
     }
 
     return 'CRIADO';
 }
+
+
 
 module.exports = {
     getByNumber,
