@@ -1546,6 +1546,15 @@ const options = {
                     }
                 }
             },
+            '/dashboard/cotacoesPorData/semana': {
+                get: {
+                    tags: ['Dashboard'],
+                    summary: 'Pega o valor total das cotações dos ultimos 7 dias',
+                    responses: {
+                        200: { description: 'ok' }
+                    }
+                }
+            },
             '/_debug/shops': {
                 get: {
                     tags: ['Debug'],

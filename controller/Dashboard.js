@@ -321,6 +321,81 @@ const cotacaoOntem = async (req, res) => {
     }
 }
 
+const cotacaoSemana = async (req, res) => {
+    try {
+        const cliente_id = req.clienteId;
+
+        if (!cliente_id) {
+            return res.status(401).json({ ok: false, error: "CLIENTE_NAO_AUTENTICADO" });
+        }
+
+        const hojeSP = new Intl.DateTimeFormat("en-CA", {
+            timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+        }).format(new Date());
+
+        const fmt = new Intl.DateTimeFormat("en-CA", {
+            timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+        });
+
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+
+        const semana = fmt.format(d);
+
+        const start = new Date(`${semana}T00:00:00-03:00`);
+        const end = new Date(`${hojeSP}T23:59:59.999-03:00`);
+
+        const dayExpr = literal(
+            `date_trunc('day', (created_at AT TIME ZONE 'America/Sao_Paulo'))`
+        );
+
+        const cotacoes = await db.Cotacao.findAll({
+            where: {
+                cliente_id: req.clienteId,
+                created_at: { [Op.between]: [start, end] }
+            },
+            attributes: [
+                [dayExpr, "day"],
+                [db.sequelize.fn("SUM", db.sequelize.col("preco_final")), "total"],
+            ],
+            group: [dayExpr],
+            order: [[dayExpr, 'ASC']],
+            raw: true
+        });
+
+        const map = new Map(
+            cotacoes.map(row => {
+                console.log(row)
+                const dia = new Intl.DateTimeFormat("en-CA", {
+                    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+                }).format(new Date(row.day));; // garante YYYY-MM-DD
+                console.log(row.dia, row.total);
+                return [dia, Number(row.total) || 0];
+            })
+        );
+
+        console.log(map);
+
+        // 🔑 gera todos os dias do período e preenche com 0
+        const diasPeriodo = gerarDias(start, end);
+
+        console.log(diasPeriodo);
+
+        const data = diasPeriodo.map(dia => (
+            {
+                dia,
+                total: map.get(dia) ?? 0
+            }));
+
+        console.log(data);
+
+        res.status(200).json({ ok: true, total: data });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ ok: false, error: "erro ao pegar cotacao por data" });
+    }
+}
+
 module.exports = {
     valorTotalCotacoes,
     valorMedioPorCotacao,
@@ -329,5 +404,6 @@ module.exports = {
     valorMedioPorPais,
     cotacaoHoje,
     cotacaoMes,
-    cotacaoOntem
+    cotacaoOntem,
+    cotacaoSemana
 }
