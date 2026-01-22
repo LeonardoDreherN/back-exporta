@@ -572,7 +572,7 @@ const options = {
                     summary: 'Excluir caixa',
                     security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                     parameters: [
-                        { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'integer' } },
                         { name: 'x-csrf-token', in: 'header', required: false, schema: { type: 'string' } },
                     ],
                     responses: {
@@ -587,7 +587,7 @@ const options = {
                     summary: 'Editar caixa',
                     security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                     parameters: [
-                        { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'integer' } },
                         { name: 'x-csrf-token', in: 'header', required: false, schema: { type: 'string' } },
                     ],
                     requestBody: {
@@ -636,7 +636,7 @@ const options = {
             //         summary: 'Excluir produto',
             //         security: [{ bearerAuth: [] }, { cookieAuth: [] }],
             //         parameters: [
-            //             { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+            //             { name: 'clienteId', in: 'path', required: true, schema: { type: 'integer' } },
             //             { name: 'x-csrf-token', in: 'header', required: false, schema: { type: 'string' } },
             //         ],
             //         responses: {
@@ -650,7 +650,7 @@ const options = {
             //         summary: 'Editar produto',
             //         security: [{ bearerAuth: [] }, { cookieAuth: [] }],
             //         parameters: [
-            //             { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+            //             { name: 'clienteId', in: 'path', required: true, schema: { type: 'integer' } },
             //             { name: 'x-csrf-token', in: 'header', required: false, schema: { type: 'string' } },
             //         ],
             //         requestBody: {
@@ -1094,7 +1094,7 @@ const options = {
                     summary: 'Confirmar shipment',
                     security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                     parameters: [
-                        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
                     ],
                     responses: {
                         200: { description: 'OK' },
@@ -1165,7 +1165,7 @@ const options = {
                     summary: 'Detalhe cotacao',
                     security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                     parameters: [
-                        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
                     ],
                     responses: {
                         200: { description: 'OK' },
@@ -1178,7 +1178,7 @@ const options = {
                     summary: 'Detalhes cotacao',
                     security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                     parameters: [
-                        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
                     ],
                     responses: {
                         200: { description: 'OK' },
@@ -1204,7 +1204,7 @@ const options = {
                     summary: 'Anexar documentos',
                     security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                     parameters: [
-                        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
                     ],
                     requestBody: {
                         required: true,
@@ -1247,7 +1247,7 @@ const options = {
                     summary: 'Download etiqueta',
                     security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                     parameters: [
-                        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
                     ],
                     responses: {
                         200: { description: 'OK' },
@@ -1260,7 +1260,7 @@ const options = {
                     summary: 'Download invoice',
                     security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                     parameters: [
-                        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
                     ],
                     responses: {
                         200: { description: 'OK' },
@@ -1273,7 +1273,7 @@ const options = {
                     summary: 'Remetente da cotacao',
                     security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                     parameters: [
-                        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
                     ],
                     responses: {
                         200: { description: 'OK' },
@@ -1286,7 +1286,7 @@ const options = {
                     summary: 'Agendar pickup da cotacao',
                     security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                     parameters: [
-                        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
                     ],
                     requestBody: {
                         required: false,
@@ -1316,7 +1316,7 @@ const options = {
                     tags: ['Cotacoes'],
                     summary: 'Atualizar plano do cliente',
                     parameters: [
-                        { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'integer' } },
                     ],
                     requestBody: {
                         required: true,
@@ -1478,6 +1478,10 @@ const options = {
                 get: {
                     tags: ['Dashboard'],
                     summary: 'Valor total de todas as cotações',
+                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                    parameters: [
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
+                    ],
                     responses: {
                         200: { description: 'ok' }
                     }
@@ -1487,6 +1491,10 @@ const options = {
                 get: {
                     tags: ['Dashboard'],
                     summary: 'Valor medio de todas as cotações',
+                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                    parameters: [
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
+                    ],
                     responses: {
                         200: { description: 'ok' }
                     }
@@ -1496,6 +1504,10 @@ const options = {
                 get: {
                     tags: ['Dashboard'],
                     summary: 'Porcentagem de transportadora das cotações',
+                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                    parameters: [
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
+                    ],
                     responses: {
                         200: { description: 'ok' }
                     }
@@ -1505,6 +1517,10 @@ const options = {
                 get: {
                     tags: ['Dashboard'],
                     summary: 'Porcentagem de paises destinatarios das cotações',
+                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                    parameters: [
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
+                    ],
                     responses: {
                         200: { description: 'ok' }
                     }
@@ -1514,6 +1530,10 @@ const options = {
                 get: {
                     tags: ['Dashboard'],
                     summary: 'Valor medio das cotações por país',
+                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                    parameters: [
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
+                    ],
                     responses: {
                         200: { description: 'ok' }
                     }
@@ -1523,6 +1543,10 @@ const options = {
                 get: {
                     tags: ['Dashboard'],
                     summary: 'Pega o valor total das cotações do dia de hoje',
+                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                    parameters: [
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
+                    ],
                     responses: {
                         200: { description: 'ok' }
                     }
@@ -1532,6 +1556,10 @@ const options = {
                 get: {
                     tags: ['Dashboard'],
                     summary: 'Pega o valor total das cotações dos ultimos 30 dias',
+                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                    parameters: [
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
+                    ],
                     responses: {
                         200: { description: 'ok' }
                     }
@@ -1541,6 +1569,10 @@ const options = {
                 get: {
                     tags: ['Dashboard'],
                     summary: 'Pega o valor total das cotações do dia de ontem',
+                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                    parameters: [
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
+                    ],
                     responses: {
                         200: { description: 'ok' }
                     }
@@ -1550,6 +1582,10 @@ const options = {
                 get: {
                     tags: ['Dashboard'],
                     summary: 'Pega o valor total das cotações dos ultimos 7 dias',
+                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                    parameters: [
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
+                    ],
                     responses: {
                         200: { description: 'ok' }
                     }
