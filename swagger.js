@@ -1483,7 +1483,7 @@ const options = {
                     }
                 }
             },
-            '/dashboard/valorMedio': {
+            '/dashboard/valorMedio/cotacoes': {
                 get: {
                     tags: ['Dashboard'],
                     summary: 'Valor medio de todas as cotações',
@@ -1505,6 +1505,15 @@ const options = {
                 get: {
                     tags: ['Dashboard'],
                     summary: 'Porcentagem de paises destinatarios das cotações',
+                    responses: {
+                        200: { description: 'ok' }
+                    }
+                }
+            },
+            '/dashboard/valorMedio/pais': {
+                get: {
+                    tags: ['Dashboard'],
+                    summary: 'Valor medio das cotações por país',
                     responses: {
                         200: { description: 'ok' }
                     }

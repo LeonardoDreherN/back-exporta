@@ -98,9 +98,39 @@ const porcentagemPaisDestinatario = async (req, res) => {
     }
 }
 
+const valorMedioPorPais = async (req, res) => {
+    try{
+        const quantidade_cotacoes = await db.Cotacao.count({
+            where: {
+                cliente_id: req.clienteId
+            }
+        })
+
+        
+        const rows = await db.Cotacao.findAll({
+            where: { cliente_id: req.clienteId },
+            attributes: ['pais_dest', [db.sequelize.fn('COUNT', db.sequelize.col('pais_dest', 'preco_final')), 'count'], [db.sequelize.fn('SUM', db.sequelize.col('preco_final')), 'total']],
+            group: ['pais_dest']
+        })
+        const mediaPorPais = await rows.map((r) => {
+            const data = r.toJSON()
+            return{
+                pais_dest: data.pais_dest,
+                media: data.total / data.count
+            }
+        })
+
+        return res.status(200).json({ ok: true, mediaPorPais })
+    }catch(err){
+        console.error("Erro ao pegar valor medio das cotacoes por pais: ", err)
+        return res.status(500).json({ ok: false, err })
+    }
+}
+
 module.exports = {
     valorTotalCotacoes,
     valorMedioPorCotacao,
     porcentagemTransportadora,
-    porcentagemPaisDestinatario
+    porcentagemPaisDestinatario,
+    valorMedioPorPais
 }
