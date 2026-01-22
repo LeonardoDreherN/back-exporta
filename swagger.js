@@ -1519,6 +1519,15 @@ const options = {
                     }
                 }
             },
+            '/dashboard/cotacoesPorData/hoje': {
+                get: {
+                    tags: ['Dashboard'],
+                    summary: 'Pega o valor total das cotações do dia de hoje',
+                    responses: {
+                        200: { description: 'ok' }
+                    }
+                }
+            },
             '/_debug/shops': {
                 get: {
                     tags: ['Debug'],

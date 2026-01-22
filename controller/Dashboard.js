@@ -1,3 +1,4 @@
+const { Op } = require("sequelize")
 const db = require("../models")
 
 const valorTotalCotacoes = async (req, res) => {
@@ -99,14 +100,14 @@ const porcentagemPaisDestinatario = async (req, res) => {
 }
 
 const valorMedioPorPais = async (req, res) => {
-    try{
+    try {
         const quantidade_cotacoes = await db.Cotacao.count({
             where: {
                 cliente_id: req.clienteId
             }
         })
 
-        
+
         const rows = await db.Cotacao.findAll({
             where: { cliente_id: req.clienteId },
             attributes: ['pais_dest', [db.sequelize.fn('COUNT', db.sequelize.col('pais_dest', 'preco_final')), 'count'], [db.sequelize.fn('SUM', db.sequelize.col('preco_final')), 'total']],
@@ -114,16 +115,50 @@ const valorMedioPorPais = async (req, res) => {
         })
         const mediaPorPais = await rows.map((r) => {
             const data = r.toJSON()
-            return{
+            return {
                 pais_dest: data.pais_dest,
                 media: data.total / data.count
             }
         })
 
         return res.status(200).json({ ok: true, mediaPorPais })
-    }catch(err){
+    } catch (err) {
         console.error("Erro ao pegar valor medio das cotacoes por pais: ", err)
         return res.status(500).json({ ok: false, err })
+    }
+}
+
+const cotacaoHoje = async (req, res) => {
+    try {
+        const cliente_id = req.clienteId;
+
+        if (!cliente_id) {
+            return res.status(401).json({ ok: false, error: "CLIENTE_NAO_AUTENTICADO" });
+        }
+
+        // const hoje = new Date().toISOString().slice(0, 10)
+        // console.log(hoje)
+
+        const cotacoes = await db.Cotacao.findAll({
+            where: {
+                cliente_id: req.clienteId,
+                [Op.and]: [
+                    db.sequelize.where(db.sequelize.fn('DATE', db.sequelize.col('created_at')), db.sequelize.literal('CURRENT_DATE'))
+                ]
+            },
+            attributes: [[db.sequelize.fn('SUM', db.sequelize.col('preco_final')), 'total']],
+            raw: true
+        });
+
+        console.log(cotacoes)
+        if (cotacoes[0].total === null) {
+            cotacoes[0].total = 0
+        }
+
+        res.status(200).json({ ok: true, cotacoes });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ ok: false, error: "erro ao pegar cotacao por data" });
     }
 }
 
@@ -132,5 +167,6 @@ module.exports = {
     valorMedioPorCotacao,
     porcentagemTransportadora,
     porcentagemPaisDestinatario,
-    valorMedioPorPais
+    valorMedioPorPais,
+    cotacaoHoje
 }
