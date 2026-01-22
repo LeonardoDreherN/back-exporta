@@ -1,4 +1,4 @@
-const { Op } = require("sequelize")
+const { Op, literal } = require("sequelize")
 const db = require("../models")
 
 const valorTotalCotacoes = async (req, res) => {
@@ -136,31 +136,101 @@ const cotacaoHoje = async (req, res) => {
             return res.status(401).json({ ok: false, error: "CLIENTE_NAO_AUTENTICADO" });
         }
 
-        // const hoje = new Date().toISOString().slice(0, 10)
-        // console.log(hoje)
+        const tz = "America/Sao_Paulo";
 
-        const cotacoes = await db.Cotacao.findAll({
-            where: {
-                cliente_id: req.clienteId,
-                [Op.and]: [
-                    db.sequelize.where(db.sequelize.fn('DATE', db.sequelize.col('created_at')), db.sequelize.literal('CURRENT_DATE'))
-                ]
-            },
-            attributes: [[db.sequelize.fn('SUM', db.sequelize.col('preco_final')), 'total']],
-            raw: true
+        const hojeSP = new Intl.DateTimeFormat("en-CA", {
+            timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+        }).format(new Date());
+
+        console.log(hojeSP) //dia de hoje
+
+        const start = new Date(`${hojeSP}T00:00:00-03:00`);
+        const end = new Date(`${hojeSP}T23:59:59.999-03:00`);
+
+        console.log(start, end) //hojeT03:00:00.000Z hojeT02:59:59.999Z
+
+        // 2026-01-22T03:00:00.000Z = 22/01 00:00 no Brasil
+        // 2026-01-23T02:59:59.999Z = 22/01 23:59:59.999 no Brasil
+
+        const hourLabel = literal(
+            `to_char(date_trunc('hour', (created_at AT TIME ZONE '${tz}')), 'HH24')` //retorna os horarios: 01, 02, 03...
+        );
+
+        const rows = await db.Cotacao.findAll({
+            where: { cliente_id, created_at: { [Op.between]: [start, end] } },
+            attributes: [
+                [hourLabel, "hora"],
+                [db.sequelize.fn("SUM", db.sequelize.col("preco_final")), "total"],
+            ],
+            group: [hourLabel],
+            order: [[hourLabel, "ASC"]],
+            raw: true,
         });
 
-        console.log(cotacoes)
-        if (cotacoes[0].total === null) {
-            cotacoes[0].total = 0
-        }
+        const map = new Map(rows.map(r => [r.hora, Number(r.total) || 0]));
 
-        res.status(200).json({ ok: true, cotacoes });
+        // completa 00..23
+        const data = Array.from({ length: 24 }, (_, i) => {
+            const hora = String(i).padStart(2, "0");
+            return { hora, total: map.get(hora) ?? 0 };
+        });
+
+        return res.status(200).json({ ok: true, data });
     } catch (e) {
         console.error(e);
-        res.status(500).json({ ok: false, error: "erro ao pegar cotacao por data" });
+        return res.status(500).json({ ok: false, error: "erro ao pegar cotacao por data" });
     }
-}
+};
+
+// const cotacaoHoje = async (req, res) => {
+//     try {
+//         const cliente_id = req.clienteId;
+
+//         if (!cliente_id) {
+//             return res.status(401).json({ ok: false, error: "CLIENTE_NAO_AUTENTICADO" });
+//         }
+
+//         const hoje = getYMD_SP();
+//         const mes = addMonthsToYMD(hoje, -1)
+
+//         const start = new Date(`${mes}T00:00:00-03:00`);
+//         const end = new Date(`${hoje}T23:59:59.999-03:00`);
+
+//         const hourExpr = literal(
+//             `date_trunc('hour', (created_at AT TIME ZONE 'America/Sao_Paulo'))`
+//         );
+//         console.log(hoje)
+
+//         const cotacoes = await db.Cotacao.findAll({
+//             where: {
+//                 cliente_id: req.clienteId,
+//                 created_at: { [Op.between]: [start, end] }
+//             },
+//             attributes: [
+//                 [hourExpr, "hora"],
+//                 [db.sequelize.fn("SUM", db.sequelize.col("preco_final")), "total"],
+//             ],
+//             group: [hourExpr],
+//             order: [[hourExpr, 'ASC']],
+//             raw: true
+//         });
+
+//         console.log(cotacoes)
+//         if (cotacoes[0].total === null) {
+//             cotacoes[0].total = 0
+//         }
+
+//         const data = cotacoes.map((row) => ({
+//             hora: row.hora, // vem como timestamp (UTC) do começo da hora
+//             total: Number(row.total) || 0,
+//         }));
+
+//         res.status(200).json({ ok: true, total: data });
+//     } catch (e) {
+//         console.error(e);
+//         res.status(500).json({ ok: false, error: "erro ao pegar cotacao por data" });
+//     }
+// }
 
 module.exports = {
     valorTotalCotacoes,
