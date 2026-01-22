@@ -601,114 +601,114 @@ const options = {
                     },
                 },
             },
-            '/verProdutos': {
-                get: {
-                    tags: ['Produtos'],
-                    summary: 'Listar produtos',
-                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
-                    responses: {
-                        200: { description: 'OK' },
-                    },
-                },
-            },
-            '/registrarProduto': {
-                post: {
-                    tags: ['Produtos'],
-                    summary: 'Registrar produto',
-                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
-                    parameters: [
-                        { name: 'x-csrf-token', in: 'header', required: false, schema: { type: 'string' } },
-                    ],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            'application/json': { schema: { $ref: '#/components/schemas/ProdutoRequest' } },
-                        },
-                    },
-                    responses: {
-                        201: { description: 'Created' },
-                    },
-                },
-            },
-            '/excluirProduto/{id}': {
-                delete: {
-                    tags: ['Produtos'],
-                    summary: 'Excluir produto',
-                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
-                    parameters: [
-                        { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
-                        { name: 'x-csrf-token', in: 'header', required: false, schema: { type: 'string' } },
-                    ],
-                    responses: {
-                        200: { description: 'OK' },
-                    },
-                },
-            },
-            '/editarProduto/{id}': {
-                put: {
-                    tags: ['Produtos'],
-                    summary: 'Editar produto',
-                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
-                    parameters: [
-                        { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
-                        { name: 'x-csrf-token', in: 'header', required: false, schema: { type: 'string' } },
-                    ],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            'application/json': { schema: { $ref: '#/components/schemas/ProdutoRequest' } },
-                        },
-                    },
-                    responses: {
-                        200: { description: 'OK' },
-                    },
-                },
-            },
-            '/conectarLoja': {
-                post: {
-                    tags: ['Shopify'],
-                    summary: 'Conectar loja Shopify',
-                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
-                    parameters: [
-                        { name: 'x-csrf-token', in: 'header', required: false, schema: { type: 'string' } },
-                    ],
-                    requestBody: {
-                        required: true,
-                        content: { 'application/json': { schema: { type: 'object' } } },
-                    },
-                    responses: {
-                        200: { description: 'OK' },
-                    },
-                },
-            },
-            '/shopify/import-pedidos': {
-                post: {
-                    tags: ['Shopify'],
-                    summary: 'Importar pedidos Shopify (CSV)',
-                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
-                    parameters: [
-                        { name: 'x-csrf-token', in: 'header', required: false, schema: { type: 'string' } },
-                    ],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            'multipart/form-data': {
-                                schema: {
-                                    type: 'object',
-                                    properties: {
-                                        file: { type: 'string', format: 'binary' },
-                                        sku_master: { type: 'string', format: 'binary' },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                    responses: {
-                        200: { description: 'OK' },
-                        400: { description: 'Bad Request' },
-                    },
-                },
-            },
+            // '/verProdutos': {
+            //     get: {
+            //         tags: ['Produtos'],
+            //         summary: 'Listar produtos',
+            //         security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+            //         responses: {
+            //             200: { description: 'OK' },
+            //         },
+            //     },
+            // },
+            // '/registrarProduto': {
+            //     post: {
+            //         tags: ['Produtos'],
+            //         summary: 'Registrar produto',
+            //         security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+            //         parameters: [
+            //             { name: 'x-csrf-token', in: 'header', required: false, schema: { type: 'string' } },
+            //         ],
+            //         requestBody: {
+            //             required: true,
+            //             content: {
+            //                 'application/json': { schema: { $ref: '#/components/schemas/ProdutoRequest' } },
+            //             },
+            //         },
+            //         responses: {
+            //             201: { description: 'Created' },
+            //         },
+            //     },
+            // },
+            // '/excluirProduto/{id}': {
+            //     delete: {
+            //         tags: ['Produtos'],
+            //         summary: 'Excluir produto',
+            //         security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+            //         parameters: [
+            //             { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+            //             { name: 'x-csrf-token', in: 'header', required: false, schema: { type: 'string' } },
+            //         ],
+            //         responses: {
+            //             200: { description: 'OK' },
+            //         },
+            //     },
+            // },
+            // '/editarProduto/{id}': {
+            //     put: {
+            //         tags: ['Produtos'],
+            //         summary: 'Editar produto',
+            //         security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+            //         parameters: [
+            //             { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+            //             { name: 'x-csrf-token', in: 'header', required: false, schema: { type: 'string' } },
+            //         ],
+            //         requestBody: {
+            //             required: true,
+            //             content: {
+            //                 'application/json': { schema: { $ref: '#/components/schemas/ProdutoRequest' } },
+            //             },
+            //         },
+            //         responses: {
+            //             200: { description: 'OK' },
+            //         },
+            //     },
+            // },
+            // '/conectarLoja': {
+            //     post: {
+            //         tags: ['Shopify'],
+            //         summary: 'Conectar loja Shopify',
+            //         security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+            //         parameters: [
+            //             { name: 'x-csrf-token', in: 'header', required: false, schema: { type: 'string' } },
+            //         ],
+            //         requestBody: {
+            //             required: true,
+            //             content: { 'application/json': { schema: { type: 'object' } } },
+            //         },
+            //         responses: {
+            //             200: { description: 'OK' },
+            //         },
+            //     },
+            // },
+            // '/shopify/import-pedidos': {
+            //     post: {
+            //         tags: ['Shopify'],
+            //         summary: 'Importar pedidos Shopify (CSV)',
+            //         security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+            //         parameters: [
+            //             { name: 'x-csrf-token', in: 'header', required: false, schema: { type: 'string' } },
+            //         ],
+            //         requestBody: {
+            //             required: true,
+            //             content: {
+            //                 'multipart/form-data': {
+            //                     schema: {
+            //                         type: 'object',
+            //                         properties: {
+            //                             file: { type: 'string', format: 'binary' },
+            //                             sku_master: { type: 'string', format: 'binary' },
+            //                         },
+            //                     },
+            //                 },
+            //             },
+            //         },
+            //         responses: {
+            //             200: { description: 'OK' },
+            //             400: { description: 'Bad Request' },
+            //         },
+            //     },
+            // },
             '/pedidos': {
                 get: {
                     tags: ['Pedidos'],
@@ -1474,30 +1474,39 @@ const options = {
                     },
                 },
             },
-            '/valorTotal': {
+            '/dashboard/valorTotal': {
                 get: {
                     tags: ['Dashboard'],
                     summary: 'Valor total de todas as cotações',
                     responses: {
-                        201: { description: 'ok' }
+                        200: { description: 'ok' }
                     }
                 }
             },
-            '/valorMedio': {
+            '/dashboard/valorMedio': {
                 get: {
                     tags: ['Dashboard'],
                     summary: 'Valor medio de todas as cotações',
                     responses: {
-                        201: { description: 'ok' }
+                        200: { description: 'ok' }
                     }
                 }
             },
-            '/porcentagem/transportadora': {
+            '/dashboard/porcentagem/transportadora': {
                 get: {
                     tags: ['Dashboard'],
                     summary: 'Porcentagem de transportadora das cotações',
                     responses: {
-                        201: { description: 'ok' }
+                        200: { description: 'ok' }
+                    }
+                }
+            },
+            '/dashboard/porcentagem/pais-destinatario': {
+                get: {
+                    tags: ['Dashboard'],
+                    summary: 'Porcentagem de paises destinatarios das cotações',
+                    responses: {
+                        200: { description: 'ok' }
                     }
                 }
             },

@@ -30,6 +30,7 @@ const corsOpts = cors({
 router.get('/valorTotal', corsOpts, ctrl.valorTotalCotacoes)
 router.get('/valorMedio', corsOpts, ctrl.valorMedioPorCotacao)
 router.get('/porcentagem/transportadora', corsOpts, ctrl.porcentagemTransportadora)
+router.get('/porcentagem/pais-destinatario', corsOpts, ctrl.porcentagemPaisDestinatario)
 
 
 
