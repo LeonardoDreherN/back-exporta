@@ -1528,7 +1528,7 @@ const options = {
                     }
                 }
             },
-            '/dashboard/cotacoesPorData/hoje': {
+            '/dashboard/cotacoesPorData/mes': {
                 get: {
                     tags: ['Dashboard'],
                     summary: 'Pega o valor total das cotações dos ultimos 30 dias',
