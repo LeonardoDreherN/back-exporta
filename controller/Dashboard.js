@@ -267,6 +267,60 @@ const cotacaoMes = async (req, res) => {
     }
 }
 
+const cotacaoOntem = async (req, res) => {
+    try {
+        const cliente_id = req.clienteId;
+
+        if (!cliente_id) {
+            return res.status(401).json({ ok: false, error: "CLIENTE_NAO_AUTENTICADO" });
+        }
+
+        const hoje = new Date();
+        hoje.setDate(hoje.getDate() - 1); // ontem
+
+        const ontemSP = new Intl.DateTimeFormat("en-CA", {
+            timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+        }).format(hoje);
+
+        console.log(ontemSP) //dia de hoje
+        const start = new Date(`${ontemSP}T00:00:00-03:00`);
+        const end = new Date(`${ontemSP}T23:59:59.999-03:00`);
+
+        console.log(start, end) //hojeT03:00:00.000Z hojeT02:59:59.999Z
+
+        // 2026-01-22T03:00:00.000Z = 22/01 00:00 no Brasil
+        // 2026-01-23T02:59:59.999Z = 22/01 23:59:59.999 no Brasil
+
+        const hourLabel = literal(
+            `to_char(date_trunc('hour', (created_at AT TIME ZONE '${tz}')), 'HH24')` //retorna os horarios: 01, 02, 03...
+        );
+
+        const rows = await db.Cotacao.findAll({
+            where: { cliente_id, created_at: { [Op.between]: [start, end] } },
+            attributes: [
+                [hourLabel, "hora"],
+                [db.sequelize.fn("SUM", db.sequelize.col("preco_final")), "total"],
+            ],
+            group: [hourLabel],
+            order: [[hourLabel, "ASC"]],
+            raw: true,
+        });
+
+        const map = new Map(rows.map(r => [r.hora, Number(r.total) || 0]));
+
+        // completa 00..23
+        const data = Array.from({ length: 24 }, (_, i) => {
+            const hora = String(i).padStart(2, "0");
+            return { hora, total: map.get(hora) ?? 0 };
+        });
+
+        return res.status(200).json({ ok: true, data });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ ok: false, error: "erro ao pegar cotacao por data" });
+    }
+}
+
 module.exports = {
     valorTotalCotacoes,
     valorMedioPorCotacao,
@@ -274,5 +328,6 @@ module.exports = {
     porcentagemPaisDestinatario,
     valorMedioPorPais,
     cotacaoHoje,
-    cotacaoMes
+    cotacaoMes,
+    cotacaoOntem
 }

@@ -1537,6 +1537,15 @@ const options = {
                     }
                 }
             },
+            '/dashboard/cotacoesPorData/ontem': {
+                get: {
+                    tags: ['Dashboard'],
+                    summary: 'Pega o valor total das cotações do dia de ontem',
+                    responses: {
+                        200: { description: 'ok' }
+                    }
+                }
+            },
             '/_debug/shops': {
                 get: {
                     tags: ['Debug'],
