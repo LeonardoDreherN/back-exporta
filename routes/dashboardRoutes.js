@@ -33,6 +33,7 @@ router.get('/porcentagem/transportadora', corsOpts, ctrl.porcentagemTransportado
 router.get('/porcentagem/pais-destinatario', corsOpts, ctrl.porcentagemPaisDestinatario)
 router.get('/valorMedio/pais', corsOpts, ctrl.valorMedioPorPais)
 router.get('/cotacoesPorData/hoje', corsOpts, ctrl.cotacaoHoje)
+router.get('/cotacoesPorData/mes', corsOpts, ctrl.cotacaoMes)
 
 
 module.exports = router;

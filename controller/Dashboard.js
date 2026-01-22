@@ -1,6 +1,8 @@
 const { Op, literal } = require("sequelize")
 const db = require("../models")
 
+const tz = "America/Sao_Paulo";
+
 const valorTotalCotacoes = async (req, res) => {
     try {
         const total = await db.Cotacao.sum('preco_final', {
@@ -101,12 +103,6 @@ const porcentagemPaisDestinatario = async (req, res) => {
 
 const valorMedioPorPais = async (req, res) => {
     try {
-        const quantidade_cotacoes = await db.Cotacao.count({
-            where: {
-                cliente_id: req.clienteId
-            }
-        })
-
 
         const rows = await db.Cotacao.findAll({
             where: { cliente_id: req.clienteId },
@@ -128,6 +124,7 @@ const valorMedioPorPais = async (req, res) => {
     }
 }
 
+
 const cotacaoHoje = async (req, res) => {
     try {
         const cliente_id = req.clienteId;
@@ -135,8 +132,6 @@ const cotacaoHoje = async (req, res) => {
         if (!cliente_id) {
             return res.status(401).json({ ok: false, error: "CLIENTE_NAO_AUTENTICADO" });
         }
-
-        const tz = "America/Sao_Paulo";
 
         const hojeSP = new Intl.DateTimeFormat("en-CA", {
             timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
@@ -182,55 +177,95 @@ const cotacaoHoje = async (req, res) => {
     }
 };
 
-// const cotacaoHoje = async (req, res) => {
-//     try {
-//         const cliente_id = req.clienteId;
+function gerarDias(start, end) {
+    const dias = [];
+    const d = new Date(start);
+    d.setHours(0, 0, 0, 0);
 
-//         if (!cliente_id) {
-//             return res.status(401).json({ ok: false, error: "CLIENTE_NAO_AUTENTICADO" });
-//         }
+    const e = new Date(end);
+    e.setHours(0, 0, 0, 0);
 
-//         const hoje = getYMD_SP();
-//         const mes = addMonthsToYMD(hoje, -1)
+    while (d <= e) {
+        dias.push(d.toISOString().slice(0, 10)); // YYYY-MM-DD
+        d.setDate(d.getDate() + 1);
+    }
+    return dias;
+}
 
-//         const start = new Date(`${mes}T00:00:00-03:00`);
-//         const end = new Date(`${hoje}T23:59:59.999-03:00`);
+const cotacaoMes = async (req, res) => {
+    try {
+        const cliente_id = req.clienteId;
 
-//         const hourExpr = literal(
-//             `date_trunc('hour', (created_at AT TIME ZONE 'America/Sao_Paulo'))`
-//         );
-//         console.log(hoje)
+        if (!cliente_id) {
+            return res.status(401).json({ ok: false, error: "CLIENTE_NAO_AUTENTICADO" });
+        }
 
-//         const cotacoes = await db.Cotacao.findAll({
-//             where: {
-//                 cliente_id: req.clienteId,
-//                 created_at: { [Op.between]: [start, end] }
-//             },
-//             attributes: [
-//                 [hourExpr, "hora"],
-//                 [db.sequelize.fn("SUM", db.sequelize.col("preco_final")), "total"],
-//             ],
-//             group: [hourExpr],
-//             order: [[hourExpr, 'ASC']],
-//             raw: true
-//         });
+        const hojeSP = new Intl.DateTimeFormat("en-CA", {
+            timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+        }).format(new Date());
 
-//         console.log(cotacoes)
-//         if (cotacoes[0].total === null) {
-//             cotacoes[0].total = 0
-//         }
+        const fmt = new Intl.DateTimeFormat("en-CA", {
+            timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+        });
 
-//         const data = cotacoes.map((row) => ({
-//             hora: row.hora, // vem como timestamp (UTC) do começo da hora
-//             total: Number(row.total) || 0,
-//         }));
+        const d = new Date();
+        d.setMonth(d.getMonth() - 1);
 
-//         res.status(200).json({ ok: true, total: data });
-//     } catch (e) {
-//         console.error(e);
-//         res.status(500).json({ ok: false, error: "erro ao pegar cotacao por data" });
-//     }
-// }
+        const mes = fmt.format(d);
+
+        const start = new Date(`${mes}T00:00:00-03:00`);
+        const end = new Date(`${hojeSP}T23:59:59.999-03:00`);
+
+        const dayExpr = literal(
+            `date_trunc('day', (created_at AT TIME ZONE 'America/Sao_Paulo'))`
+        );
+
+        const cotacoes = await db.Cotacao.findAll({
+            where: {
+                cliente_id: req.clienteId,
+                created_at: { [Op.between]: [start, end] }
+            },
+            attributes: [
+                [dayExpr, "day"],
+                [db.sequelize.fn("SUM", db.sequelize.col("preco_final")), "total"],
+            ],
+            group: [dayExpr],
+            order: [[dayExpr, 'ASC']],
+            raw: true
+        });
+
+        const map = new Map(
+            cotacoes.map(row => {
+                console.log(row)
+                const dia = new Intl.DateTimeFormat("en-CA", {
+                    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+                }).format(new Date(row.day));; // garante YYYY-MM-DD
+                console.log(row.dia, row.total);
+                return [dia, Number(row.total) || 0];
+            })
+        );
+
+        console.log(map);
+
+        // 🔑 gera todos os dias do período e preenche com 0
+        const diasPeriodo = gerarDias(start, end);
+
+        console.log(diasPeriodo);
+
+        const data = diasPeriodo.map(dia => (
+            {
+                dia,
+                total: map.get(dia) ?? 0
+            }));
+
+        console.log(data);
+
+        res.status(200).json({ ok: true, total: data });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ ok: false, error: "erro ao pegar cotacao por data" });
+    }
+}
 
 module.exports = {
     valorTotalCotacoes,
@@ -238,5 +273,6 @@ module.exports = {
     porcentagemTransportadora,
     porcentagemPaisDestinatario,
     valorMedioPorPais,
-    cotacaoHoje
+    cotacaoHoje,
+    cotacaoMes
 }

@@ -1528,6 +1528,15 @@ const options = {
                     }
                 }
             },
+            '/dashboard/cotacoesPorData/hoje': {
+                get: {
+                    tags: ['Dashboard'],
+                    summary: 'Pega o valor total das cotações dos ultimos 30 dias',
+                    responses: {
+                        200: { description: 'ok' }
+                    }
+                }
+            },
             '/_debug/shops': {
                 get: {
                     tags: ['Debug'],
