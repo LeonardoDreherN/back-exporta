@@ -1526,6 +1526,19 @@ const options = {
                     }
                 }
             },
+            '/dashboard/porcentagem/mesAnterior': {
+                get: {
+                    tags: ['Dashboard'],
+                    summary: 'Porcentagem de cotações do mês anterior comparado ao mês atual',
+                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                    parameters: [
+                        { name: 'clienteId', in: 'path', required: true, schema: { type: 'string' } },
+                    ],
+                    responses: {
+                        200: { description: 'ok' }
+                    }
+                }
+            },
             '/dashboard/valorMedio/pais': {
                 get: {
                     tags: ['Dashboard'],

@@ -396,6 +396,57 @@ const cotacaoSemana = async (req, res) => {
     }
 }
 
+const mesAnterior = async (req, res) => {
+    try {
+        const cliente_id = req.clienteId;
+
+        if (!cliente_id) {
+            return res.status(401).json({ ok: false, error: "CLIENTE_NAO_AUTENTICADO" });
+        }
+
+        const hoje = new Date()
+        const ano = hoje.getFullYear()
+        const mesAnt = hoje.getMonth() - 1
+        const mesAtual = hoje.getMonth()
+        const mesAntStart = new Date(ano, mesAnt, 1) //primeiro dia do mes anterior
+        const mesAntEnd = new Date(ano, mesAnt + 1, 0) //ultimo dia do mes anterior
+
+        const mesAtualStart = new Date(ano, mesAtual, 1)
+        const mesAtualEnd = new Date(ano, mesAtual + 1, 0)
+
+        const quantidadeMesAnterior = await db.Cotacao.count({ //pega a quantidade de cotacoes do mes anterior
+            where: {
+                cliente_id: req.clienteId,
+                created_at: { [Op.between]: [mesAntStart, mesAntEnd] }
+            },
+        })
+
+        const quantidadeMesAtual = await db.Cotacao.count({ //pega a quantidade de cotacoes do mes anterior
+            where: {
+                cliente_id: req.clienteId,
+                created_at: { [Op.between]: [mesAtualStart, mesAtualEnd] }
+            },
+        })
+
+        const porcentagem = (quantidadeMesAtual - quantidadeMesAnterior) / quantidadeMesAnterior * 100
+        console.log(porcentagem)
+
+        console.log(quantidadeMesAnterior)
+        console.log(quantidadeMesAtual)
+
+        return res.status(200).json({ 
+            ok: true, 
+            cotacoes_mes_anterior: quantidadeMesAnterior,
+            cotacoes_mes_atual: quantidadeMesAtual,
+            porcentagem: porcentagem.toString() + "%"
+        })
+
+    } catch (err) {
+        console.error("Erro ao pegar valor medio das cotacoes por mes: ", err)
+        return res.status(500).json({ ok: false, err })
+    }
+}
+
 module.exports = {
     valorTotalCotacoes,
     valorMedioPorCotacao,
@@ -405,5 +456,6 @@ module.exports = {
     cotacaoHoje,
     cotacaoMes,
     cotacaoOntem,
-    cotacaoSemana
+    cotacaoSemana,
+    mesAnterior
 }
