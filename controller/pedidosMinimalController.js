@@ -23,8 +23,6 @@ async function uploadOrdersMinimal(req, res, returnOnly = false) {
         // 3) achata em linhas mínimas (uma por item)
         const linhas = buildMinimalRows(ordersRows, skuMap);
 
-        // console.log('[uploadOrdersMinimal] clienteId =', req.clienteId, 'linhas =', linhas.length);
-        // console.log('[uploadOrdersMinimal] primeira linha =', linhas[0]);
 
         const cliente_id = req.clienteId;
 
@@ -40,7 +38,6 @@ async function uploadOrdersMinimal(req, res, returnOnly = false) {
 
         const importResult = await importPedidosInternal(cliente_id, linhas);
 
-        // console.log('[uploadOrdersMinimal] importResult =', importResult);
 
         const payload = { ok: true, linhas, import: importResult };
         if (returnOnly) return payload;     // NÃO responde, só retorna

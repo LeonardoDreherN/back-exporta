@@ -7,11 +7,8 @@ const { toNumSafe, up } = require('../cotacoesHelpers');
  * (output de /rate/v1/rates/quotes, ou o pedaço escolhido).
  */
 async function extractFedexBreakdown(rateRaw, preferredServiceType) {
-    console.log('[extractFedexBreakdown] INPUT preferredServiceType=', preferredServiceType);
-    console.log('[extractFedexBreakdown] INPUT rateRaw=', rateRaw);
     if (!rateRaw) return null;
 
-    // console.log('[extractFedexBreakdown] CHECK rateRaw.raw & rateRaw.rows', {
     //     hasRaw: !!rateRaw?.raw,
     //     hasRows: !!rateRaw?.rows,
     //     raw: rateRaw?.raw,
@@ -24,7 +21,6 @@ async function extractFedexBreakdown(rateRaw, preferredServiceType) {
             ? rateRaw.rows.find(r => r?.serviceType === preferredServiceType) || rateRaw.rows[0]
             : rateRaw.rows[0];
         if (!firstRow) return null;
-        console.log('[extractFedexBreakdown] firstRow chosen=', firstRow);
 
         const base = Number(firstRow.base ?? firstRow.freight ?? 0) || 0;
         const total = Number(firstRow.total ?? 0) || base;
@@ -53,14 +49,12 @@ async function extractFedexBreakdown(rateRaw, preferredServiceType) {
         rateRaw?.output?.rateReplyDetails ||
         rateRaw?.rateReplyDetails ||
         [];
-    console.log('extractFedexBreakdown details=', details);
 
     const svc = Array.isArray(details)
         ? (preferredServiceType
             ? details.find(d => d?.serviceType === preferredServiceType) || details[0]
             : details[0])
         : details;
-    console.log('extractFedexBreakdown svc=', svc);
     if (!svc) return null;
 
     const rated =
@@ -69,7 +63,6 @@ async function extractFedexBreakdown(rateRaw, preferredServiceType) {
         svc?.ratedShipmentDetail ||
         {};
 
-    console.log('extractFedexBreakdown rated=', rated);
 
     const toNum = (v) => {
         const n = Number(v?.amount ?? v?.value ?? v);
@@ -217,13 +210,6 @@ async function prepararCotacaoFedex({ req, rate_payload, preco_base, freightValu
         itemized: items,
         total: totalCalc,
     };
-
-    console.log('[prepararCotacaoFedex] prepared breakdown:', {
-        precoBase: fedexBase,
-        total: totalCalc,
-        surcharges: items,
-        savedSurcharges,
-    });
 
     return {
         carrier: 'FEDEX',

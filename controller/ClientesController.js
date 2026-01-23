@@ -212,9 +212,6 @@ const loginCliente = async (req, res) => {
         });
 
         // DEBUG temporário (remova depois):
-        // console.log('[LOGIN] body.email =', emailPrincipal);
-        // console.log('[LOGIN] found =', !!cliente, 'dbEmail =', cliente?.emailPrincipal);
-        // console.log('[LOGIN] hash prefix =', cliente?.senha?.slice(0, 4)); // espera $2a/$2b
 
         if (!cliente) return res.status(401).json({ erro: 'Credenciais inválidas' });
 
@@ -227,7 +224,6 @@ const loginCliente = async (req, res) => {
             if (ok) {
                 const novoHash = await bcrypt.hash(senha, 10);
                 await cliente.update({ senha: novoHash });
-                // console.log('[LOGIN] senha migrada para bcrypt');
             }
         }
 

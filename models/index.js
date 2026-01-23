@@ -12,7 +12,6 @@ const AsaasBoletosModel = require('./AsaasBoletos.js');
 require('dotenv/config');
 
 // Inicializa Sequelize
-// console.log('SUPABASE_DB_URL EM USO:', process.env.SUPABASE_DB_URL);
 const sequelize = new Sequelize(
   process.env.SUPABASE_DB_URL,
   {

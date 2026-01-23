@@ -260,14 +260,6 @@ async function createCotacaoReal(req, res) {
         const cliente_id = Number(req.cliente?.id ?? req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId);
         if (!cliente_id) { await t.rollback(); return res.status(401).json({ ok: false, error: 'Cliente não autenticado' }); }
 
-        console.log('[createCotacaoReal] body keys:', Object.keys(req.body || {}));
-        console.log('[createCotacaoReal] body sample:', {
-            pedido_ref: req.body?.pedido_ref,
-            pais_remetente: req.body?.pais_remetente,
-            pais_dest: req.body?.pais_dest,
-            carrier: req.body?.carrier,
-            serviceCode: req.body?.serviceCode,
-        });
 
         const {
             pedido_ref: pedido_ref_raw,
@@ -435,9 +427,6 @@ async function createCotacaoReal(req, res) {
         const paisDestNorm =
             iso2Country(pais_dest ?? pedidoJson?.pais) || null;
 
-        console.log('cli?.enderecoPais:', cli);
-        console.log('pedidoJson?.pais_remetente:', pedidoJson);
-        // console.log('pedidoJson?.endereco?.pais:', pedidoJson?.endereco);
         let status_pagamento = null
         if(carrier == "FEDEX"){
             status_pagamento = 'NAOGERADO';

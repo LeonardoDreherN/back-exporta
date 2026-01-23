@@ -6,7 +6,6 @@ const stripNulls = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) =>
 const CUBIC_FACTOR = 6000; // padrão internacional cm³→kg
 
 async function buildPedidoSnapshot(pedidoImportId, clienteId) {
-    console.log('Building pedido snapshot for pedidoImportId:', pedidoImportId, 'clienteId:', clienteId);
     const p = await db.PedidoImport.findOne({ where: { id: pedidoImportId, cliente_id: clienteId } });
     if (!p) throw new Error('Pedido não encontrado para este cliente');
 

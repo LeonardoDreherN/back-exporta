@@ -9,7 +9,6 @@ const valorTotalCotacoes = async (req, res) => {
             where: { cliente_id: req.clienteId }
         })
 
-        console.log(total)
 
         return res.status(200).json({ ok: true, total })
     } catch (err) {
@@ -137,12 +136,10 @@ const cotacaoHoje = async (req, res) => {
             timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
         }).format(new Date());
 
-        console.log(hojeSP) //dia de hoje
 
         const start = new Date(`${hojeSP}T00:00:00-03:00`);
         const end = new Date(`${hojeSP}T23:59:59.999-03:00`);
 
-        console.log(start, end) //hojeT03:00:00.000Z hojeT02:59:59.999Z
 
         // 2026-01-22T03:00:00.000Z = 22/01 00:00 no Brasil
         // 2026-01-23T02:59:59.999Z = 22/01 23:59:59.999 no Brasil
@@ -236,21 +233,17 @@ const cotacaoMes = async (req, res) => {
 
         const map = new Map(
             cotacoes.map(row => {
-                console.log(row)
                 const dia = new Intl.DateTimeFormat("en-CA", {
                     timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
                 }).format(new Date(row.day));; // garante YYYY-MM-DD
-                console.log(row.dia, row.total);
                 return [dia, Number(row.total) || 0];
             })
         );
 
-        console.log(map);
 
         // 🔑 gera todos os dias do período e preenche com 0
         const diasPeriodo = gerarDias(start, end);
 
-        console.log(diasPeriodo);
 
         const data = diasPeriodo.map(dia => (
             {
@@ -258,7 +251,6 @@ const cotacaoMes = async (req, res) => {
                 total: map.get(dia) ?? 0
             }));
 
-        console.log(data);
 
         res.status(200).json({ ok: true, total: data });
     } catch (e) {
@@ -282,11 +274,9 @@ const cotacaoOntem = async (req, res) => {
             timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
         }).format(hoje);
 
-        console.log(ontemSP) //dia de hoje
         const start = new Date(`${ontemSP}T00:00:00-03:00`);
         const end = new Date(`${ontemSP}T23:59:59.999-03:00`);
 
-        console.log(start, end) //hojeT03:00:00.000Z hojeT02:59:59.999Z
 
         // 2026-01-22T03:00:00.000Z = 22/01 00:00 no Brasil
         // 2026-01-23T02:59:59.999Z = 22/01 23:59:59.999 no Brasil
@@ -365,21 +355,17 @@ const cotacaoSemana = async (req, res) => {
 
         const map = new Map(
             cotacoes.map(row => {
-                console.log(row)
                 const dia = new Intl.DateTimeFormat("en-CA", {
                     timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
                 }).format(new Date(row.day));; // garante YYYY-MM-DD
-                console.log(row.dia, row.total);
                 return [dia, Number(row.total) || 0];
             })
         );
 
-        console.log(map);
 
         // 🔑 gera todos os dias do período e preenche com 0
         const diasPeriodo = gerarDias(start, end);
 
-        console.log(diasPeriodo);
 
         const data = diasPeriodo.map(dia => (
             {
@@ -387,7 +373,6 @@ const cotacaoSemana = async (req, res) => {
                 total: map.get(dia) ?? 0
             }));
 
-        console.log(data);
 
         res.status(200).json({ ok: true, total: data });
     } catch (e) {
@@ -432,10 +417,7 @@ const mesAnterior = async (req, res) => {
         if(porcentagem == Infinity){
             porcentagem = 100
         }
-        console.log(porcentagem)
 
-        console.log(quantidadeMesAnterior)
-        console.log(quantidadeMesAtual)
 
         return res.status(200).json({ 
             ok: true, 

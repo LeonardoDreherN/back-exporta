@@ -261,21 +261,6 @@ function normalizePackagesForShip(packages = [], pesoTotalPedidoKg) {
         const width = Number(p.width ?? p.widthCm ?? p.dimCm?.width ?? 10) || 10;
         const height = Number(p.height ?? p.heightCm ?? p.dimCm?.height ?? 10) || 10;
 
-        console.log("[FEDEX][PACKAGES][SHIP]", {
-            idx,
-            pesoTotalPedidoKg,
-            weightKg,
-            dims: { length, width, height },
-            raw: {
-                weightKg: p.weightKg,
-                pesoKg: p.pesoKg,
-                length: p.length,
-                width: p.width,
-                height: p.height,
-                dimCm: p.dimCm
-            }
-        });
-
         return {
             sequenceNumber: idx + 1,
             groupPackageCount: 1,
@@ -420,7 +405,6 @@ function mapPedidoToFedexRecipient(pedido) {
     const dest = pedido?.endereco || pedido?.shipping_address || pedido?.shippingAddress || {};
     const ruaNum = splitEndereco(dest.rua || dest.address1 || pedido.endereco || '');
 
-    console.log("DESTINO FEDEX: ", pedido)
     const base1 = dest.rua || dest.address1 || pedido.endereco || '';
     const base2 = dest.address2 || dest.complemento || dest.complement || '';
     const line1 =
@@ -431,7 +415,6 @@ function mapPedidoToFedexRecipient(pedido) {
         normalizeSpaces(base2) ||
         normalizeSpaces(ruaNum?.complemento || '');
 
-    console.log("POSTALCODE: ", dest.postalCode, "CEP: ", dest.zip)
 
     return {
         contact: {
@@ -474,11 +457,9 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
         const w = Number(p.weightKg ?? p.pesoKg ?? 0);
         return acc + (Number.isFinite(w) ? w : 0);
     }, 0);
-    console.log("[FEDEX][COMMODITIES] totalKgFromPackages:", totalKgFromPackages);
 
     const itens = Array.isArray(pedido.itens) ? pedido.itens : [];
     const totalQty = itens.reduce((acc, it) => acc + (Number(it.qty || 0) || 0), 0) || 1;
-    console.log("[FEDEX][COMMODITIES] totalQty:", totalQty, "itens:", itens.length);
     const itensSemPesoUnit = itens.every((it) => Number(it.pesoUnit || 0) <= 0);
 
     const commodities = itens.map((it) => {
@@ -487,8 +468,6 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
         const unitPrice = Number(it.preco || 0) || 0;
 
         const lineTotal = (unitPrice * qty); // Number(it.valorTotalLinha || 0)
-        console.log("LINE TOTAL: ", lineTotal)
-        console.log("MULT", unitPrice * qty)
 
         // peso por item: prioridade -> pesoUnit (se vier) -> rateio do total dos packages
         const pesoUnitKg = Number(it.pesoUnit || 0); // se vocÃª salvar em kg
@@ -496,14 +475,6 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
             (pesoUnitKg > 0 ? pesoUnitKg * qty : 0) ||
             (totalKgFromPackages > 0 ? (totalKgFromPackages * (qty / totalQty)) : 1);
         const weightKg = round3(weightKgRaw);
-        console.log("[FEDEX][COMMODITIES][ITEM]", {
-            sku: it.sku,
-            qty,
-            pesoUnit: it.pesoUnit,
-            pesoUnitKg,
-            weightKg,
-            unitPrice
-        });
 
         return {
             description: (it.titulo || 'Item').slice(0, 450), // FedEx tem limites, corta por seguranÃ§a
@@ -520,7 +491,6 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
         };
     });
     const totalCommoditiesKg = commodities.reduce((acc, c) => acc + (Number(c.weight?.value) || 0), 0);
-    console.log("[FEDEX][COMMODITIES] totalCommoditiesKg:", totalCommoditiesKg);
 
     return { commodities, currency };
 }
@@ -540,13 +510,7 @@ async function buildFedexShipPayload({
     termsOfSale
 }) {
     const acct = process.env.FEDEX_ACCOUNT_NUMBER
-    console.log("PEDIDO: ", recipient)
-    console.log("CLIENTE: ", shipper)
-    console.log("SOLD TO: ", soldTo)
     const requestedPackageLineItems = normalizePackagesForShip(packages, pesoTotalPedidoKg);
-    console.log("CAIXAS: ", requestedPackageLineItems)
-    console.log("packs: ", packages)
-    console.log("COMMODITIES: ", commodities)
 
     const invNumber = String(invoiceNumber || `INV-${Date.now()}`);
     const freightAmount = Number(freightTotal || 0) || 0;
@@ -554,8 +518,6 @@ async function buildFedexShipPayload({
     try {
         const s1 = shipper?.address?.streetLines || [];
         const r1 = recipient?.address?.streetLines || [];
-        // console.log('[FEDEX][SHIPPER] streetLines:', s1, s1.map(x => String(x).length));
-        // console.log('[FEDEX][RECIP] streetLines:', r1, r1.map(x => String(x).length));
     } catch (_) { }
 
     // total da linha (preferÃªncia: customsValue vindo do builder; fallback: unit*qty)
@@ -659,7 +621,6 @@ async function buildFedexShipPayload({
                     const customsAmount = Number.isFinite(Number(c.customsValue?.amount))
                         ? Number(c.customsValue.amount)
                         : (unit * qty);
-                    console.log("customs AMOUNT: ", customsAmount, "value", c.customsValue?.currency)
                     return {
                         description: c.description || 'Item',
                         countryOfManufacture: iso2Country(c.countryOfManufacture || 'BR') || 'BR',
@@ -906,7 +867,6 @@ module.exports = {
                 pedido = req.body.pedido_manual;
             }
             if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido nÃ£o encontrado.' });
-            console.log("PEDIDO PARA SHIP: ", pedido)
 
             // commodities: se vocÃª nÃ£o tem peso por item, essa funÃ§Ã£o jÃ¡ vai ratear usando o totalKgFromPackages
             const { commodities, currency } = buildCommoditiesFromPedido(pedido, packages);
@@ -921,7 +881,6 @@ module.exports = {
             }
 
             const invoiceNumber = `INV-2025-${String(pedido_ref || '').trim()}`;
-            console.log("body>>>:", req.body)
             const freightTotalRaw =
                 (Number.isFinite(Number(breakdown?.total)) ? Number(breakdown.total) : null) ??
                 req.body?.freight_total ??
@@ -962,7 +921,6 @@ module.exports = {
             });
 
             const data = await createShipment(payload);
-            console.log("[FEDEX][SHIP][RAW]", JSON.stringify(data, null, 2));
             return res.json({ ok: true, raw: data });
         } catch (err) {
             return res.status(err.status || 500).json({
@@ -1008,9 +966,7 @@ module.exports = {
             const data = await createPickup(payload, {
                 idempotencyKey: req.headers['x-idempotency-key'] || null
             });
-            console.log("Pickup payload:", JSON.stringify(payload, null, 2));
 
-            console.log("[FEDEX][PICKUP][RAW]", JSON.stringify(data, null, 2));
 
             return res.json({ ok: true, raw: data })
         } catch (err) {

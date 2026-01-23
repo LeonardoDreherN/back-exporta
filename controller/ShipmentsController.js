@@ -230,9 +230,6 @@ async function confirmRate(req, res) {
             });
         }
 
-        console.log(`[SHIPMENTS/CONFIRM] ${chosen})`);
-        console.log(`[SHIPMENTS/CONFIRM] ${Object.keys(rate_result)})`);
-        console.log(`[SHIPMENTS/CONFIRM] ${Object.keys(quote)})`);
 
         // Monta um req "fake" pro seu createCotacaoReal (pra reaproveitar o mesmo código)
         // Aqui é o ponto: vamos salvar APENAS 1 cotação.

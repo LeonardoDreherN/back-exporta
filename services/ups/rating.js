@@ -24,7 +24,6 @@ async function quote(payload) {
     try {
         const token = await getToken();
         
-        console.log('[UPS][RATE][PAYLOAD]:', JSON.stringify(payload, null, 2));
         const res = await http.post(
             cfg.rate,
             payload,
@@ -38,7 +37,6 @@ async function quote(payload) {
             }
         );
 
-        console.log('[UPS][RATE][RAW]:', JSON.stringify(res.data, null, 2));
         return res.data;
     } catch (err) {
         const status = err?.response?.status || 500;

@@ -5,12 +5,7 @@ const app = express();
 const dotenv = require('dotenv');
 dotenv.config();
 const fedexCfg = require('./config/fedex'); // <--- ADICIONE
-console.log('[FEDEX CFG][BOOT]', {
-  AMBIENTE: process.env.NODE_ENV,
-  base: fedexCfg.base,
-  oauth: fedexCfg.oauth,
-  ship: fedexCfg.ship,
-});
+
 const db = require('./models/index.js');
 const cors = require('cors');
 const path = require('path');
@@ -55,11 +50,9 @@ const allowlist = (process.env.CORS_ALLOWED_ORIGINS || '')
 
 app.use(cors({
   origin(origin, cb) {
-    console.log('[CORS] Origin:', origin);
     if (!origin) return cb(null, true); // Postman, curl etc
 
     const ok = allowlist.includes(origin);
-    console.log('[CORS] allowed?', ok);
     return cb(null, ok);
   },
   credentials: true,

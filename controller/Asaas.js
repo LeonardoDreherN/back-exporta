@@ -104,13 +104,11 @@ async function pegarValor({ from, to, clienteId }) {
             { status_pagamento: "GERADO" },
             { where }
         );
-        console.log("updated:", updated);
 
         const linhas = cotacoes.map(c => {
             const sur = fromSurcharges(c);
             // usa SEMPRE o preço final já salvo no seu banco (ajuste o nome do campo abaixo)
             const precoFinal = n(c.preco_final) || n(c.total_cliente) || n(c.valor_frete_cliente);
-            console.log("Preco final: ", precoFinal)
             return {
                 preco_final: precoFinal,         // o que entra no total geral
                 moeda: sur.currency,
@@ -139,7 +137,6 @@ async function pegarValor({ from, to, clienteId }) {
 
 
 const gerarBoleto = async (req, res) => {
-    console.log("gerarBoleto called", { path: req.path, body: req.body });
     const t = await db.sequelize.transaction();
     try {
         const clienteId = Number(
@@ -178,7 +175,6 @@ const gerarBoleto = async (req, res) => {
         }
 
         const valor_total = await pegarValor({ from, to, clienteId });
-        console.log("VALOR TOTAL: ", valor_total)
 
         if (!valor_total || valor_total <= 0) {
             await t.rollback();
@@ -198,7 +194,6 @@ const gerarBoleto = async (req, res) => {
             dueDate: dueDate,
         }
 
-        console.log("BOLETO VALUE: ", boletoPayload.value)
 
         const { data } = await require('axios').post(`${URL_ASAAS}/payments`, boletoPayload, {
             headers: {

@@ -20,7 +20,6 @@ const UPS_STUB = String(process.env.UPS_STUB || '') === 'true';
 const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || '';
 const UPS_CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || '';
 
-// console.log("UPS:::",UPS_ACCOUNT_NUMBER, UPS_BASE)
 
 const onlyDigits = (s) => String(s || '').replace(/\D+/g, '');
 const trunc = (s, n) => (s ? String(s).slice(0, n) : undefined);
@@ -394,7 +393,6 @@ function mapToUpsShipment(reqBody) {
         },
     };
 
-    console.log("SHIPPER:", shipperNumber)
 
     return shipment;
 }
@@ -566,7 +564,6 @@ async function deleteCotacaoById(id) {
             return;
         }
         await cot.destroy();
-        // console.log('[deleteCotacaoById] Cotação deletada:', id);
     } catch (err) {
         console.error('[deleteCotacaoById] Erro ao excluir cotação:', {
             id,
@@ -707,7 +704,6 @@ module.exports = {
 
             const raw = await rating.quote(ratePayload);
 
-            // console.log("[DBG][BACK/RATE] RatedShipment[0]:",
             //     JSON.stringify(
             //         Array.isArray(raw?.RateResponse?.RatedShipment)
             //             ? raw.RateResponse.RatedShipment[0]
@@ -742,7 +738,6 @@ module.exports = {
         try {
             // aceita os dois formatos: negócio (antigo) ou UPS ShipmentRequest (novo do front)
             const originalIF = req.body?.ShipmentRequest?.Shipment?.ShipmentServiceOptions?.InternationalForms;
-            // console.log('[UPS/SHIP][REQ][IF]:', JSON.stringify(originalIF, null, 2));
 
             // Sanitizadores locais
             function padQtyStr(n) {
@@ -829,7 +824,6 @@ module.exports = {
                     IF.Product = IF.Product.map((p, i) => {
                         const qty = padQtyStr(p?.Unit?.Number ?? p?.Quantity ?? 1);
                         const val = moneyStr(p?.Unit?.Value ?? p?.UnitPrice ?? 0);
-                        // console.log('[DBG] IF sanitized:', JSON.stringify(IF, null, 2));
                         return {
                             Description: cleanCiDesc(p?.Description, `Item ${i + 1}`), // <<< aqui
                             CommodityCode: p?.CommodityCode || '00000000',
@@ -942,7 +936,6 @@ module.exports = {
             }
 
             // Log final do que vai pra UPS
-            // console.log('[UPS/SHIP][UPS_REQ][IF]:', JSON.stringify(
             //     upsReq?.ShipmentRequest?.Shipment?.ShipmentServiceOptions?.InternationalForms, null, 2
             // ));
 
@@ -998,14 +991,12 @@ module.exports = {
                         // ===== LABEL → Supabase Storage =====
                         if (out.label?.b64 && out.label?.type) {
                             const mime = labelTypeToMime(out.label.type);
-                            // console.log('[UPS/SHIP] salvando etiqueta no Supabase', { cotacaoId: row.id, mime });
                             await salvarEtiquetaNaStorage(row.id, out.label.b64, mime);
                         }
 
                         // ===== INVOICE → Supabase Storage =====
                         if (out.invoice?.b64) {
                             const mime = out.invoice.mime || 'application/pdf';
-                            // console.log('[UPS/SHIP] salvando invoice no Supabase', { cotacaoId: row.id, mime });
                             await salvarInvoiceNaStorage(row.id, out.invoice.b64, mime);
                         }
                     }
@@ -1068,7 +1059,6 @@ module.exports = {
     //     try {
     //         const body = req.body || {};
     //         const { PickupCreationRequest } = body;
-    //         console.log(body)
     //         cotacaoId = body.cotacaoId || req.query.cotacaoId || null;
     //         if (!PickupCreationRequest) {
     //             return res.status(400).json({ ok: false, error: 'PickupCreationRequest é obrigatório.' });
@@ -1127,8 +1117,6 @@ module.exports = {
     //         const upsData = resp.data || {};
 
     //         // se veio cotacaoId, grava a data/horas na tabela
-    //         console.log("PICKUP BODY >>>", JSON.stringify(req.body, null, 2));
-    //         console.log("PICKUP INFO >>>", {
     //             cotacaoId,
     //             pickupDateInfo: PickupCreationRequest?.PickupDateInfo,
     //             data_coleta,

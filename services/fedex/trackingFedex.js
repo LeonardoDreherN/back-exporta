@@ -13,8 +13,6 @@ const FEDEX_CLIENT_ID = process.env.FEDEX_KEY_TRACK || '';
 const FEDEX_CLIENT_SECRET = process.env.FEDEX_KEY_SECRET_TRACK || '';
 const FEDEX_STUB = String(process.env.FEDEX_STUB || '');
 
-console.log("FEDEX STUB: ", FEDEX_STUB)
-
 let _token = null;
 let _tokenExpTs = 0;
 const _stubFirstSeen = new Map();
@@ -83,8 +81,6 @@ async function getByNumber(trackingNumber, opts = {}) {
         throw e;
     }
 
-    console.log('[FEDEX][TRACK] start', { tn, stub: FEDEX_STUB });
-
     if (FEDEX_STUB && opts.forceStub === true) {
         const now = Date.now();
         const firstSeen = _stubFirstSeen.get(tn) || now;
@@ -102,8 +98,6 @@ async function getByNumber(trackingNumber, opts = {}) {
             derivedStatus: status.description,
             scanLocation: { city: 'Stub City', stateOrProvinceCode: 'ST', countryCode: 'BR' },
         }];
-
-        console.log(status)
 
         return {
             ok: true,
@@ -153,23 +147,6 @@ async function getByNumber(trackingNumber, opts = {}) {
         err.http = r.status;
         err.details = j;
         throw err;
-    }
-
-    try {
-        const latest =
-            j?.output?.completeTrackResults?.[0]?.trackResults?.[0]?.latestStatusDetail ||
-            j?.output?.completeTrackResults?.[0]?.trackResults?.[0]?.statusDetail ||
-            null;
-        const scans =
-            j?.output?.completeTrackResults?.[0]?.trackResults?.[0]?.scanEvents ||
-            [];
-        console.log('[FEDEX][TRACK] ok', {
-            tn,
-            latestStatus: latest,
-            scansCount: Array.isArray(scans) ? scans.length : 0,
-        });
-    } catch (_) {
-        // no-op: avoid breaking tracking on logging
     }
 
     return j; // retorno bruto (igual UPS)

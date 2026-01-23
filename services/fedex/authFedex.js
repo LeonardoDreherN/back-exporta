@@ -17,11 +17,6 @@ async function getToken() {
     const url = cfg.oauth || "https://apis-sandbox.fedex.com/oauth/token";
 
     try {
-        // console.log("[FEDEX] base:", cfg.base);
-        // console.log("[FEDEX] oauth:", url);
-        // console.log("[FEDEX] rate:", cfg.rateQuotes);
-        // console.log("[FEDEX] clientId(first8):", String(cfg.clientId || "").slice(0, 8));
-        // console.log("[FEDEX] NODE_ENV:", process.env.NODE_ENV);
 
         const res = await axios.post(url, params.toString(), {
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -43,17 +38,11 @@ async function getToken() {
         const ttlMs = (Number(expires_in) || 3600) * 1000;
         tokenCache = { token: access_token, exp: Date.now() + ttlMs };
 
-        // console.log("[FEDEX/OAUTH] Token OK. Expira em ~", ttlMs / 1000, "s");
         return access_token;
     } catch (err) {
         const status = err?.response?.status ?? err?.status;
         const data = err?.response?.data ?? err?.upstream;
 
-        // console.log("[FEDEX][OAUTH][FAIL] status:", status);
-        // console.log("[FEDEX][OAUTH][FAIL] data:", JSON.stringify(data, null, 2));
-        // console.log("[FEDEX][OAUTH][FAIL] message:", err?.message);
-        // console.log("[FEDEX][OAUTH][FAIL] code:", err?.code);
-        // console.log("[FEDEX][OAUTH][FAIL] url:", err?.config?.url);
 
         throw Object.assign(new Error("FedEx OAuth error"), { status, upstream: data, code: err?.code });
     }
