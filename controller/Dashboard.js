@@ -428,7 +428,10 @@ const mesAnterior = async (req, res) => {
             },
         })
 
-        const porcentagem = (quantidadeMesAtual - quantidadeMesAnterior) / quantidadeMesAnterior * 100
+        let porcentagem = (quantidadeMesAtual - quantidadeMesAnterior) / quantidadeMesAnterior * 100
+        if(porcentagem == Infinity){
+            porcentagem = 100
+        }
         console.log(porcentagem)
 
         console.log(quantidadeMesAnterior)
