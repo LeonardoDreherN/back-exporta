@@ -232,6 +232,83 @@ function fromFEDEX(evt = {}) {
         evt?.activity
     ].filter(Boolean).join(' ').toUpperCase();
 
+    const hasAny = (arr) => arr.some(k => text.includes(k));
+
+    // CANCELADO
+    const canceledHints = [
+        'CANCEL',
+        'VOID',
+        'CANCELED'
+    ];
+    if (hasAny(canceledHints)) return 'CANCELADO';
+
+    // EXCECAO
+    const exceptionHints = [
+        'EXCEPTION',
+        'DELAY',
+        'FAILED',
+        'UNDELIVERABLE',
+        'RETURN TO SENDER',
+        'HELD',
+        'HOLD',
+        'ADDRESS',
+        'DAMAGED'
+    ];
+    if (hasAny(exceptionHints)) return 'EXCACAO';
+
+    // RETORNADO
+    const returnedHints = [
+        'RETURNED',
+        'RETURN TO SHIPPER',
+        'RETURN TO SENDER',
+        'RTS'
+    ];
+    if (hasAny(returnedHints)) return 'RETORNADO';
+
+    // ENTREGUE
+    const deliveredHints = [
+        'DELIVERED',
+        'DELIVERY',
+        'SIGNED'
+    ];
+    if (code === 'DL' || derived === 'DL' || hasAny(deliveredHints)) return 'ENTREGUE';
+
+    // SAIU_PARA_ENTREGA
+    const outForDeliveryHints = [
+        'OUT FOR DELIVERY',
+        'ON FEDEX VEHICLE FOR DELIVERY',
+        'ON VEHICLE FOR DELIVERY',
+        'DELIVERY TODAY'
+    ];
+    if (hasAny(outForDeliveryHints)) return 'SAIU_PARA_ENTREGA';
+
+    // COLETADO
+    const collectedHints = [
+        'PICKED UP',
+        'PICKUP',
+        'RECEIVED BY FEDEX',
+        'ARRIVAL AT FEDEX LOCATION',
+        'ARRIVED AT FEDEX LOCATION'
+    ];
+    if (code === 'PU' || derived === 'PU' || hasAny(collectedHints)) return 'COLETADO';
+
+    // EM_TRANSITO
+    const transitHintsSiglas = new Set(['IT', 'AR', 'DP', 'OD']);
+    const transitHints = [
+        'IN TRANSIT',
+        'ON THE WAY',
+        'AT LOCAL FEDEX FACILITY',
+        'ARRIVED',
+        'DEPARTED',
+        'CUSTOMS',
+        'CLEARANCE',
+        'INTERNATIONAL SHIPMENT RELEASE',
+        'MOVING THROUGH NETWORK'
+    ];
+    if (hasAny(transitHints) || transitHintsSiglas.has(code) || transitHintsSiglas.has(derived)) {
+        return 'EM_TRANSITO';
+    }
+
     // CRIADO (label / shipment info received)
     const createdHints = [
         'LABEL',
@@ -241,33 +318,7 @@ function fromFEDEX(evt = {}) {
         'CREATED',
         'ELECTRONIC'
     ];
-    if (createdHints.some(k => text.includes(k))) return 'CRIADO';
-
-    // ENTREGUE
-    const deliveredHints = [
-        'DELIVERED',
-        'DELIVERY',
-        'SIGNED'
-    ];
-    if (code === 'DL' || derived === 'DL' || deliveredHints.some(k => text.includes(k))) return 'ENTREGUE';
-
-    // EM_TRANSITO
-    const transitHintsSiglas = new Set(['PU', 'IT', 'AR', 'DP', 'OD'])
-    const transitHints = [
-        'IN TRANSIT',
-        'ON THE WAY',
-        'AT LOCAL FEDEX FACILITY',
-        'ARRIVED',
-        'DEPARTED',
-        'ON FEDEX VEHICLE FOR DELIVERY',
-        'OUT FOR DELIVERY',
-        'CUSTOMS',
-        'CLEARANCE',
-        'INTERNATIONAL SHIPMENT RELEASE'
-    ];
-    if (transitHints.some(k => text.includes(k)) || transitHintsSiglas.has(code) || transitHintsSiglas.has(derived)) {
-        return 'EM_TRANSITO';
-    }
+    if (hasAny(createdHints)) return 'CRIADO';
 
     return 'CRIADO';
 }
@@ -293,32 +344,9 @@ async function getLatestEvent(carrier, trackingNumber) {
 function normalizeFedexStatusFromTimelineFedex(events) {
     if (!Array.isArray(events) || events.length === 0) return 'CRIADO';
 
-    for (const ev of events) {
-        const text = [ev?.statusDescription, ev?.description, ev?.activity]
-            .filter(Boolean).join(' ').toUpperCase();
-        const code = String(ev?.statusCode || '').toUpperCase();
-        const derived = String(ev?.derivedCode || '').toUpperCase();
-        if (code === 'DL' || derived === 'DL' || text.includes('DELIVERED')) return 'ENTREGUE';
-    }
-
-    for (const ev of events) {
-        const text = [ev?.statusByLocale, ev?.statusDescription, ev?.description, ev?.activity]
-            .filter(Boolean).join(' ').toUpperCase();
-        const code = String(ev?.statusCode || '').toUpperCase();
-        const derived = String(ev?.derivedCode || '').toUpperCase();
-        if (
-            text.includes('IN TRANSIT') ||
-            text.includes('ON THE WAY') ||
-            text.includes('OUT FOR DELIVERY') ||
-            text.includes('CUSTOMS') ||
-            ['PU', 'IT', 'AR', 'DP', 'OD'].includes(code) ||
-            ['PU', 'IT', 'AR', 'DP', 'OD'].includes(derived)
-        ) {
-            return 'EM_TRANSITO';
-        }
-    }
-
-    return 'CRIADO';
+    // Prioriza o evento mais recente (events já vem ordenado mais novo primeiro)
+    const latest = events[0] || {};
+    return fromFEDEX(latest);
 }
 
 
