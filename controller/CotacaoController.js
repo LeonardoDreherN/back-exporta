@@ -406,7 +406,7 @@ async function createCotacaoReal(req, res) {
             // compat com código antigo (só preenche quando for UPS):
             ups_taxes_total:
                 carrierCode === 'UPS' ? carrierTaxesTotal : undefined,
-            carrier_raw: carrier_raw,
+            // carrier_raw: carrier_raw,
             serviceCode
         };
 
