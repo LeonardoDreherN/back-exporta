@@ -747,11 +747,17 @@ async function listCotacoes(req, res) {
                 const changed = (plain.status_norm || 'CRIADO') !== novo;
 
                 if ((isNewer || changed)) {
-                    await r.update({
+                    const updates = {
                         status_norm: novo,
                         last_tracking_at: eventTime,
                         tracking_raw: raw, // se você quiser guardar o último evento “cru”
-                    });
+                    };
+
+                    if (novo === 'ENTREGUE' && !plain.delivered_at) {
+                        updates.delivered_at = new Date();
+                    }
+
+                    await r.update(updates);
 
                     plain.status_norm = novo;
                     plain.last_tracking_at = eventTime;

@@ -1,4 +1,4 @@
-const { Op, literal } = require("sequelize")
+const { Op, literal, col, fn } = require("sequelize")
 const db = require("../models")
 
 const tz = "America/Sao_Paulo";
@@ -55,7 +55,7 @@ const porcentagemTransportadora = async (req, res) => {
             }
         })
 
-        return res.status(200).json({ 
+        return res.status(200).json({
             ok: true,
             data: [
                 { label: 'FEDEX', value: contagemFedex },
@@ -89,7 +89,7 @@ const porcentagemPaisDestinatario = async (req, res) => {
             }
         })
 
-        return res.status(200).json({ 
+        return res.status(200).json({
             ok: true,
             data: [
                 ...porcentagens
@@ -169,8 +169,8 @@ const cotacaoHoje = async (req, res) => {
             return { label: hora, value: map.get(hora) ?? 0 };
         });
 
-        return res.status(200).json({ 
-            ok: true, data 
+        return res.status(200).json({
+            ok: true, data
         });
     } catch (e) {
         console.error(e);
@@ -418,8 +418,8 @@ const mesAnterior = async (req, res) => {
         })
 
 
-        return res.status(200).json({ 
-            ok: true, 
+        return res.status(200).json({
+            ok: true,
             cotacoes_mes_anterior: quantidadeMesAnterior,
             cotacoes_mes_atual: quantidadeMesAtual,
         })
@@ -429,6 +429,80 @@ const mesAnterior = async (req, res) => {
         return res.status(500).json({ ok: false, err })
     }
 }
+
+const envioVsCotacao = async (req, res) => {
+    try {
+        const cliente_id = req.clienteId;
+
+        const start = literal(`date_trunc('month', now()) - interval '11 months'`);
+        const end = literal(`(date_trunc('month', now()) + interval '1 month') - interval '1 millisecond'`);
+
+        // 1) Cotações por mês (criação)
+        const cotacoesRows = await db.Cotacao.findAll({
+            attributes: [
+                [literal(`to_char(date_trunc('month', created_at), 'YYYY-MM')`), "mes_key"],
+                [fn("count", col("id")), "cotacoes"],
+            ],
+            where: { cliente_id, created_at: { [Op.between]: [start, end] } },
+            group: [literal(`to_char(date_trunc('month', created_at), 'YYYY-MM')`)],
+            order: [[literal(`to_char(date_trunc('month', created_at), 'YYYY-MM')`), "ASC"]],
+            raw: true,
+        });
+
+        const entreguesRows = await db.Cotacao.findAll({
+            attributes: [
+                [literal(`to_char(date_trunc('month', delivered_at), 'YYYY-MM')`), "mes_key"],
+                [fn("count", col("id")), "entregues"],
+            ],
+            where: { cliente_id, delivered_at: { [Op.between]: [start, end] } },
+            group: [literal(`to_char(date_trunc('month', delivered_at), 'YYYY-MM')`)],
+            order: [[literal(`to_char(date_trunc('month', delivered_at), 'YYYY-MM')`), "ASC"]],
+            raw: true,
+        });
+
+        // garante os 12 meses (YYYY-MM) mesmo sem dados
+        const meses = [];
+        const hoje = new Date();
+        const ini = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth() - 11, 1));
+        const cur = new Date(ini);
+        for (let i = 0; i < 12; i += 1) {
+            const y = cur.getUTCFullYear();
+            const m = String(cur.getUTCMonth() + 1).padStart(2, "0");
+            meses.push(`${y}-${m}`);
+            cur.setUTCMonth(cur.getUTCMonth() + 1);
+        }
+
+        // merge por mês
+        const map = new Map();
+
+        for (const key of meses) {
+            map.set(key, { label: key, cotacoes: 0, entregues: 0 });
+        }
+
+        for (const r of cotacoesRows) {
+            const key = r.mes_key; // já vem "YYYY-MM"
+            const prev = map.get(key) || { label: key, cotacoes: 0, entregues: 0 };
+            prev.cotacoes += Number(r.cotacoes || 0);
+            map.set(key, prev);
+        }
+
+        for (const r of entreguesRows) {
+            const key = r.mes_key;
+            const prev = map.get(key) || { label: key, cotacoes: 0, entregues: 0 };
+            prev.entregues += Number(r.entregues || 0);
+            map.set(key, prev);
+        }
+
+        const data = Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+
+        console.log(map)
+
+        return res.status(200).json({ ok: true, data });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ ok: false, err: String(err) });
+    }
+};
 
 module.exports = {
     valorTotalCotacoes,
@@ -440,5 +514,6 @@ module.exports = {
     cotacaoMes,
     cotacaoOntem,
     cotacaoSemana,
-    mesAnterior
+    mesAnterior,
+    envioVsCotacao
 }

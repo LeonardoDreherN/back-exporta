@@ -1604,6 +1604,16 @@ const options = {
                     }
                 }
             },
+            '/dashboard/envioVsCotacao': {
+                get: {
+                    tags: ['Dashboard'],
+                    summary: 'Compara a quantidade de cotacoes e envios no mes',
+                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                    responses: {
+                        200: { description: 'ok' }
+                    }
+                }
+            },
             '/_debug/shops': {
                 get: {
                     tags: ['Debug'],
