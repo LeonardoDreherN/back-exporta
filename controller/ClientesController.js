@@ -179,7 +179,7 @@ const verClientes = async (req, res) => {
     }
 };
 
-const ACCESS_TOKEN = 15 * 60
+const ACCESS_TOKEN = 60 * 60 * 24
 const REFRESH_TOKEN = 7 * 24 * 60 * 60
 
 const jwt_secret = process.env.JWT_SECRET
