@@ -49,12 +49,13 @@ const allowlist = (process.env.CORS_ALLOWED_ORIGINS || '')
 // ].filter(Boolean); // tira undefined/vazio
 
 app.use(cors({
-  origin(origin, cb) {
-    if (!origin) return cb(null, true); // Postman, curl etc
+  // origin(origin, cb) {
+  //   if (!origin) return cb(null, true); // Postman, curl etc
 
-    const ok = allowlist.includes(origin);
-    return cb(null, ok);
-  },
+  //   const ok = allowlist.includes(origin);
+  //   return cb(null, ok);
+  // },
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token'],
@@ -62,7 +63,7 @@ app.use(cors({
 }));
 
 // Pré-flight padronizado
-// app.options('*', cors());
+// app.options('/*/', cors());
 
 const PORT = process.env.PORT || 3001;
 
