@@ -41,12 +41,6 @@ const valorMedioPorCotacao = async (req, res) => {
 
 const porcentagemTransportadora = async (req, res) => {
     try {
-        const quantidade_cotacoes = await db.Cotacao.count({
-            where: {
-                cliente_id: req.clienteId
-            }
-        })
-
         const contagemFedex = await db.Cotacao.count({
             where: {
                 cliente_id: req.clienteId,
@@ -61,10 +55,13 @@ const porcentagemTransportadora = async (req, res) => {
             }
         })
 
-        const porcentagemFedex = (contagemFedex / quantidade_cotacoes) * 100
-        const porcentagemUps = (contagemUps / quantidade_cotacoes) * 100
-
-        return res.status(200).json({ ok: true, porcentagemFedex, porcentagemUps })
+        return res.status(200).json({ 
+            ok: true,
+            data: [
+                { label: 'FEDEX', value: contagemFedex },
+                { label: 'UPS', value: contagemUps },
+            ]
+        })
     } catch (err) {
         console.error("Erro ao pegar porcentagem de transportadoras das cotacoes: ", err)
         return res.status(500).json({ ok: false, err })
@@ -87,12 +84,17 @@ const porcentagemPaisDestinatario = async (req, res) => {
         const porcentagens = rows.map(r => {
             const data = r.toJSON()
             return {
-                pais_dest: data.pais_dest,
-                porcentagem: (data.count / quantidade_cotacoes) * 100
+                label: data.pais_dest,
+                value: Number(data.count)
             }
         })
 
-        return res.status(200).json({ ok: true, porcentagens })
+        return res.status(200).json({ 
+            ok: true,
+            data: [
+                ...porcentagens
+            ]
+        })
 
     } catch (err) {
         console.error("Erro ao pegar porcentagem de paises destinatarios das cotacoes: ", err)
@@ -415,17 +417,11 @@ const mesAnterior = async (req, res) => {
             },
         })
 
-        let porcentagem = (quantidadeMesAtual - quantidadeMesAnterior) / quantidadeMesAnterior * 100
-        if(porcentagem == Infinity){
-            porcentagem = 100
-        }
-
 
         return res.status(200).json({ 
             ok: true, 
             cotacoes_mes_anterior: quantidadeMesAnterior,
             cotacoes_mes_atual: quantidadeMesAtual,
-            porcentagem: porcentagem.toString() + "%"
         })
 
     } catch (err) {
