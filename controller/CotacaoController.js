@@ -14,6 +14,7 @@ const axios = require('axios');
 const { prepararCotacaoUPS } = require('../services/ups/cotacaoUps');
 const { toNumSafe, up, iso2Country } = require('../services/cotacoesHelpers');
 const { prepararCotacaoFedex } = require('../services/fedex/cotacaoFedex');
+const { id } = require('zod/v4/locales');
 
 const supabase = createClient(
     process.env.SUPABASE_URL,
@@ -428,7 +429,7 @@ async function createCotacaoReal(req, res) {
             iso2Country(pais_dest ?? pedidoJson?.pais) || null;
 
         let status_pagamento = null
-        if(carrier == "FEDEX"){
+        if (carrier == "FEDEX") {
             status_pagamento = 'NAOGERADO';
         }
 
@@ -619,6 +620,29 @@ async function getCotacao(req, res) {
     }
 }
 
+function cotacaoListDTO(c) {
+    return {
+        id: c.id,
+        pais_remetente: c.pais_remetente,
+        pais_dest: c.pais_dest,
+        pedido_ref: c.pedido_ref,
+        pedido: c.pedido,
+        caixa: c.caixa,
+        etiqueta_path: c.etiqueta_path || null,
+        invoice_path: c.invoice_path || null,
+        tracking_number: c.tracking_number || null,
+        status_norm: c.status_norm || 'CRIADO',
+        tracking_raw: c.tracking_raw || null,
+        plano_aplicado: c.plano_aplicado || null,
+        preco_base: c.preco_base || null,
+        preco_final: c.preco_final || null,
+        carrier: c.carrier || null,
+        surcharges: c.surcharges || null,
+        status_pagamento: c.status_pagamento || null,
+        createdAt: c.createdAt,
+    };
+}
+
 async function listCotacoes(req, res) {
     try {
         const cliente_id = toInt(req.clienteId);
@@ -680,11 +704,12 @@ async function listCotacoes(req, res) {
 
         const itens = await Promise.all(rows.map(async (r) => {
             const plain = r.get({ plain: true });
+            // Remove carrier_raw do JSON pedido para reduzir payload em cotações antigas
             const statusNorm = plain.status_norm || 'CRIADO';
             const tn = plain.tracking_number;
 
             // ❌ Sem tracking -> não tenta normalizar.
-            if (!tn) return plain;
+            if (!tn) return cotacaoListDTO(plain);
 
             // Evita refresh agressivo em cotações recém-criadas
             const createdAtMs = new Date(plain.createdAt).getTime();
@@ -696,11 +721,11 @@ async function listCotacoes(req, res) {
 
             // 🔒 Quarentena de 30min para cotação “CRIADO” sem tracking visto ainda (evita falso trânsito)
             if (!forceRefresh && statusNorm === 'CRIADO' && !lastAt && ageMin < 30) {
-                return plain; // mantém CRIADO
+                return cotacaoListDTO(plain); // mantém CRIADO
             }
 
             if (!forceRefresh && lastAt && elapsedMin < REFRESH_COOLDOWN_MIN) {
-                return plain; // respeita cooldown
+                return cotacaoListDTO(plain); // respeita cooldown
             }
 
             try {
@@ -714,7 +739,7 @@ async function listCotacoes(req, res) {
                     trackingNumber: tn,
                 });
 
-                if (!novo) return plain;
+                if (!novo) return cotacaoListDTO(plain);
 
                 const nowMs = Date.now();
                 const eventTime = last_event ? new Date(last_event) : new Date(nowMs);
@@ -739,7 +764,7 @@ async function listCotacoes(req, res) {
                 console.error('tracking refresh failed for', r.id, e?.message || e);
             }
 
-            return plain;
+            return cotacaoListDTO(plain);
         }));
 
         return res.json({ ok: true, cliente_id, page: pageNum, limit: lim, offset, total: count, itens });
