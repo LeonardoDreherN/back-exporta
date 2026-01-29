@@ -372,11 +372,17 @@ const cotacaoSemana = async (req, res) => {
         const diasPeriodo = gerarDias(start, end);
 
 
-        const data = diasPeriodo.map(dia => (
-            {
-                label: dia,
+        const data = diasPeriodo.map(dia => {
+            const date = new Date(dia);
+            let diaSemana = new Intl.DateTimeFormat("pt-BT", {
+                weekday: "short",
+                timeZone: tz
+            }).format(date)
+            diaSemana = diaSemana.replace('.', '')
+            return {
+                label: diaSemana,
                 value: map.get(dia) ?? 0
-            }));
+            }});
 
 
         res.status(200).json({ ok: true, data: data });
