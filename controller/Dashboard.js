@@ -239,7 +239,8 @@ const cotacaoMes = async (req, res) => {
             cotacoes.map(row => {
                 const dia = new Intl.DateTimeFormat("en-CA", {
                     timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
-                }).format(new Date(row.day));; // garante YYYY-MM-DD
+                }).format(new Date(row.day)); // garante YYYY-MM-DD
+
                 return [dia, Number(row.total) || 0];
             })
         );
@@ -251,7 +252,7 @@ const cotacaoMes = async (req, res) => {
 
         const data = diasPeriodo.map(dia => (
             {
-                label: dia,
+                label: dia.slice(-2),
                 value: map.get(dia) ?? 0
             }));
 
@@ -440,23 +441,23 @@ const envioVsCotacao = async (req, res) => {
         // 1) Cotações por mês (criação)
         const cotacoesRows = await db.Cotacao.findAll({
             attributes: [
-                [literal(`to_char(date_trunc('month', created_at), 'YYYY-MM')`), "mes_key"],
+                [literal(`to_char(date_trunc('month', created_at), 'MM')`), "mes_key"],
                 [fn("count", col("id")), "cotacoes"],
             ],
             where: { cliente_id, created_at: { [Op.between]: [start, end] } },
-            group: [literal(`to_char(date_trunc('month', created_at), 'YYYY-MM')`)],
-            order: [[literal(`to_char(date_trunc('month', created_at), 'YYYY-MM')`), "ASC"]],
+            group: [literal(`to_char(date_trunc('month', created_at), 'MM')`)],
+            order: [[literal(`to_char(date_trunc('month', created_at), 'MM')`), "ASC"]],
             raw: true,
         });
 
         const entreguesRows = await db.Cotacao.findAll({
             attributes: [
-                [literal(`to_char(date_trunc('month', delivered_at), 'YYYY-MM')`), "mes_key"],
+                [literal(`to_char(date_trunc('month', delivered_at), 'MM')`), "mes_key"],
                 [fn("count", col("id")), "entregues"],
             ],
             where: { cliente_id, delivered_at: { [Op.between]: [start, end] } },
-            group: [literal(`to_char(date_trunc('month', delivered_at), 'YYYY-MM')`)],
-            order: [[literal(`to_char(date_trunc('month', delivered_at), 'YYYY-MM')`), "ASC"]],
+            group: [literal(`to_char(date_trunc('month', delivered_at), 'MM')`)],
+            order: [[literal(`to_char(date_trunc('month', delivered_at), 'MM')`), "ASC"]],
             raw: true,
         });
 
@@ -466,9 +467,8 @@ const envioVsCotacao = async (req, res) => {
         const ini = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth() - 11, 1));
         const cur = new Date(ini);
         for (let i = 0; i < 12; i += 1) {
-            const y = cur.getUTCFullYear();
             const m = String(cur.getUTCMonth() + 1).padStart(2, "0");
-            meses.push(`${y}-${m}`);
+            meses.push(`${m}`);
             cur.setUTCMonth(cur.getUTCMonth() + 1);
         }
 
@@ -493,7 +493,7 @@ const envioVsCotacao = async (req, res) => {
             map.set(key, prev);
         }
 
-        const data = Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+        const data = Array.from(map.values())
 
         console.log(map)
 
