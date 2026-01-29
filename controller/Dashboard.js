@@ -165,7 +165,7 @@ const cotacaoHoje = async (req, res) => {
 
         // completa 00..23
         const data = Array.from({ length: 24 }, (_, i) => {
-            const hora = String(i).padStart(2, "0");
+            const hora = String(i).padStart(2, "0") + ":00";
             return { label: hora, value: map.get(hora) ?? 0 };
         });
 
@@ -304,7 +304,7 @@ const cotacaoOntem = async (req, res) => {
 
         // completa 00..23
         const data = Array.from({ length: 24 }, (_, i) => {
-            const hora = String(i).padStart(2, "0");
+            const hora = String(i).padStart(2, "0") + ":00";
             return { label: hora, value: map.get(hora) ?? 0 };
         });
 
