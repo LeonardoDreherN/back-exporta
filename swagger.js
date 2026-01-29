@@ -1614,6 +1614,16 @@ const options = {
                     }
                 }
             },
+            '/dashboard/infosBreves': {
+                get: {
+                    tags: ['Dashboard'],
+                    summary: 'Retorna alguns dados básicos comparando o dia atual com o dia anterior (Entregues, cotacoes feitas, em transito) e tambem a quantidade total de cotacoes do usuario',
+                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                    responses: {
+                        200: { description: 'ok' }
+                    }
+                }
+            },
             '/_debug/shops': {
                 get: {
                     tags: ['Debug'],

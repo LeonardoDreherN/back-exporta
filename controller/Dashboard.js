@@ -1,4 +1,4 @@
-const { Op, literal, col, fn } = require("sequelize")
+const { Op, literal, col, fn, where } = require("sequelize")
 const db = require("../models")
 
 const tz = "America/Sao_Paulo";
@@ -382,7 +382,8 @@ const cotacaoSemana = async (req, res) => {
             return {
                 label: diaSemana,
                 value: map.get(dia) ?? 0
-            }});
+            }
+        });
 
 
         res.status(200).json({ ok: true, data: data });
@@ -510,6 +511,163 @@ const envioVsCotacao = async (req, res) => {
     }
 };
 
+const dOntem = new Date();
+dOntem.setDate(dOntem.getDate() - 1);
+
+function ymdSP(date = new Date()) {
+    return new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(date); // "YYYY-MM-DD"
+}
+
+function calculoPorCem(hoje, ontem) {
+    hoje = Number(hoje) || 0;
+    ontem = Number(ontem) || 0;
+
+    if (ontem === 0) {
+        if (hoje === 0) return 0;
+        return 100;
+    }
+
+    return ((hoje - ontem) / ontem) * 100;
+}
+
+async function comparacaoEntregues(cliente_id) {
+    const hojeStr = ymdSP(new Date());
+    const startHoje = new Date(`${hojeStr}T00:00:00-03:00`);
+    const endHoje = new Date(`${hojeStr}T23:59:59.999-03:00`);
+
+    const ontemStr = ymdSP(dOntem);
+    const startOntem = new Date(`${ontemStr}T00:00:00-03:00`);
+    const endOntem = new Date(`${ontemStr}T23:59:59.999-03:00`);
+
+    const pedidosEntreguesHoje = await db.Cotacao.count({
+        where: {
+            cliente_id,
+            status_norm: "ENTREGUE",
+            delivered_at: { [Op.between]: [startHoje, endHoje] }
+        }
+    })
+
+    const pedidosEntreguesOntem = await db.Cotacao.count({
+        where: {
+            cliente_id,
+            status_norm: "ENTREGUE",
+            delivered_at: { [Op.between]: [startOntem, endOntem] }
+        }
+    })
+
+    const porCemEntregues = calculoPorCem(pedidosEntreguesHoje, pedidosEntreguesOntem)
+
+    return { pedidosEntreguesHoje, porCemEntregues }
+}
+
+async function cotacoesHoje(cliente_id) {
+    const hojeStr = ymdSP(new Date());
+    const startHoje = new Date(`${hojeStr}T00:00:00-03:00`);
+    const endHoje = new Date(`${hojeStr}T23:59:59.999-03:00`);
+
+    const ontemStr = ymdSP(dOntem);
+    const startOntem = new Date(`${ontemStr}T00:00:00-03:00`);
+    const endOntem = new Date(`${ontemStr}T23:59:59.999-03:00`);
+    const cotacoesHoje = await db.Cotacao.count({
+        where: {
+            cliente_id,
+            created_at: { [Op.between]: [startHoje, endHoje] }
+        }
+    })
+
+    const cotacoesOntem = await db.Cotacao.count({
+        where: {
+            cliente_id,
+            status_norm: "ENTREGUE",
+            created_at: { [Op.between]: [startOntem, endOntem] }
+        }
+    })
+
+    console.log({ cotacoesHoje, cotacoesOntem })
+    const porCemCotacoes = calculoPorCem(cotacoesHoje, cotacoesOntem)
+
+    return { cotacoesHoje, porCemCotacoes }
+}
+
+async function quantidadeCotacao(cliente_id) {
+    const cotacoesTotal = await db.Cotacao.count({
+        where: { cliente_id }
+    })
+
+    return cotacoesTotal
+}
+
+async function emTransitoCotacoes(cliente_id) {
+    const hojeStr = ymdSP(new Date());
+    const startHoje = new Date(`${hojeStr}T00:00:00-03:00`);
+    const endHoje = new Date(`${hojeStr}T23:59:59.999-03:00`);
+
+    const ontemStr = ymdSP(dOntem);
+    const startOntem = new Date(`${ontemStr}T00:00:00-03:00`);
+    const endOntem = new Date(`${ontemStr}T23:59:59.999-03:00`);
+
+    const pedidosTransitoHoje = await db.Cotacao.count({
+        where: {
+            cliente_id,
+            status_norm: "EM_TRANSITO",
+            last_tracking_at: { [Op.between]: [startHoje, endHoje] }
+        }
+    })
+
+    const pedidosTransitoOntem = await db.Cotacao.count({
+        where: {
+            cliente_id,
+            status_norm: "EM_TRANSITO",
+            last_tracking_at: { [Op.between]: [startOntem, endOntem] }
+        }
+    })
+
+    const porCemTransito = calculoPorCem(pedidosTransitoHoje, pedidosTransitoOntem)
+
+    return { pedidosTransitoHoje, porCemTransito }
+}
+
+const dadosBreves = async (req, res) => {
+    try {
+        const cliente_id = req.clienteId
+
+        const dataEntregues = await comparacaoEntregues(cliente_id)
+        const dataCotacoesHoje = await cotacoesHoje(cliente_id)
+        const dataQtdCotacoes = await quantidadeCotacao(cliente_id)
+        const dataEmTransito = await emTransitoCotacoes(cliente_id)
+
+        return res.status(200).json({
+            ok: true,
+            data: [
+                {
+                    label: "Entregues hoje",
+                    value: dataEntregues.pedidosEntreguesHoje,
+                    porcentagem: dataEntregues.porCemEntregues
+                },
+                {
+                    label: "Cotações hoje",
+                    value: dataCotacoesHoje.cotacoesHoje,
+                    porcentagem: dataCotacoesHoje.porCemCotacoes
+                },
+                {
+                    label: "Total cotações",
+                    value: dataQtdCotacoes,
+                },
+                {
+                    label: "Cotações em transito hoje",
+                    value: dataEmTransito.pedidosTransitoHoje,
+                    porcentagem: dataEmTransito.porCemTransito
+                },
+            ]
+        })
+    } catch (err) {
+        console.error("ERRO AO INFORMAR DADOS BREVES: ", err)
+        return res.status(500).json({ ok: false, err })
+    }
+}
+
 module.exports = {
     valorTotalCotacoes,
     valorMedioPorCotacao,
@@ -521,5 +679,6 @@ module.exports = {
     cotacaoOntem,
     cotacaoSemana,
     mesAnterior,
-    envioVsCotacao
+    envioVsCotacao,
+    dadosBreves
 }
