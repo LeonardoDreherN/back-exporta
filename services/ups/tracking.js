@@ -164,6 +164,19 @@ async function getLatestEvent(carrier, trackingNumber) {
     return null;
 }
 
+function isDeliveredUPS(evt = {}) {
+    const code = String(evt.statusCode || evt.status?.type || '').toUpperCase();
+    const text = [evt.statusDescription, evt.description, evt.activity]
+        .filter(Boolean)
+        .join(' ')
+        .toUpperCase();
+
+    // UPS usa "D" e mensagens com "DELIVERED". Evita falso positivo em "DELIVERY DATE..."
+    if (code === 'D') return true;
+    if (text.includes('DELIVERED')) return true;
+    if (text.includes('PROOF OF DELIVERY')) return true;
+    return false;
+}
 /** Normalização simples para status_norm */
 function fromUPS(evt = {}) {
     const code = String(evt.statusCode || evt.status?.type || '').toUpperCase();
@@ -183,7 +196,7 @@ function fromUPS(evt = {}) {
     if (createdHints.some(k => text.includes(k))) return 'CRIADO';
 
     // --- 2) Entregue
-    if (code === 'D' || text.includes('DELIVER')) return 'ENTREGUE';
+    if (isDeliveredUPS(evt)) return 'ENTREGUE';
 
     // --- 3) Em trânsito (mais restrito)
     // Preferimos um código "I" OU scans físicos inequívocos
@@ -219,10 +232,7 @@ function normalizeUpsStatusFromTimeline(events) {
     if (!Array.isArray(events) || events.length === 0) return 'CRIADO';
 
     for (const ev of events) {
-        const code = String(ev?.statusCode || '').toUpperCase();
-        const text = [ev?.statusDescription, ev?.description, ev?.activity]
-            .filter(Boolean).join(' ').toUpperCase();
-        if (code === 'D' || text.includes('DELIVERED') || text.includes('PROOF OF DELIVERY')) {
+        if (isDeliveredUPS(ev)) {
             return 'ENTREGUE';
         }
     }
@@ -337,3 +347,5 @@ module.exports = {
     normalize,
     normalizeUpsStatusFromTimeline,
 };
+
+
