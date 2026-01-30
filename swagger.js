@@ -1081,7 +1081,54 @@ const options = {
                     security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                     requestBody: {
                         required: true,
-                        content: { 'application/json': { schema: { type: 'object' } } },
+                        content: {
+                            'application/json': {
+                                schema: { type: 'object' },
+                                example: {
+                                    pedido_ref: "A-78910",
+                                    pedido: {
+                                        id: 101,
+                                        cliente_id: 7,
+                                        pedido_ref: "A-78910",
+                                        moeda: "EUR",
+                                        total: "86.40",
+                                        nomeComprador: "Daniela Moretti",
+                                        emailComprador: "daniela.moretti@example.com",
+                                        telefoneComprador: "447911123456",
+                                        endereco: "21 King Street",
+                                        cidade: "Manchester",
+                                        estado: "Greater Manchester",
+                                        CEP: "M2 4WB",
+                                        pais: "GB",
+                                        itens: [
+                                            {
+                                                sku: "SLATE-TRAY-30",
+                                                nome: "Slate Serving Tray 30cm",
+                                                quantidade: 1,
+                                                preco_unitario: 29.9,
+                                                peso_kg: 0.8
+                                            }
+                                        ],
+                                        peso_total_kg: 1.5
+                                    },
+                                    pedido_manual: null,
+                                    caixa: [
+                                        {
+                                            entryId: "entry_1769770000000_x9k2p1",
+                                            id: 5,
+                                            cod_identificacao: "BOX-M",
+                                            descricao: "caixa media",
+                                            altura: "12.00",
+                                            largura: "28.00",
+                                            comprimento: "35.00",
+                                            peso: "0.700",
+                                            id_cliente: 7
+                                        }
+                                    ],
+                                    serviceCode: "07"
+                                }
+                            }
+                        }
                     },
                     responses: {
                         200: { description: 'OK' },
