@@ -1624,6 +1624,16 @@ const options = {
                     }
                 }
             },
+            '/dashboard/paises/valores': {
+                get: {
+                    tags: ['Dashboard'],
+                    summary: 'Retorna o valor total das cotações agrupadas por país destinatário',
+                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                    responses: {
+                        200: { description: 'ok' }
+                    }
+                }
+            },
             '/_debug/shops': {
                 get: {
                     tags: ['Debug'],

@@ -668,6 +668,35 @@ const dadosBreves = async (req, res) => {
     }
 }
 
+const valorTotalPaisDestinatario = async (req, res) => {
+    try {
+        const rows = await db.Cotacao.findAll({
+            where: { cliente_id: req.clienteId },
+            attributes: ['pais_dest', [db.sequelize.fn('SUM', db.sequelize.col('preco_final')), 'valorTotal']],
+            group: ['pais_dest']
+        })
+
+        const data = rows.map(r => {
+            const data = r.toJSON()
+            return {
+                label: data.pais_dest,
+                value: Number(data.valorTotal)
+            }
+        })
+
+        return res.status(200).json({
+            ok: true,
+            data: [
+                ...data
+            ]
+        })
+
+    } catch (err) {
+        console.error("Erro ao pegar porcentagem de paises destinatarios das cotacoes: ", err)
+        return res.status(500).json({ ok: false, err })
+    }
+}
+
 module.exports = {
     valorTotalCotacoes,
     valorMedioPorCotacao,
@@ -680,5 +709,6 @@ module.exports = {
     cotacaoSemana,
     mesAnterior,
     envioVsCotacao,
-    dadosBreves
+    dadosBreves,
+    valorTotalPaisDestinatario
 }
