@@ -15,6 +15,7 @@ const { prepararCotacaoUPS } = require('../services/ups/cotacaoUps');
 const { toNumSafe, up, iso2Country } = require('../services/cotacoesHelpers');
 const { prepararCotacaoFedex } = require('../services/fedex/cotacaoFedex');
 const { id } = require('zod/v4/locales');
+const db = require('../models');
 
 const supabase = createClient(
     process.env.SUPABASE_URL,
@@ -33,12 +34,20 @@ function toInt(v) {
 function normRef(v) {
     return String(v || '').trim();
 }
-function guessLabelFilename(mime = '') {
-    if (mime === 'image/png') return 'label.png';
-    if (mime === 'image/gif') return 'label.gif';
-    if (mime === 'text/plain') return 'label.zpl';
-    if (mime === 'application/pdf') return 'label.pdf';
-    return 'label.bin';
+function guessLabelFilename(mime = '', pedido_ref, nomeCliente) {
+    if (mime === 'image/png') return `${pedido_ref}-ET-${nomeCliente}.png`;
+    if (mime === 'image/gif') return `${pedido_ref}-ET-${nomeCliente}.gif`;
+    if (mime === 'text/plain') return `${pedido_ref}-ET-${nomeCliente}.zpl`;
+    if (mime === 'application/pdf') return `${pedido_ref}-ET-${nomeCliente}.pdf`;
+    return `${pedido_ref}-ET-${nomeCliente}.bin`;
+}
+
+function guessInvoiceFilename(mime = '', pedido_ref, nomeCliente) {
+    if (mime === 'image/png') return `${pedido_ref}-IN-${nomeCliente}.png`;
+    if (mime === 'image/gif') return `${pedido_ref}-IN-${nomeCliente}.gif`;
+    if (mime === 'text/plain') return `${pedido_ref}-IN-${nomeCliente}.zpl`;
+    if (mime === 'application/pdf') return `${pedido_ref}-IN-${nomeCliente}.pdf`;
+    return `${pedido_ref}-IN-${nomeCliente}.bin`;
 }
 
 async function downloadFromBucket(bucket, path) {
@@ -77,15 +86,16 @@ async function downloadFromBucket(bucket, path) {
 async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'image/png') {
     try {
         let b64toSave = base64;
-        // if (mime === 'application/pdf') {
-        //     try {
-        //         b64toSave = await keepFirstPageFromPdfB64(base64);
-        //     } catch (err) {
-        //         console.error('Erro ao extrair primeira página do PDF da etiqueta:', err);
-        //     }
-        // }
+        const cotacao = await db.Cotacao.findOne({
+            where: { id: cotacaoId },
+        })
+        const nomeCliente = await db.Cliente.findOne({
+            where: { id: cotacao?.cliente_id },
+            attributes: ['razaoSocial'],
+        })
+        const razaoSocial = nomeCliente?.razaoSocial || 'cliente';
         const buf = Buffer.from(b64toSave, 'base64');
-        const ext = guessLabelFilename(mime)
+        const ext = guessLabelFilename(mime, cotacao?.pedido_ref, razaoSocial);
         const path = `cotacoes/${cotacaoId}/label-${Date.now()}.${ext}`;
 
         const { error } = await supabase
@@ -198,6 +208,16 @@ async function downloadEtiqueta(req, res) {
         let buf;
         const mime = row.etiqueta_mime || 'image/png';
 
+        const cotacao = await db.Cotacao.findOne({
+            where: { id: row.id },
+        })
+        const nomeCliente = await db.Cliente.findOne({
+            where: { id: cotacao?.cliente_id },
+            attributes: ['razaoSocial'],
+        })
+
+        const razaoSocial = nomeCliente?.razaoSocial || 'cliente';
+
         if (row.etiqueta_path) {
             // [NEW] baixa do Supabase Storage
             buf = await downloadFromBucket(LABELS_BUCKET, row.etiqueta_path);
@@ -208,9 +228,12 @@ async function downloadEtiqueta(req, res) {
             return res.status(404).json({ error: 'Etiqueta não disponível' });
         }
 
+        const filename = guessLabelFilename(mime, row.pedido_ref, razaoSocial);
+
         res.setHeader('Content-Type', mime);
         res.setHeader('Content-Length', buf.length);
-        res.setHeader('Content-Disposition', `attachment; filename="${guessLabelFilename(mime)}"`);
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         return res.send(buf);
     } catch (err) {
         console.error('[DOWNLOAD ETIQUETA][ERROR]', err);
@@ -227,6 +250,17 @@ async function downloadInvoice(req, res) {
     }
 
     try {
+        const cotacao = await db.Cotacao.findOne({
+            where: { id: row.id },
+        })
+        const nomeCliente = await db.Cliente.findOne({
+            where: { id: cotacao?.cliente_id },
+            attributes: ['razaoSocial'],
+        })
+
+        const razaoSocial = nomeCliente?.razaoSocial || 'cliente';
+        console.log(row.pedido_ref)
+
         let buf;
         const mime = row.invoice_mime || 'application/pdf';
 
@@ -244,9 +278,12 @@ async function downloadInvoice(req, res) {
             return res.status(404).json({ error: 'Invoice não disponível' });
         }
 
+        const filename = guessInvoiceFilename(mime, row.pedido_ref, razaoSocial);
+
         res.setHeader('Content-Type', mime);
         res.setHeader('Content-Length', buf.length);
-        res.setHeader('Content-Disposition', 'attachment; filename="invoice.pdf"');
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         return res.send(buf);
     } catch (err) {
         console.error('[DOWNLOAD INVOICE][ERROR]', err);
