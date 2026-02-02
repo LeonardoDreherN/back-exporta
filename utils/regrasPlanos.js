@@ -1,6 +1,7 @@
 // utils/regrasPlano.js
 const regrasPorPlano = {
     basico: (p) => Number((p * 1.3).toFixed(2)),
+    vinte: (p) => Number((p * 1.2).toFixed(2)),
     gold: (p) => Number((p * 1.15).toFixed(2)),
     premium: (p) => Number((p * 1).toFixed(2)),
     minimo: (p) => Number((p * 1.05).toFixed(2)),
