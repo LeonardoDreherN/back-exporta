@@ -687,7 +687,7 @@ async function listCotacoes(req, res) {
 
         const {
             pedido_ref, tracking_number, date_from, date_to,
-            page = 1, limit = 20,
+            page = 1, limit = 10,
             only_with_tracking,
             refresh,
         } = req.query;
