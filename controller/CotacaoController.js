@@ -689,8 +689,9 @@ async function listCotacoes(req, res) {
             pedido_ref, tracking_number, date_from, date_to,
             page = 1, limit = 10,
             only_with_tracking,
-            refresh, search
+            refresh, search, start_day, end_day
         } = req.query;
+        const tzOffset = "-03:00";
 
         const where = { cliente_id };
 
@@ -702,16 +703,24 @@ async function listCotacoes(req, res) {
                 { tracking_number: { [Op.iLike]: q } },
                 { carrier: { [Op.iLike]: q } },
 
-                Sequelize.where(
-                    Sequelize.json('pedido.nomeComprador'),
-                    { [Op.iLike]: q }
-                ),
-
-                Sequelize.where(
-                    Sequelize.json('pedido.emailComprador'),
-                    { [Op.iLike]: q }
-                ),
+                Sequelize.where(Sequelize.json("pedido.nomeComprador"), { [Op.iLike]: q }),
+                Sequelize.where(Sequelize.json("pedido.emailComprador"), { [Op.iLike]: q }),
             ];
+        }
+
+        // ✅ INTERVALO opcional (start_day / end_day) no createdAt
+        if ((start_day && String(start_day).trim()) || (end_day && String(end_day).trim())) {
+            const range = {};
+
+            if (start_day && String(start_day).trim()) {
+                range[Op.gte] = new Date(`${String(start_day).trim()}T00:00:00${tzOffset}`);
+            }
+
+            if (end_day && String(end_day).trim()) {
+                range[Op.lte] = new Date(`${String(end_day).trim()}T23:59:59.999${tzOffset}`);
+            }
+
+            where.createdAt = range; // (createdAt -> created_at)
         }
 
         if (pedido_ref && String(pedido_ref).trim()) {
