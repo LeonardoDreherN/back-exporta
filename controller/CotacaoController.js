@@ -1,5 +1,5 @@
 // controllers/cotacoes.controller.js
-const { Op, literal, Transaction } = require('sequelize');
+const { Op, literal, Transaction, Sequelize } = require('sequelize');
 const { Cotacao, Cliente, sequelize } = require('../models');
 const { keepFirstPageFromPdfB64 } = require('../utils/pdfTools');
 const { getStatusOnly } = require('../services/trackingStatus');
@@ -689,10 +689,30 @@ async function listCotacoes(req, res) {
             pedido_ref, tracking_number, date_from, date_to,
             page = 1, limit = 10,
             only_with_tracking,
-            refresh,
+            refresh, search
         } = req.query;
 
         const where = { cliente_id };
+
+        if (search && String(search).trim()) {
+            const q = `%${String(search).trim()}%`;
+
+            where[Op.or] = [
+                { pedido_ref: { [Op.iLike]: q } },
+                { tracking_number: { [Op.iLike]: q } },
+                { carrier: { [Op.iLike]: q } },
+
+                Sequelize.where(
+                    Sequelize.json('pedido.nomeComprador'),
+                    { [Op.iLike]: q }
+                ),
+
+                Sequelize.where(
+                    Sequelize.json('pedido.emailComprador'),
+                    { [Op.iLike]: q }
+                ),
+            ];
+        }
 
         if (pedido_ref && String(pedido_ref).trim()) {
             where.pedido_ref = { [Op.iLike]: `%${String(pedido_ref).trim()}%` };
