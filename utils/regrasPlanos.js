@@ -1,5 +1,6 @@
 // utils/regrasPlano.js
 const regrasPorPlano = {
+    avulsos: (p) => Number((p * 1.5).toFixed(2)),
     basico: (p) => Number((p * 1.3).toFixed(2)),
     vinte: (p) => Number((p * 1.2).toFixed(2)),
     gold: (p) => Number((p * 1.15).toFixed(2)),
