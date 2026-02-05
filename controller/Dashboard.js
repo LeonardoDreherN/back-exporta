@@ -125,29 +125,27 @@ const valorMedioPorPais = async (req, res) => {
     }
 }
 
-
 const cotacaoHoje = async (req, res) => {
     try {
         const cliente_id = req.clienteId;
-
         if (!cliente_id) {
             return res.status(401).json({ ok: false, error: "CLIENTE_NAO_AUTENTICADO" });
         }
 
-        const hojeSP = new Intl.DateTimeFormat("en-CA", {
-            timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
-        }).format(new Date());
+        const tz = "America/Sao_Paulo";
 
+        const hojeSP = new Intl.DateTimeFormat("en-CA", {
+            timeZone: tz,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+        }).format(new Date()); // "YYYY-MM-DD"
 
         const start = new Date(`${hojeSP}T00:00:00-03:00`);
         const end = new Date(`${hojeSP}T23:59:59.999-03:00`);
 
-
-        // 2026-01-22T03:00:00.000Z = 22/01 00:00 no Brasil
-        // 2026-01-23T02:59:59.999Z = 22/01 23:59:59.999 no Brasil
-
         const hourLabel = literal(
-            `to_char(date_trunc('hour', (created_at AT TIME ZONE '${tz}')), 'HH24')` //retorna os horarios: 01, 02, 03...
+            `to_char(date_trunc('hour', (created_at AT TIME ZONE '${tz}')), 'HH24:00')`
         );
 
         const rows = await db.Cotacao.findAll({
@@ -163,20 +161,18 @@ const cotacaoHoje = async (req, res) => {
 
         const map = new Map(rows.map(r => [r.hora, Number(r.total) || 0]));
 
-        // completa 00..23
         const data = Array.from({ length: 24 }, (_, i) => {
             const hora = String(i).padStart(2, "0") + ":00";
             return { label: hora, value: map.get(hora) ?? 0 };
         });
 
-        return res.status(200).json({
-            ok: true, data
-        });
+        return res.status(200).json({ ok: true, data });
     } catch (e) {
         console.error(e);
         return res.status(500).json({ ok: false, error: "erro ao pegar cotacao por data" });
     }
 };
+
 
 function gerarDias(start, end) {
     const dias = [];

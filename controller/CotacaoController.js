@@ -1,5 +1,5 @@
 // controllers/cotacoes.controller.js
-const { Op, literal, Transaction } = require('sequelize');
+const { Op, literal, Transaction, Sequelize } = require('sequelize');
 const { Cotacao, Cliente, sequelize } = require('../models');
 const { keepFirstPageFromPdfB64 } = require('../utils/pdfTools');
 const { getStatusOnly } = require('../services/trackingStatus');
@@ -687,12 +687,41 @@ async function listCotacoes(req, res) {
 
         const {
             pedido_ref, tracking_number, date_from, date_to,
-            page = 1, limit = 20,
+            page = 1, limit = 10,
             only_with_tracking,
-            refresh,
+            refresh, search, start_day, end_day
         } = req.query;
+        const tzOffset = "-03:00";
 
         const where = { cliente_id };
+
+        if (search && String(search).trim()) {
+            const q = `%${String(search).trim()}%`;
+
+            where[Op.or] = [
+                { pedido_ref: { [Op.iLike]: q } },
+                { tracking_number: { [Op.iLike]: q } },
+                { carrier: { [Op.iLike]: q } },
+
+                Sequelize.where(Sequelize.json("pedido.nomeComprador"), { [Op.iLike]: q }),
+                Sequelize.where(Sequelize.json("pedido.emailComprador"), { [Op.iLike]: q }),
+            ];
+        }
+
+        // ✅ INTERVALO opcional (start_day / end_day) no createdAt
+        if ((start_day && String(start_day).trim()) || (end_day && String(end_day).trim())) {
+            const range = {};
+
+            if (start_day && String(start_day).trim()) {
+                range[Op.gte] = new Date(`${String(start_day).trim()}T00:00:00${tzOffset}`);
+            }
+
+            if (end_day && String(end_day).trim()) {
+                range[Op.lte] = new Date(`${String(end_day).trim()}T23:59:59.999${tzOffset}`);
+            }
+
+            where.createdAt = range; // (createdAt -> created_at)
+        }
 
         if (pedido_ref && String(pedido_ref).trim()) {
             where.pedido_ref = { [Op.iLike]: `%${String(pedido_ref).trim()}%` };
