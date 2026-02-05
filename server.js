@@ -1,391 +1,365 @@
-// app.js
-//deploy
-const express = require('express');
+// server.js — COMPLETO e ATUALIZADO (Intrex + Shopify App)
+const express = require("express");
 const app = express();
-const dotenv = require('dotenv');
-dotenv.config();
-const fedexCfg = require('./config/fedex'); // <--- ADICIONE
-console.log('[FEDEX CFG][BOOT]', {
-  AMBIENTE: process.env.NODE_ENV,
-  base: fedexCfg.base,
-  oauth: fedexCfg.oauth,
-  ship: fedexCfg.ship,
+
+require("dotenv").config();
+
+const cors = require("cors");
+const path = require("path");
+const cookieParser = require("cookie-parser");
+const compression = require("compression");
+const cron = require("node-cron");
+
+// =====================
+// DATABASE
+// =====================
+const db = require("./models");
+
+// =====================
+// LOG BOOT
+// =====================
+const fedexCfg = require("./config/fedex");
+console.log("[BOOT]", {
+  NODE_ENV: process.env.NODE_ENV,
+  FEDEX_BASE: fedexCfg.base,
 });
-const db = require('./models/index.js');
-const cors = require('cors');
-const path = require('path');
-const cookieParser = require('cookie-parser');
-const cfg = require('./config/ups.js')
-const uploadRouter = require('./routes/upload.js');
-const compression = require('compression');
 
-const { autenticarUsuario, vincularCliente, autenticarShopify, csrfRequired } = require('./middleware/auth.js');
-const { registrarCaixa, verCaixas, excluirCaixa, editarCaixa } = require('./controller/CaixaController.js');
-const { registrarCliente, verClientes, loginCliente, verClienteAtual } = require('./controller/ClientesController.js');
-const { verProdutosLojaShopify, registrarLojaShopify } = require('./controller/ShopifyController.js');
-const { importPedidos, listPedidos } = require('./controller/PedidoImportController.js');
-const { uploadOrdersMinimal } = require('./controller/pedidosMinimalController.js');
-const { uploadOrder } = require('./middleware/shopifyAuth.js');
-const cron = require('node-cron');
-const { pool } = require('./jobs/poolTracking.js');
-const { valorConversao } = require('./utils/dolar.js');
+// =====================
+// ROUTES
+// =====================
+const uploadRouter = require("./routes/upload");
+const sse = require("./routes/SSE");
 
-cron.schedule('*/60 * * * *', pool)
+const upsRoutes = require("./routes/upsRoutes");
+const fedexRoutes = require("./routes/fedexRoutes");
+const shipmentsRoutes = require("./routes/shipmentsRoutes");
 
-// Módulo de rotas da Shopify (inclui auth/conexao/produtos + upload-minimal + find)
-// const shopifyModule = require('./routes/shopifyRoutes.js');
-const upsRoutes = require('./routes/upsRoutes.js');
-const fedexRoutes = require('./routes/fedexRoutes.js');
-const shipmentsRoutes = require('./routes/shipmentsRoutes.js')
-const sse = require('./routes/SSE.js');
+// Shopify
+const shopifyAuthRoutes = require("./shopify/auth/routes"); // OAuth
+const shopifyStatusRoutes = require("./routes/shopifyStatus"); // /shopify/has-token
+const shopifyWebhooksRoutes = require("./routes/shopifyWebhooks"); // /shopify/webhooks/orders/create
+const shopifyLinkRoutes = require("./routes/shopifyLink"); // ✅ você vai criar esse arquivo (link shop <-> clienteId)
 
-const allowlist = (process.env.CORS_ALLOWED_ORIGINS || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
+// =====================
+// MIDDLEWARES / AUTH
+// =====================
+const {
+  autenticarUsuario,
+  vincularCliente,
+  autenticarShopify,
+  csrfRequired,
+} = require("./middleware/auth");
 
-// const allowlist = [
-//   'http://localhost:3000',
-//   'http://127.0.0.1:3000',
-//   process.env.FRONTEND_URL,       // ex.: https://app.intrex.com
-// ].filter(Boolean); // tira undefined/vazio
+// =====================
+// CONTROLLERS
+// =====================
+const {
+  registrarCliente,
+  verClientes,
+  loginCliente,
+  verClienteAtual,
+} = require("./controller/ClientesController");
 
-app.use(cors({
-  origin(origin, cb) {
-    console.log('[CORS] Origin:', origin);
-    if (!origin) return cb(null, true); // Postman, curl etc
+const {
+  registrarCaixa,
+  verCaixas,
+  excluirCaixa,
+  editarCaixa,
+} = require("./controller/CaixaController");
 
-    const ok = allowlist.includes(origin);
-    console.log('[CORS] allowed?', ok);
-    return cb(null, ok);
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token'],
-  exposedHeaders: ['Authorization', 'Content-Disposition'],
-}));
+const {
+  verProdutos,
+  registrarProduto,
+  editarProduto,
+  excluirProduto,
+} = require("./controller/ProdutoController");
 
-// Pré-flight padronizado
-// app.options('*', cors());
+const { registrarLojaShopify } = require("./controller/ShopifyController");
+const { listPedidos } = require("./controller/PedidoImportController");
 
+const { uploadOrdersMinimal } = require("./controller/pedidosMinimalController");
+const { uploadOrder } = require("./middleware/shopifyAuth");
+
+const { pool } = require("./jobs/poolTracking");
+const { valorConversao } = require("./utils/dolar");
+
+const { validateCNPJ } = require("./utils/cnpj");
+const { validateCNAE } = require("./utils/cnae");
+
+const { refresh, logout } = require("./routes/authRoutes");
+const { applySecurity } = require("./bootstrap/security");
+const { applyLogging, errorHandler } = require("./bootstrap/loggin");
+
+// =====================
+// CONFIG
+// =====================
 const PORT = process.env.PORT || 3001;
 
-// app.use((req, res, next) => {
-//   res.setHeader(
-//     'Content-Security-Policy',
-//     "frame-ancestors https://admin.shopify.com https://*.myshopify.com https://*.shopify.com;"
-//   );
-//   res.removeHeader('X-Frame-Options');
-//   next();
-// });
+const allowlist = (process.env.CORS_ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
-// Polyfill fetch (Node < 18)
-if (typeof fetch === 'undefined') {
-  global.fetch = (...args) =>
-    import('node-fetch').then(({ default: f }) => f(...args));
-}
+// =====================
+// GLOBAL MIDDLEWARES (ORDEM IMPORTA)
+// =====================
 
-// Utils/validadores e controllers da sua plataforma
-const { validateCNPJ } = require('./utils/cnpj');
-const { validateCNAE } = require('./utils/cnae.js');
-const { verProdutos, registrarProduto, editarProduto, excluirProduto } = require('./controller/ProdutoController.js');
-const { getAccessScopesLive } = require('./utils/scopes.js');
-const { refresh, logout } = require('./routes/authRoutes.js');
-const { applySecurity } = require('./bootstrap/security.js');
-const { applyLogging, errorHandler } = require('./bootstrap/loggin.js');
+// CORS
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin) return cb(null, true); // postman/curl
+      return cb(null, allowlist.includes(origin));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-csrf-token"],
+    exposedHeaders: ["Authorization", "Content-Disposition"],
+  })
+);
 
-// Middlewares globais
-app.use(express.json({ limit: '30mb' }));
-app.use(express.urlencoded({ extended: true, limit: '30mb' }));
-app.use(cookieParser())
-app.use('/sse', sse.router)
+// 🔴 IMPORTANTE: rawBody PARA WEBHOOK SHOPIFY (HMAC do webhook precisa do corpo bruto)
+app.use(
+  "/shopify/webhooks",
+  express.json({
+    verify: (req, _res, buf) => {
+      req.rawBody = buf.toString("utf8");
+    },
+  })
+);
 
-app.use("/exports", express.static(path.join(__dirname, "exports"), { maxAge: "1h", etag: true }));
-app.use("/upload", uploadRouter)
+// JSON normal (para o resto)
+app.use(express.json({ limit: "30mb" }));
+app.use(express.urlencoded({ extended: true, limit: "30mb" }));
+
+// Cookies (OAuth state / csrf)
+app.use(cookieParser());
 
 app.use(compression({ threshold: 0 }));
+
 applySecurity(app);
 applyLogging(app);
 
-// Monta TODAS as rotas da Shopify sob /shopify (NÃO duplicar)
-// app.use('/shopify', shopifyModule);
-app.use('/api/ups', upsRoutes);
-app.use('/api/fedex', fedexRoutes)
+// =====================
+// CRON
+// =====================
+cron.schedule("*/60 * * * *", pool);
 
-// Saúde
-app.get('/health', (_, res) => res.send('ok'));
+// =====================
+// STATIC
+// =====================
+app.use(
+  "/exports",
+  express.static(path.join(__dirname, "exports"), {
+    maxAge: "1h",
+    etag: true,
+  })
+);
 
-// --- Rota raiz (embedded landing com App Bridge) ---
-// const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
-// app.get('/', (req, res) => {
-//   res.type('html').send(`<!doctype html>
-// <html>
-// <head>
-//   <meta charset="utf-8" />
-//   <title>appTest</title>
-//   <meta name="viewport" content="width=device-width, initial-scale=1" />
-//   <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
-//   <style>
-//     html,body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif}
-//     #root{padding:24px}
-//     .muted{color:#6b7280}
-//   </style>
-// </head>
-// <body>
-//   <div id="root">Carregando…</div>
+// =====================
+// SHOPIFY
+// =====================
+// OAuth + status + vínculo + webhooks
+app.use("/shopify", shopifyAuthRoutes); // /shopify/auth, /shopify/auth/callback
+app.use("/shopify", shopifyStatusRoutes); // /shopify/has-token
 
-//   <script>
-//   (function () {
-//     function shopFromHost(host) {
-//       try {
-//         var dec = atob(host || '');
-//         var m = dec.match(/store\\/([a-z0-9-]+)/i);
-//         if (m) return (m[1].toLowerCase() + '.myshopify.com');
-//       } catch {}
-//       return null;
-//     }
+// ✅ Vínculo shop <-> clienteId (rota para o cliente logado vincular a loja)
+app.use("/shopify", shopifyLinkRoutes);
 
-//     (async function () {
-//       // Limpa parâmetros sensíveis
-//       (function () {
-//         var p = new URLSearchParams(location.search);
-//         ['hmac','timestamp','code','state','session'].forEach(function(k){ p.delete(k); });
-//         if (location.search.indexOf('hmac=') !== -1) {
-//           history.replaceState({}, '', location.pathname + (p.toString() ? '?' + p.toString() : ''));
-//         }
-//       })();
+// Webhooks (usa rawBody)
+app.use("/shopify/webhooks", shopifyWebhooksRoutes);
 
-//       var params = new URLSearchParams(location.search);
-//       var host = params.get('host');
-//       var shop = params.get('shop') || (host ? shopFromHost(host) : null);
+// =====================
+// API
+// =====================
+app.use("/sse", sse.router);
+app.use("/upload", uploadRouter);
 
-//       if (!host) {
-//         // sem host -> sobe para OAuth top-level
-//         window.top.location.href = location.origin + '/shopify/auth' + (shop?('?shop='+encodeURIComponent(shop)):'');
-//         return;
-//       }
+app.use("/api/ups", upsRoutes);
+app.use("/api/fedex", fedexRoutes);
+app.use("/api/shipments", shipmentsRoutes);
 
-//       var AB = window.appBridge || window['app-bridge'];
-//       if (!AB || !AB.createApp) {
-//         window.top.location.href = location.origin + '/shopify/auth' + (shop?('?shop='+encodeURIComponent(shop)):'');
-//         return;
-//       }
+app.use(
+  "/api/cotacoes",
+  autenticarUsuario,
+  vincularCliente,
+  require("./routes/cotacoesRoutes")
+);
 
-//       var app = AB.createApp({ apiKey: '${SHOPIFY_API_KEY}', host: host, forceRedirect: true });
-//       var Redirect = AB.actions.Redirect;
+app.use(
+  "/api/relatorio",
+  autenticarUsuario,
+  vincularCliente,
+  require("./routes/relatorioPagamentos")
+);
 
-//       // Garante instalação (sem chamar outras rotas)
-//       try {
-//         var r = await fetch('/shopify/has-token?shop=' + encodeURIComponent(shop || ''));
-//         var info = await r.json();
-//         if (!info.hasToken) {
-//           var target = location.origin + '/shopify/auth?shop=' + encodeURIComponent(shop) + '&host=' + encodeURIComponent(host);
-//           Redirect.create(app).dispatch(Redirect.Action.REMOTE, target);
-//           return;
-//         }
-//       } catch (e) {
-//         var t = location.origin + '/shopify/auth?shop=' + encodeURIComponent(shop) + '&host=' + encodeURIComponent(host);
-//         Redirect.create(app).dispatch(Redirect.Action.REMOTE, t);
-//         return;
-//       }
+app.use("/api/rate", require("./routes/rateMulti"));
+app.use(require("./routes/debugFedex"));
 
-//       // Boas-vindas (nenhuma chamada ao backend)
-//       var handle = (shop || '').replace(/\\.myshopify\\.com$/i,'');
-//       document.getElementById('root').innerHTML =
-//         '<h1>Bem-vindo(a) ao appTest</h1>' +
-//         '<p class="muted">Loja: <strong>' + (handle || '—') + '</strong></p>' +
-//         '<p class="muted">Seu app foi inicializado dentro do Admin (embedded).</p>' +
-//         '<a href="${process.env.FRONTEND}/login" target="_top">Voltar para a Intrex</a>';
+// =====================
+// HEALTH
+// =====================
+app.get("/health", (_req, res) => res.send("ok"));
+app.get("/healthz", (_req, res) => res.json({ ok: true, ts: Date.now() }));
 
-//       // Opcional: TitleBar
-//       try {
-//         var TitleBar = AB.actions.TitleBar;
-//         TitleBar.create(app, { title: 'appTest' });
-//       } catch {}
-//     })();
-//   })();
-//   </script>
-// </body>
-// </html>`);
-// });
+// =====================
+// CLIENTES
+// =====================
+app.post("/registrarClientes", registrarCliente);
+app.post("/login", loginCliente);
+app.get("/verClientes", verClientes);
+app.get("/verClienteAtual", autenticarUsuario, verClienteAtual);
 
-// Debug: conferir lojas e escopos
-app.get('/_debug/shops', async (_req, res) => {
-  const rows = await db.Shop.findAll({ attributes: ['shop', 'scope', 'updatedAt'] });
-  const out = [];
-  for (const r of rows) {
-    let liveScopes = 'n/a';
-    try {
-      liveScopes = await getAccessTokenForShop(r.shop, r.accessToken);
-    } catch (e) {
-      liveScopes = `erro: ${e.message}`;
-    }
-    out.push({ shop: r.shop, scope: r.scope, updatedAt: r.updatedAt, liveScopes });
-  }
-  res.json(out);
-});
-
-app.get('/_debug/scopes', async (req, res) => {
-  try {
-    const shop = String(req.query.shop || '').toLowerCase();
-    if (!shop) return res.status(400).json({ erro: 'informe ?shop=...' });
-
-    const row = await db.Shop.findOne({ where: { shop }, attributes: ['accessToken', 'scope'], raw: true });
-    if (!row) return res.status(404).json({ erro: 'token não encontrado' });
-
-    let live = [];
-    try { live = await getAccessScopesLive(shop, row.accessToken); }
-    catch (e) { live = [`erro: ${e.message}`]; }
-    res.json({ shop, column_scope: row.scope, live_scopes: live });
-  } catch (e) {
-    res.status(500).json({ erro: 'falha debug', detalhes: e?.message });
-  }
-});
-
-// Arquivos estáticos de /exports
-const EXPORTS_DIR = path.join(__dirname, 'exports');
-app.use('/exports', express.static(EXPORTS_DIR, { maxAge: '1h', etag: true }));
-
-
-// --- CLIENTES (sua plataforma) ---
-app.post('/registrarClientes', registrarCliente);
-app.post('/login', loginCliente);
-app.get('/verClientes', verClientes);
-app.get('/verClienteAtual', autenticarUsuario, verClienteAtual);
-
-app.get('/me', autenticarUsuario, async (req, res) => {
+app.get("/me", autenticarUsuario, (req, res) => {
   const u = req.usuario || req.user;
-
-  if (!u) {
-    return res.status(401).json({ erro: 'Não autenticado' });
-  }
+  if (!u) return res.status(401).json({ erro: "Não autenticado" });
 
   return res.json({
-    id: u.id ?? u.clienteId ?? null,
+    id: u.id ?? null,
     email: u.email ?? null,
     clienteId: u.clienteId ?? null,
     roles: u.roles || [],
     razaoSocial: u.razaoSocial ?? null,
   });
 });
-app.post('/auth/refresh', refresh)
-app.post('/auth/logout', logout)
 
-// --- VALIDADORES ---
-app.get('/validate/cnpj', async (req, res) => {
+app.post("/auth/refresh", refresh);
+app.post("/auth/logout", logout);
+
+// =====================
+// VALIDADORES
+// =====================
+app.get("/validate/cnpj", async (req, res) => {
   try {
-    const { cnpj, online } = req.query;
-    const out = await validateCNPJ(cnpj, { online }); // só DV aqui
-    return res.status(200).json(out);
+    const out = await validateCNPJ(req.query.cnpj);
+    return res.json(out);
   } catch (e) {
-    console.error('[/validate/cnpj]', e);
-    res.status(500).json({ valid: false, reason: 'server' });
+    return res.status(500).json({ valid: false, reason: "server" });
   }
 });
 
-app.get('/validate/cnae', async (req, res) => {
+app.get("/validate/cnae", async (req, res) => {
   try {
-    const { cnae } = req.query;
-    const out = await validateCNAE(cnae);
-    return res.status(200).json(out);
+    const out = await validateCNAE(req.query.cnae);
+    return res.json(out);
   } catch (e) {
-    console.error('[/validate/cnae]', e);
-    res.status(500).json({ valid: false, reason: 'server' });
+    return res.status(500).json({ valid: false, reason: "server" });
   }
 });
 
-// --- CAIXAS ---
-app.post('/registrarCaixa', autenticarUsuario, vincularCliente, csrfRequired, registrarCaixa);
-app.get('/verCaixas', autenticarUsuario, vincularCliente, verCaixas); // VINCULAR
-app.delete('/excluirCaixa/:id', autenticarUsuario, vincularCliente, csrfRequired, excluirCaixa);
-app.put('/editarCaixa/:id', autenticarUsuario, vincularCliente, csrfRequired, editarCaixa);
+// =====================
+// CAIXAS
+// =====================
+app.post(
+  "/registrarCaixa",
+  autenticarUsuario,
+  vincularCliente,
+  csrfRequired,
+  registrarCaixa
+);
+app.get("/verCaixas", autenticarUsuario, vincularCliente, verCaixas);
+app.delete(
+  "/excluirCaixa/:id",
+  autenticarUsuario,
+  vincularCliente,
+  csrfRequired,
+  excluirCaixa
+);
+app.put(
+  "/editarCaixa/:id",
+  autenticarUsuario,
+  vincularCliente,
+  csrfRequired,
+  editarCaixa
+);
 
-// --- PRODUTOS (sua plataforma) ---
-app.get('/verProdutos', autenticarUsuario, verProdutos);
-app.post('/registrarProduto', autenticarUsuario, vincularCliente, csrfRequired, registrarProduto);
-app.delete('/excluirProduto/:id', autenticarUsuario, csrfRequired, excluirProduto);
-app.put('/editarProduto/:id', autenticarUsuario, csrfRequired, editarProduto);
+// =====================
+// PRODUTOS
+// =====================
+app.get("/verProdutos", autenticarUsuario, verProdutos);
+app.post(
+  "/registrarProduto",
+  autenticarUsuario,
+  vincularCliente,
+  csrfRequired,
+  registrarProduto
+);
+app.put("/editarProduto/:id", autenticarUsuario, csrfRequired, editarProduto);
+app.delete(
+  "/excluirProduto/:id",
+  autenticarUsuario,
+  csrfRequired,
+  excluirProduto
+);
 
-// --- SHOPIFY: conectar loja (sua plataforma) ---
-app.post('/conectarLoja', autenticarUsuario, vincularCliente, csrfRequired, registrarLojaShopify);
+// =====================
+// SHOPIFY (sua plataforma)
+// =====================
+app.post(
+  "/conectarLoja",
+  autenticarUsuario,
+  vincularCliente,
+  csrfRequired,
+  registrarLojaShopify
+);
 
-// Rotas de produtos da Shopify (existentes)
-// app.get('/shopify/produtos', autenticarShopify, comLoja, garantirInstalada, verProdutosLojaShopify);
+// Import pedidos (CSV)
+app.post(
+  "/shopify/import-pedidos",
+  autenticarShopify,
+  vincularCliente,
+  csrfRequired,
+  uploadOrder.fields([{ name: "file" }, { name: "sku_master" }]),
+  async (req, res) => uploadOrdersMinimal(req, res, false)
+);
 
-// PEDIDOS (import/list)
-// app.post('/import-pedidos', autenticarUsuario, vincularCliente, csrfRequired, importPedidos);
-app.post('/shopify/import-pedidos', autenticarShopify, vincularCliente, csrfRequired,
-  uploadOrder.fields([{ name: 'file' }, { name: 'sku_master' }]), // <- AQUI entra o multer
-  async (req, res) => {
-    // aqui sim o req.files já vai estar preenchido
-    const payload = await uploadOrdersMinimal(req, res, /* returnOnly */ false);
-    return payload; // uploadOrdersMinimal já responde, então isso é só pra clareza
-  });
+app.get("/pedidos", autenticarUsuario, vincularCliente, listPedidos);
 
-app.get('/pedidos', autenticarUsuario, vincularCliente, listPedidos);
+// =====================
+// FINANCEIRO
+// =====================
+app.post(
+  "/boletos",
+  autenticarUsuario,
+  vincularCliente,
+  require("./controller/Asaas").gerarBoleto
+);
 
-app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req, res) => {
-  res.json({
-    authHeader: !!req.headers.authorization,
-    clienteId: req.clienteId ?? null,
-    usuario: req.usuario ?? null,
-    user: req.user ?? null,
-  });
-});
-
-// API UPS
-app.use('/api/shipments', shipmentsRoutes)
-app.use('/api/cotacoes', autenticarUsuario, vincularCliente, require('./routes/cotacoesRoutes.js'));
-// app.use('/api/cotacoesFedex', require('./routes/fedexRoutes.js'))
-app.use('/api/relatorio', autenticarUsuario, vincularCliente, require('./routes/relatorioPagamentos.js'))
-const debugFedex = require('./routes/debugFedex.js');
-app.use(debugFedex);
-
-app.use('/api/rate', require('./routes/rateMulti.js'));
-
-//Asaas
-app.post('/boletos', autenticarUsuario, vincularCliente, require('./controller/Asaas.js').gerarBoleto);
-app.get("/dolar", async (req, res) => {
+app.get("/dolar", async (_req, res) => {
   try {
     const v = await valorConversao();
-    // if (!v) {
-    //   return res.status(500).json({ erro: "Falha ao obter cotação do dólar." });
-    // }
-    res.json({ valor: v });
+    return res.json({ valor: v });
   } catch (e) {
-    console.error("[/dolar] erro:", e);
-    return res.status(500).json({
-      erro: "Erro interno ao buscar dólar",
-      detalhe: e?.message || String(e),
-    });
+    return res.status(500).json({ erro: "Erro ao buscar dólar" });
   }
 });
 
-// app.use('/api', upsRoutes);
+// =====================
+// ERROR HANDLERS
+// =====================
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
-  const status = err?.response?.status || err?.status || 500;
-  res.status(status).json({ ok: false, error: err?.response?.data || { message: err.message } });
+  const status = err.status || err?.response?.status || 500;
+  return res.status(status).json({
+    ok: false,
+    error: err?.message || "Internal error",
+  });
 });
 
-app.get("/healthz", (_, res) => res.json({ ok: true, ts: Date.now() }));
 app.use((_req, res) => res.status(404).json({ error: "Not Found" }));
 app.use(errorHandler);
 
-// Start
-db.sequelize.sync()
+// =====================
+// START
+// =====================
+db.sequelize
+  .sync()
   .then(() => {
-    console.log('Banco sincronizado: ', PORT)
-    app.listen(PORT, () => {
-      console.log(`Servidor rodando na porta ${PORT}`);
-    });
+    console.log("✅ Banco sincronizado");
+    app.listen(PORT, () => console.log(`🚀 Backend rodando na porta ${PORT}`));
   })
-  .catch(err => {
-    if (err.parent?.code === '42P07') {
-      console.warn('Índice caixas_cliente_cod_uq já existia, seguindo mesmo assim.');
-    } else {
-      console.error('Erro ao sincronizar com o banco:', err);
-    }
+  .catch((e) => {
+    console.error("❌ Erro ao sincronizar banco:", e);
   });
 
 module.exports = { app };
