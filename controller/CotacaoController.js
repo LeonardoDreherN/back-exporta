@@ -1,6 +1,6 @@
 // controllers/cotacoes.controller.js
 const { Op, literal, Transaction, Sequelize } = require('sequelize');
-const { Cotacao, Cliente, sequelize } = require('../models');
+const { Cotacao, Cliente, PedidoImport, sequelize } = require('../models');
 const { keepFirstPageFromPdfB64 } = require('../utils/pdfTools');
 const { getStatusOnly } = require('../services/trackingStatus');
 const { aplicarPlano } = require('../utils/regrasPlanos');
@@ -502,6 +502,14 @@ async function createCotacaoReal(req, res) {
             },
             { transaction: t }
         );
+
+        // Atualiza status do pedido para COTADO (se existir no pedidos_importados)
+        if (pedido_ref) {
+            await PedidoImport.update(
+                { status: "true" },
+                { where: { cliente_id, pedido_ref }, transaction: t }
+            );
+        }
 
         await t.commit();
         return res.json({

@@ -519,6 +519,7 @@ async function listPedidos(req, res) {
                 "estado",
                 "CEP",
                 "pais",
+                "status",
                 "itens",
             ],
         });

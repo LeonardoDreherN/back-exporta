@@ -15,6 +15,7 @@ module.exports = (sequelize) => {
         estado: { type: DataTypes.STRING },
         CEP: { type: DataTypes.STRING },
         pais: { type: DataTypes.STRING },
+        status: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: "false" },
         itens: { type: DataTypes.JSONB, allowNull: false, defaultValue: [] },
     }, {
         tableName: 'pedidos_importados',
