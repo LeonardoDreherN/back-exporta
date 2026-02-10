@@ -369,7 +369,7 @@ const cotacaoSemana = async (req, res) => {
 
 
         const data = diasPeriodo.map(dia => {
-            const date = new Date(dia);
+            const date = new Date(`${dia}T00:00:00-03:00`);
             let diaSemana = new Intl.DateTimeFormat("pt-BT", {
                 weekday: "short",
                 timeZone: tz
