@@ -509,6 +509,57 @@ async function createCotacaoReal(req, res) {
                 { status: "true" },
                 { where: { cliente_id, pedido_ref }, transaction: t }
             );
+
+            // Se o hscode veio no input, persistir nos itens de pedidos_importados
+            if (Array.isArray(pedidoJson?.itens) && pedidoJson.itens.length) {
+                const pedRow = await PedidoImport.findOne({
+                    where: { cliente_id, pedido_ref },
+                    transaction: t,
+                    lock: Transaction.LOCK.UPDATE,
+                });
+                if (pedRow) {
+                    const orig = Array.isArray(pedRow.itens) ? pedRow.itens : [];
+                    const incoming = pedidoJson.itens;
+
+                    const bySku = new Map();
+                    for (const it of incoming) {
+                        if (!it || !it.sku) continue;
+                        bySku.set(String(it.sku).trim().toUpperCase(), it);
+                    }
+
+                    const pickHs = (it) => {
+                        const hs =
+                            it?.hscode ??
+                            it?.hs_code ??
+                            it?.hsCode ??
+                            it?.harmonizedCode ??
+                            it?.harmonizedSystemCode ??
+                            it?.hs;
+                        return hs != null && String(hs).trim() ? String(hs).trim() : "";
+                    };
+
+                    let merged = [];
+                    if (orig.length) {
+                        merged = orig.map((it, idx) => {
+                            const inc =
+                                (it?.sku && bySku.get(String(it.sku).trim().toUpperCase())) ||
+                                incoming[idx];
+                            const hs = pickHs(inc);
+                            return hs ? { ...it, hscode: hs } : it;
+                        });
+                    } else {
+                        merged = incoming.map((it) => {
+                            const hs = pickHs(it);
+                            return hs ? { ...it, hscode: hs } : it;
+                        });
+                    }
+
+                    await PedidoImport.update(
+                        { itens: merged },
+                        { where: { cliente_id, pedido_ref }, transaction: t }
+                    );
+                }
+            }
         }
 
         await t.commit();

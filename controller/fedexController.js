@@ -463,11 +463,15 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
     const itensSemPesoUnit = itens.every((it) => Number(it.pesoUnit || 0) <= 0);
 
     const commodities = itens.map((it) => {
+        console.log("IT: ", it)
         const qty = Number(it.qty || 1) || 1;
 
         const unitPrice = Number(it.preco || 0) || 0;
 
         const lineTotal = (unitPrice * qty); // Number(it.valorTotalLinha || 0)
+
+        const hs = firstNonEmpty(it.hscode);
+        console.log(hs)
 
         // peso por item: prioridade -> pesoUnit (se vier) -> rateio do total dos packages
         const pesoUnitKg = Number(it.pesoUnit || 0); // se vocÃª salvar em kg
@@ -483,7 +487,7 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
             quantityUnits: 'PCS',
 
             // (opcional) HS code se tiver
-            ...(it.hscode ? { harmonizedCode: String(it.hscode) } : {}),
+            ...(hs ? { harmonizedCode: String(hs).trim() } : {}),
 
             unitPrice: { amount: unitPrice, currency },
             customsValue: { amount: lineTotal, currency },
@@ -519,6 +523,8 @@ async function buildFedexShipPayload({
         const s1 = shipper?.address?.streetLines || [];
         const r1 = recipient?.address?.streetLines || [];
     } catch (_) { }
+
+    console.log('[FEDEX][SHIP][BUILD_PAYLOAD] commodities:', commodities);
 
     // total da linha (preferÃªncia: customsValue vindo do builder; fallback: unit*qty)
 
@@ -867,6 +873,17 @@ module.exports = {
                 pedido = req.body.pedido_manual;
             }
             if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido nÃ£o encontrado.' });
+
+            console.log(
+                '[FEDEX][SHIP] pedido_ref:',
+                pedido_ref,
+                'itens:',
+                pedido?.itens?.length,
+                'first_item:',
+                pedido?.itens?.[0]?.titulo,
+                'hscode:',
+                pedido?.itens?.[0]?.hscode
+            );
 
             // commodities: se vocÃª nÃ£o tem peso por item, essa funÃ§Ã£o jÃ¡ vai ratear usando o totalKgFromPackages
             const { commodities, currency } = buildCommoditiesFromPedido(pedido, packages);
