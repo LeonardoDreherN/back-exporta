@@ -682,28 +682,6 @@ async function getCotacaoStatusByPedidoRef(req, res) {
     try {
         const cliente_id = toInt(req.clienteId);
         if (!cliente_id) return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
-async function marcarEntreguesHoje(req, res) {
-    try {
-        const cliente_id = toInt(req.clienteId);
-        if (!cliente_id) return res.status(401).json({ ok: false, error: 'Cliente n�o autenticado' });
-
-        const where = {
-            cliente_id,
-            status_norm: 'ENTREGUE',
-            delivered_at: { [Op.is]: null },
-        };
-
-        const [updated] = await Cotacao.update(
-            { delivered_at: new Date() },
-            { where }
-        );
-
-        return res.json({ ok: true, updated });
-    } catch (err) {
-        console.error('marcarEntreguesHoje error:', err);
-        return res.status(500).json({ ok: false, error: 'Erro ao marcar entregues hoje' });
-    }
-}
 
         const pedido_ref = normRef(req.params.pedido_ref);
         if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref inválido' });
@@ -1131,13 +1109,12 @@ module.exports = {
     downloadEtiqueta,
     downloadInvoice,
     keepFirstPageFromPdfB64,
-    getCotacaoStatusByPedidoRef,`r`n    marcarEntreguesHoje,
+    getCotacaoStatusByPedidoRef,
     getCotacaoDetails,
     salvarEtiquetaNaStorage,
     salvarInvoiceNaStorage,
     getCotacaoRemetente
 };
-
 
 
 
