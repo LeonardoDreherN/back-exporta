@@ -458,7 +458,11 @@ const envioVsCotacao = async (req, res) => {
                 [literal(`to_char(date_trunc('month', delivered_at), 'MM')`), "mes_key"],
                 [fn("count", col("id")), "entregues"],
             ],
-            where: { cliente_id, delivered_at: { [Op.between]: [start, end] } },
+            where: {
+                cliente_id, status_norm: "ENTREGUE", [Op.and]: [
+                    literal(`COALESCE(delivered_at, last_tracking_at, updated_at) BETWEEN (${start.val}) AND (${end.val})`),
+                ]
+            },
             group: [literal(`to_char(date_trunc('month', delivered_at), 'MM')`)],
             order: [[literal(`to_char(date_trunc('month', delivered_at), 'MM')`), "ASC"]],
             raw: true,

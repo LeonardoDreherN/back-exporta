@@ -682,6 +682,28 @@ async function getCotacaoStatusByPedidoRef(req, res) {
     try {
         const cliente_id = toInt(req.clienteId);
         if (!cliente_id) return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
+async function marcarEntreguesHoje(req, res) {
+    try {
+        const cliente_id = toInt(req.clienteId);
+        if (!cliente_id) return res.status(401).json({ ok: false, error: 'Cliente n�o autenticado' });
+
+        const where = {
+            cliente_id,
+            status_norm: 'ENTREGUE',
+            delivered_at: { [Op.is]: null },
+        };
+
+        const [updated] = await Cotacao.update(
+            { delivered_at: new Date() },
+            { where }
+        );
+
+        return res.json({ ok: true, updated });
+    } catch (err) {
+        console.error('marcarEntreguesHoje error:', err);
+        return res.status(500).json({ ok: false, error: 'Erro ao marcar entregues hoje' });
+    }
+}
 
         const pedido_ref = normRef(req.params.pedido_ref);
         if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref inválido' });
@@ -871,23 +893,29 @@ async function listCotacoes(req, res) {
                 const isNewer = !plain.last_tracking_at || eventTime > new Date(plain.last_tracking_at);
                 const changed = (plain.status_norm || 'CRIADO') !== novo;
 
-                if ((isNewer || changed)) {
-                    const updates = {
-                        status_norm: novo,
-                        last_tracking_at: eventTime,
-                        tracking_raw: raw, // se você quiser guardar o último evento “cru”
-                    };
+                const shouldBackfillDeliveredAt = (novo === 'ENTREGUE' && !plain.delivered_at);
+                if (isNewer || changed || shouldBackfillDeliveredAt) {
+                    const updates = {};
 
-                    if (novo === 'ENTREGUE' && !plain.delivered_at) {
+                    if (isNewer || changed) {
+                        updates.status_norm = novo;
+                        updates.last_tracking_at = eventTime;
+                        updates.tracking_raw = raw; // se você quiser guardar o último evento “cru”
+                    }
+
+                    if (shouldBackfillDeliveredAt) {
                         updates.delivered_at = new Date();
+                        plain.delivered_at = updates.delivered_at;
                     }
 
                     await r.update(updates);
 
-                    plain.status_norm = novo;
-                    plain.last_tracking_at = eventTime;
+                    if (isNewer || changed) {
+                        plain.status_norm = novo;
+                        plain.last_tracking_at = eventTime;
+                    }
 
-                    if (sse?.broadcastStatusUpdate) {
+                    if (changed && sse?.broadcastStatusUpdate) {
                         sse.broadcastStatusUpdate({ cotacao_id: r.id, status_norm: novo });
                     }
                 }
@@ -1103,12 +1131,13 @@ module.exports = {
     downloadEtiqueta,
     downloadInvoice,
     keepFirstPageFromPdfB64,
-    getCotacaoStatusByPedidoRef,
+    getCotacaoStatusByPedidoRef,`r`n    marcarEntreguesHoje,
     getCotacaoDetails,
     salvarEtiquetaNaStorage,
     salvarInvoiceNaStorage,
     getCotacaoRemetente
 };
+
 
 
 
