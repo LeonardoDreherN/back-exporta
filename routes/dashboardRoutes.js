@@ -40,6 +40,7 @@ router.get('/cotacoesPorData/semana', corsOpts, ctrl.cotacaoSemana)
 router.get('/envioVsCotacao', corsOpts, ctrl.envioVsCotacao)
 router.get('/infosBreves', corsOpts, ctrl.dadosBreves)
 router.get('/paises/valores', corsOpts, ctrl.valorTotalPaisDestinatario)
+router.get('/quantidadeStatus', corsOpts, ctrl.quantidadeStatus)
 
 
 module.exports = router;

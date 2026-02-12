@@ -697,6 +697,34 @@ const valorTotalPaisDestinatario = async (req, res) => {
     }
 }
 
+const quantidadeStatus = async (req, res) => {
+    try {
+        const rows = await db.Cotacao.findAll({
+            where: { cliente_id: req.clienteId },
+            attributes: ['status_norm', [db.sequelize.fn('COUNT', db.sequelize.col('status_norm')), 'quantidade']],
+            group: ['status_norm'],
+            raw: true
+        })
+
+        const data = rows.map(r => {
+            return {
+                label: r.status_norm,
+                value: Number(r.quantidade)
+            }
+        })
+
+        return res.status(200).json({
+            ok: true,
+            data: [
+                ...data
+            ]
+        })
+    } catch (err) {
+        console.error("Erro ao pegar status das cotacoes: ", err)
+        return res.status(500).json({ ok: false, err })
+    }
+}
+
 module.exports = {
     valorTotalCotacoes,
     valorMedioPorCotacao,
@@ -710,5 +738,6 @@ module.exports = {
     mesAnterior,
     envioVsCotacao,
     dadosBreves,
-    valorTotalPaisDestinatario
+    valorTotalPaisDestinatario,
+    quantidadeStatus
 }

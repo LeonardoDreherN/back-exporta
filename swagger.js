@@ -1681,6 +1681,16 @@ const options = {
                     }
                 }
             },
+            '/dashboard/quantidadeStatus': {
+                get: {
+                    tags: ['Dashboard'],
+                    summary: 'Retorna a quantidade de cada status das cotacoes',
+                    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                    responses: {
+                        200: { description: 'ok' }
+                    }
+                }
+            },
             '/_debug/shops': {
                 get: {
                     tags: ['Debug'],
