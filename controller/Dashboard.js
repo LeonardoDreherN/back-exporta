@@ -697,6 +697,15 @@ const valorTotalPaisDestinatario = async (req, res) => {
     }
 }
 
+function formatar(str) {
+    if (!str) return "";
+
+    const semUnderline = str.replace(/_/g, " ");
+    const minusculo = semUnderline.toLowerCase().trim();
+
+    return minusculo.charAt(0).toUpperCase() + minusculo.slice(1);
+}
+
 const quantidadeStatus = async (req, res) => {
     try {
         const rows = await db.Cotacao.findAll({
@@ -707,8 +716,9 @@ const quantidadeStatus = async (req, res) => {
         })
 
         const data = rows.map(r => {
+            const label = formatar(r.status_norm)
             return {
-                label: r.status_norm,
+                label: label,
                 value: Number(r.quantidade)
             }
         })

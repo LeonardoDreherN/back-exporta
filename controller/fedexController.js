@@ -449,6 +449,50 @@ function normalizeTermsOfSale(value) {
     return 'DDP';
 }
 
+function mergePedidoItemOverrides(pedido, pedidoManual) {
+    if (!pedidoManual || !Array.isArray(pedidoManual.itens)) return pedido;
+
+    const basePedido = pedido && typeof pedido === 'object' ? pedido : {};
+    const baseItens = Array.isArray(basePedido.itens) ? basePedido.itens : [];
+    const ovItens = pedidoManual.itens;
+
+    if (!baseItens.length) {
+        const mergedManual = ovItens.map((it = {}) => ({
+            ...it,
+            preco: Number(it.preco ?? it.unitPrice ?? it.price ?? 0) || 0,
+            hscode: firstNonEmpty(
+                it.hscode,
+                it.hsCode,
+                it.hs_code,
+                it.harmonizedCode
+            ),
+        }));
+        return { ...basePedido, ...pedidoManual, itens: mergedManual };
+    }
+
+    const merged = baseItens.map((it = {}, idx) => {
+        const ov = ovItens[idx] || {};
+        const nextPrecoRaw = ov.preco ?? ov.unitPrice ?? ov.price ?? it.preco;
+        return {
+            ...it,
+            ...ov,
+            preco: Number(nextPrecoRaw ?? 0) || 0,
+            hscode: firstNonEmpty(
+                ov.hscode,
+                ov.hsCode,
+                ov.hs_code,
+                ov.harmonizedCode,
+                it.hscode,
+                it.hsCode,
+                it.hs_code,
+                it.harmonizedCode
+            ),
+        };
+    });
+
+    return { ...basePedido, itens: merged };
+}
+
 function buildCommoditiesFromPedido(pedido, packages = []) {
     const currency = (pedido.moeda || 'USD').toUpperCase();
 
@@ -470,7 +514,13 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
 
         const lineTotal = (unitPrice * qty); // Number(it.valorTotalLinha || 0)
 
-        const hs = firstNonEmpty(it.hscode);
+        const hs = firstNonEmpty(
+            it.hscode ||
+            it.hsCode ||
+            it.hs_code || 
+            it.harmonizedCode || 
+            it.hscodes
+        );
         console.log(hs)
 
         // peso por item: prioridade -> pesoUnit (se vier) -> rateio do total dos packages
@@ -815,6 +865,7 @@ module.exports = {
             if (!pedido && req.body?.pedido_manual) {
                 pedido = req.body.pedido_manual;
             }
+            pedido = mergePedidoItemOverrides(pedido, req.body?.pedido_manual);
             if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido nÃ£o encontrado.' });
 
             const shipperOverride = req.body?.shipper || req.body?.remetente || null;
@@ -872,6 +923,7 @@ module.exports = {
             if (!pedido && req.body?.pedido_manual) {
                 pedido = req.body.pedido_manual;
             }
+            pedido = mergePedidoItemOverrides(pedido, req.body?.pedido_manual);
             if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido nÃ£o encontrado.' });
 
             console.log(
