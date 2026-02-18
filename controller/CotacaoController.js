@@ -927,10 +927,27 @@ async function updateCotacao(req, res) {
 
 async function deleteCotacao(req, res) {
     try {
-        const { id } = req.params;
-        const cot = await Cotacao.findByPk(id);
+        const id = Number(req.params.id);
+        const cliente_id = Number(req.cliente?.id ?? req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId);
+
+        if (!Number.isFinite(id)) {
+            return res.status(400).json({ ok: false, error: 'id inválido' });
+        }
+        if (!cliente_id) {
+            return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
+        }
+
+        const cot = await Cotacao.findOne({ where: { id, cliente_id } });
         if (!cot) return res.status(404).json({ ok: false, error: 'Cotação não encontrada' });
+
+        const pedidoRef = cot.pedido_ref;
         await cot.destroy();
+
+        await db.PedidoImport.update(
+            { status: false },
+            { where: { cliente_id, pedido_ref: pedidoRef } }
+        );
+
         return res.json({ ok: true, deleted: true });
     } catch (err) {
         console.error('deleteCotacao error:', err);

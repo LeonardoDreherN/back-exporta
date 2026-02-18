@@ -40,6 +40,9 @@ router.get('/:id/remetente', requireAuth, ctrl.getCotacaoRemetente);
 
 router.post('/:id/pickup', requireAuth, agendarPickupCotacao)
 
+router.delete('/:id', requireAuth, ctrl.deleteCotacao)
+router.delete('/:id/deletar', requireAuth, ctrl.deleteCotacao)
+
 
 // Ajuste de plano do cliente (opcional manter aqui)
 router.patch('/clientes/:id/plano', async (req, res) => {
