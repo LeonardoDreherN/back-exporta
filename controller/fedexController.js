@@ -303,6 +303,26 @@ function round3(n) {
     return Math.round((Number(n) || 0) * 1000) / 1000;
 }
 
+function round2(n) {
+    return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function calcPedidoProdutosTotal(pedido = {}) {
+    const itens = Array.isArray(pedido?.itens) ? pedido.itens : [];
+    const tamanho = itens.length;
+    let valorTotal = 0;
+    for (let i = 0; i < tamanho; i++) {
+        const item = itens[i] || {};
+        const qty = Number(item.qty || item.quantidade || 0) || 0;
+        const preco = Number(item.preco ?? 0) || 0;
+        const linha = preco * qty;
+        valorTotal += Number.isFinite(linha) ? linha : 0;
+    }
+
+    const total = tamanho > 0 ? valorTotal : (Number(pedido?.total || 0) || 0);
+    return round2(total * 0.10);
+}
+
 function getBoxDimsCm(cx = {}) {
     // ajuste aqui pros nomes reais do seu model "Caixas"
     const length = Number(cx.lengthCm ?? cx.comprimentoCm ?? cx.comprimento ?? cx.length ?? 0);
@@ -517,8 +537,8 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
         const hs = firstNonEmpty(
             it.hscode ||
             it.hsCode ||
-            it.hs_code || 
-            it.harmonizedCode || 
+            it.hs_code ||
+            it.harmonizedCode ||
             it.hscodes
         );
         console.log(hs)
@@ -561,13 +581,15 @@ async function buildFedexShipPayload({
     pesoTotalPedidoKg,
     invoiceNumber,
     freightTotal,
-    termsOfSale
+    termsOfSale,
+    invoiceOtherAmount = 0
 }) {
     const acct = process.env.FEDEX_ACCOUNT_NUMBER
     const requestedPackageLineItems = normalizePackagesForShip(packages, pesoTotalPedidoKg);
 
     const invNumber = String(invoiceNumber || `INV-${Date.now()}`);
     const freightAmount = Number(freightTotal || 0) || 0;
+    const otherAmount = round2(Number(invoiceOtherAmount || 0) || 0);
 
     try {
         const s1 = shipper?.address?.streetLines || [];
@@ -663,7 +685,12 @@ async function buildFedexShipPayload({
                     freightCharge: {
                         amount: freightAmount, // valor total do frete
                         currency
-                    }
+                    },
+                    taxesOrMiscellaneousCharge: {
+                        amount: otherAmount,
+                        currency
+                    },
+                    taxesOrMiscellaneousChargeType: "OTHER",
                 },
                 dutiesPayment: {
                     paymentType: 'SENDER'
@@ -975,6 +1002,10 @@ module.exports = {
                 req.body?.termsOfSale ||
                 req.body?.terms_of_sale ||
                 'DDP';
+            const destCountry = String(recipient?.address?.countryCode || '').toUpperCase();
+            const invoiceOtherAmount = destCountry === 'US'
+                ? calcPedidoProdutosTotal(pedido)
+                : 0;
 
             const payload = await buildFedexShipPayload({
                 shipper,
@@ -986,7 +1017,8 @@ module.exports = {
                 pesoTotalPedidoKg,
                 invoiceNumber,
                 freightTotal,
-                termsOfSale
+                termsOfSale,
+                invoiceOtherAmount
             });
 
             const data = await createShipment(payload);
