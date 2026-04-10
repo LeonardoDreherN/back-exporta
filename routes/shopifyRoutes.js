@@ -54,7 +54,7 @@ require('dotenv').config();
 
 const router = express.Router();
 
-const APP_URL = process.env.SHOPIFY_APP_URL.replace(/\/$/, '');
+const APP_URL = (process.env.SHOPIFY_APP_URL || '').replace(/\/$/, '');
 const API_KEY = process.env.SHOPIFY_API_KEY;
 const API_SECRET = process.env.SHOPIFY_API_SECRET;
 const RAW_SCOPES = String(process.env.SHOPIFY_API_SCOPES || '');
@@ -322,7 +322,7 @@ router.post(
     findCustomerFromCsv
 );
 
-router.post('/register-carrier', async (req, res) => {
+router.post('/register-carrier', autenticarUsuario, vincularCliente, async (req, res) => {
     try {
         console.log('[REGISTER CARRIER] body:', req.body);
 
@@ -363,7 +363,7 @@ router.post('/register-carrier', async (req, res) => {
         const variables = {
             input: {
                 name: 'Intrex Shipping',
-                callbackUrl: 'https://back-exporta.onrender.com/shopify/carrier',
+                callbackUrl: process.env.SHOPIFY_CARRIER_CALLBACK_URL || 'https://back-exporta.onrender.com/shopify/carrier',
                 supportsServiceDiscovery: true,
                 active: true
             }
@@ -379,13 +379,17 @@ router.post('/register-carrier', async (req, res) => {
         });
 
         const data = await response.json();
+        const carrierResp = data?.data?.carrierServiceCreate;
+        const userErrors = carrierResp?.userErrors || [];
 
         console.log('[REGISTER CARRIER] response:', JSON.stringify(data, null, 2));
 
         return res.json({
-            ok: response.ok,
+            ok: response.ok && userErrors.length === 0,
             shop,
-            data
+            carrierService: carrierResp?.carrierService || null,
+            userErrors,
+            raw: data
         });
     } catch (e) {
         console.error('[REGISTER CARRIER ERROR]', e);
