@@ -220,7 +220,10 @@ function mapEnderecoToFedexParty(raw, fallback) {
     if (hasStateField) {
         address.stateOrProvinceCode = state ? String(state).toUpperCase() : undefined;
     }
-    if (postal) address.postalCode = cleanPostal(country, postal);
+    if (postal) {
+    const countryCode = iso2Country(country) || address.countryCode;
+    address.postalCode = cleanPostal(countryCode, postal);
+}
     if (country) address.countryCode = iso2Country(country) || address.countryCode;
     if (typeof raw.residential === 'boolean') address.residential = raw.residential;
 
@@ -252,9 +255,9 @@ function normalizePackagesForShip(packages = [], pesoTotalPedidoKg) {
     }
 
     return pkgs.map((p, idx) => {
-        const weightKg = Number(pesoTotalPedidoKg);
+        const weightKg = Number(p.weightKg);
         if (!Number.isFinite(weightKg) || weightKg <= 0) {
-            throw new Error('pesoTotalPedidoKg inválido (precisa ser > 0).');
+            throw new Error('Peso da caixa inválido (precisa ser > 0).');
         }
 
         const length = Number(p.length ?? p.lengthCm ?? p.dimCm?.length ?? 20) || 20;
@@ -341,7 +344,9 @@ function distributePedidoWeightAcrossCaixas(totalKg, caixas = []) {
 }
 
 function mapClienteToFedexShipper(cliente) {
+    const countryCode = iso2Country(cliente.enderecoPais || 'BR') || 'BR';
     const line1 = [cliente.enderecoRua, cliente.enderecoNumero].filter(Boolean).join(', ');
+
     return {
         contact: {
             personName: cliente.razaoSocial || cliente.nomeFantasia || 'Shipper',
@@ -356,8 +361,8 @@ function mapClienteToFedexShipper(cliente) {
             ),
             city: cliente.enderecoCidade || 'Sao Paulo',
             stateOrProvinceCode: (cliente.enderecoEstado || 'SP').toUpperCase(),
-            postalCode: cleanPostal(cliente.enderecoCEP || ''),
-            countryCode: iso2Country(cliente.enderecoPais || 'BR') || 'BR',
+            countryCode,
+            postalCode: cleanPostal(countryCode, cliente.enderecoCEP || ''),
         },
         tins: [
             {
@@ -368,7 +373,9 @@ function mapClienteToFedexShipper(cliente) {
 }
 
 function mapClienteToFedexShipperIOR(cliente) {
+    const countryCode = iso2Country(cliente.enderecoPais || 'BR') || 'BR';
     const line1 = [cliente.enderecoIOR, cliente.numeroIOR].filter(Boolean).join(', ');
+
     return {
         contact: {
             personName: cliente.nomeIOR || 'Shipper',
@@ -383,8 +390,8 @@ function mapClienteToFedexShipperIOR(cliente) {
             ),
             city: cliente.enderecoCidade || 'Sao Paulo',
             stateOrProvinceCode: (cliente.enderecoEstado || '').toUpperCase(),
-            postalCode: cleanPostal(cliente.enderecoPais || 'BR', cliente.enderecoCEP || ''),
-            countryCode: iso2Country(cliente.enderecoPais || 'BR') || 'BR',
+            countryCode,
+            postalCode: cleanPostal(countryCode, cliente.enderecoCEP || ''),
         },
         tins: [
             {
@@ -405,7 +412,8 @@ function mapPedidoToFedexRecipient(pedido) {
     const dest = pedido?.endereco || pedido?.shipping_address || pedido?.shippingAddress || {};
     const ruaNum = splitEndereco(dest.rua || dest.address1 || pedido.endereco || '');
 
-    console.log("DESTINO FEDEX: ", pedido)
+    const countryCode = iso2Country(dest.pais || dest.countryCode || pedido.pais || 'US') || 'US';
+
     const base1 = dest.rua || dest.address1 || pedido.endereco || '';
     const base2 = dest.address2 || dest.complemento || dest.complement || '';
     const line1 =
@@ -415,8 +423,6 @@ function mapPedidoToFedexRecipient(pedido) {
     const line2 =
         normalizeSpaces(base2) ||
         normalizeSpaces(ruaNum?.complemento || '');
-
-    console.log("POSTALCODE: ", dest.postalCode, "CEP: ", dest.zip)
 
     return {
         contact: {
@@ -429,8 +435,8 @@ function mapPedidoToFedexRecipient(pedido) {
             streetLines: buildFedexStreetLines(line1, line2),
             city: dest.cidade || dest.city || pedido.cidade || 'Miami',
             stateOrProvinceCode: (dest.estado || dest.province || pedido.estado || '').toUpperCase(),
-            postalCode: cleanPostal(dest.cep || dest.zip || pedido.CEP || ''),
-            countryCode: iso2Country(dest.pais || dest.countryCode || pedido.pais || 'US') || 'US',
+            countryCode,
+            postalCode: cleanPostal(countryCode, dest.cep || dest.zip || pedido.CEP || ''),
             residential: Boolean(dest.residential ?? false),
         },
         tins: [
@@ -439,11 +445,10 @@ function mapPedidoToFedexRecipient(pedido) {
                 number: safeStr(dest.cnpjCpf || dest.cnpj || dest.cpf || ''),
             }
         ],
-        accountNumber: {
-            value: accountNumber
-        }
     };
 }
+
+
 
 function buildCommoditiesFromPedido(pedido, packages = []) {
     const currency = (pedido.moeda || 'USD').toUpperCase();
@@ -789,7 +794,9 @@ module.exports = {
 
             if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatória.' });
             if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório.' });
-            if (!pesoTotalPedidoKg) return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg é obrigatório.' });
+            if (!Number.isFinite(Number(pesoTotalPedidoKg)) || Number(pesoTotalPedidoKg) <= 0) {
+    return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg é obrigatório e deve ser > 0.' });
+}
 
             // 1) carrega N caixas
             let packages = await loadCaixaImport(packagesId, cliente.id);
@@ -799,12 +806,34 @@ module.exports = {
             packages = distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
 
             const pedido = await loadPedidoImport(pedido_ref, cliente.id);
-            if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
+if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
+
+if (!Array.isArray(pedido.itens) || !pedido.itens.length) {
+    return res.status(400).json({
+        ok: false,
+        error: 'Pedido sem itens para montar commodities.',
+    });
+}
 
             const shipperOverride = req.body?.shipper || req.body?.remetente || null;
             const recipientOverride = req.body?.recipient || req.body?.destinatario || null;
             const shipper = mapEnderecoToFedexParty(shipperOverride, mapClienteToFedexShipper(cliente));
             const recipient = mapEnderecoToFedexParty(recipientOverride, mapPedidoToFedexRecipient(pedido));
+
+            if (!shipper?.address?.postalCode) {
+    return res.status(400).json({
+        ok: false,
+        error: 'CEP do remetente inválido.'
+    });
+}
+
+if (!recipient?.address?.postalCode) {
+    return res.status(400).json({
+        ok: false,
+        error: 'CEP do destinatário inválido.'
+    });
+}
+
             const { commodities } = buildCommoditiesFromPedido(pedido, packages);
 
             // IMPORTANTE: quoteRates AINDA precisa de packages (pra montar requestedPackageLineItems)
@@ -844,7 +873,9 @@ module.exports = {
 
             if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatória.' });
             if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório.' });
-            if (!pesoTotalPedidoKg) return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg é obrigatório.' });
+            if (!Number.isFinite(Number(pesoTotalPedidoKg)) || Number(pesoTotalPedidoKg) <= 0) {
+    return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg é obrigatório e deve ser > 0.' });
+}
 
             let packages = await loadCaixaImport(packagesId, cliente.id);
             if (!packages.length) return res.status(404).json({ ok: false, error: 'Caixa(s) não encontrada(s).' });
@@ -853,7 +884,14 @@ module.exports = {
             packages = distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
 
             const pedido = await loadPedidoImport(pedido_ref, cliente.id);
-            if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
+if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
+
+if (!Array.isArray(pedido.itens) || !pedido.itens.length) {
+    return res.status(400).json({
+        ok: false,
+        error: 'Pedido sem itens para montar commodities.',
+    });
+}
             console.log("PEDIDO PARA SHIP: ", pedido)
 
             // commodities: se você não tem peso por item, essa função já vai ratear usando o totalKgFromPackages
@@ -890,6 +928,20 @@ module.exports = {
             const shipper = mapEnderecoToFedexParty(shipperOverride, mapClienteToFedexShipper(cliente));
             const recipient = mapEnderecoToFedexParty(recipientOverride, mapPedidoToFedexRecipient(pedido));
             const soldTo = mapClienteToFedexShipperIOR(cliente);
+
+            if (!shipper?.address?.postalCode) {
+    return res.status(400).json({
+        ok: false,
+        error: 'CEP do remetente inválido.'
+    });
+}
+
+if (!recipient?.address?.postalCode) {
+    return res.status(400).json({
+        ok: false,
+        error: 'CEP do destinatário inválido.'
+    });
+}
 
             const payload = await buildFedexShipPayload({
                 shipper,

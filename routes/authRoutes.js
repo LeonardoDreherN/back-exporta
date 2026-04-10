@@ -4,7 +4,14 @@ const jwt = require('jsonwebtoken');
 const router = express.Router();
 
 const ACCESS_TOKEN = 15 * 60;
-const cookieBase = { httpOnly: true, secure: false, sameSite: 'lax', path: '/' };
+const isProd = process.env.NODE_ENV === 'production';
+
+const cookieBase = {
+  httpOnly: true,
+  secure: isProd,
+  sameSite: isProd ? 'none' : 'lax',
+  path: '/',
+};
 
 function refresh (req, res) {
     const rt = req.cookies?.refresh_token;
@@ -21,10 +28,17 @@ function refresh (req, res) {
 };
 
 function logout (req, res) {
-    res.clearCookie('access_token', { path: '/' });
-    res.clearCookie('refresh_token', { path: '/' });
-    res.clearCookie('csrf_token', { path: '/' });
-    res.json({ ok: true });
+  const clearBase = {
+    path: '/',
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'lax',
+  };
+
+  res.clearCookie('access_token', clearBase);
+  res.clearCookie('refresh_token', clearBase);
+  res.clearCookie('csrf_token', clearBase);
+  res.clearCookie('token', clearBase);
+  res.json({ ok: true });
 };
 
 module.exports = {refresh, logout};
