@@ -1,9 +1,6 @@
-
-
 const base = process.env.NODE_ENV === 'production'
     ? (process.env.FEDEX_BASE_URL_PROD || 'https://apis.fedex.com')
     : (process.env.FEDEX_BASE_URL || 'https://apis-sandbox.fedex.com');
-
 
 module.exports = {
     base,

@@ -44,7 +44,6 @@ function splitByWordsMaxLen(text, maxLen) {
     }
     if (cur) out.push(cur);
 
-    // fallback: se algum pedaÃ§o ainda passar, corta bruto
     return out.flatMap((ln) => {
         if (ln.length <= maxLen) return [ln];
         const parts = [];
@@ -59,7 +58,6 @@ function buildFedexStreetLines(...lines) {
     return expanded.slice(0, FEDEX_STREETLINES_MAX_LINES);
 }
 
-// FedEx: estamos usando LABEL em PDF
 function labelTypeToMimeFedex(type) {
     const t = String(type || '').toUpperCase();
     if (t === 'PDF') return 'application/pdf';
@@ -86,9 +84,6 @@ function toYMDDate(d) {
     return toYMDDate(dd);
 }
 
-/**
- * Normaliza erro vindo da FedEx (rate / ship)
- */
 function normalizeFedexError(err) {
     const status = err?.status || err?.response?.status || 500;
     const data = err?.upstream || err?.response?.data;
@@ -104,17 +99,12 @@ function normalizeFedexError(err) {
     return { status, message, raw: data };
 }
 
-/**
- * Monta endereÃ§o simplificado para o serviÃ§o de rate FedEx
- * { countryCode, postalCode, city, stateOrProvinceCode }
- */
 function mapToFedexRateAddress(raw = {}) {
-    // Se vier no formato FedEx (com .address), usa ele
     const addr = raw.address || raw;
 
     const country =
         addr.enderecoPais ||
-        addr.countryCode || // FedEx
+        addr.countryCode ||
         addr.country ||
         addr.pais ||
         '';
@@ -122,24 +112,20 @@ function mapToFedexRateAddress(raw = {}) {
     return {
         countryCode: iso2Country(country) || '',
         postalCode: cleanZip(
-            addr.postalCode || // FedEx
+            addr.postalCode ||
             addr.cep ||
             addr.enderecoCEP ||
             ''
         ),
         city: addr.city || addr.cidade || addr.enderecoCidade || undefined,
         stateOrProvinceCode:
-            addr.stateOrProvinceCode || // FedEx
+            addr.stateOrProvinceCode ||
             addr.state ||
             addr.enderecoEstado ||
             undefined,
     };
 }
 
-/**
- * Monta packages para o serviÃ§o de rate FedEx
- * Espera packages: [{ weightKg, dimCm: {length,width,height} }]
- */
 function mapToFedexRatePackages(packages = []) {
     if (!Array.isArray(packages) || !packages.length) {
         return [
@@ -174,9 +160,16 @@ function firstNonEmpty(...vals) {
     return '';
 }
 
+function cleanPostal(countryCode, value) {
+    const raw = String(value || '').trim().toUpperCase();
+    if (!raw) return '';
+    if (countryCode === 'BR') return raw.replace(/\D/g, '');
+    return raw.replace(/\s+/g, '');
+}
+
 function mapEnderecoToFedexParty(raw, fallback) {
     if (!raw || typeof raw !== 'object') return fallback;
-    if (raw.contact && raw.address) return raw; // ja esta no formato FedEx
+    if (raw.contact && raw.address) return raw;
 
     const base = fallback || {};
     const contact = { ...(base.contact || {}) };
@@ -220,7 +213,10 @@ function mapEnderecoToFedexParty(raw, fallback) {
     if (hasStateField) {
         address.stateOrProvinceCode = state ? String(state).toUpperCase() : undefined;
     }
-    if (postal) address.postalCode = cleanPostal(country, postal);
+    if (postal) {
+        const countryCode = iso2Country(country) || address.countryCode;
+        address.postalCode = cleanPostal(countryCode, postal);
+    }
     if (country) address.countryCode = iso2Country(country) || address.countryCode;
     if (typeof raw.residential === 'boolean') address.residential = raw.residential;
 
@@ -252,9 +248,9 @@ function normalizePackagesForShip(packages = [], pesoTotalPedidoKg) {
     }
 
     return pkgs.map((p, idx) => {
-        const weightKg = Number(pesoTotalPedidoKg);
+        const weightKg = Number(p.weightKg);
         if (!Number.isFinite(weightKg) || weightKg <= 0) {
-            throw new Error('pesoTotalPedidoKg invÃ¡lido (precisa ser > 0).');
+            throw new Error('Peso da caixa inválido (precisa ser > 0).');
         }
 
         const length = Number(p.length ?? p.lengthCm ?? p.dimCm?.length ?? 20) || 20;
@@ -273,7 +269,6 @@ function normalizePackagesForShip(packages = [], pesoTotalPedidoKg) {
 function extractShipArtifacts(data) {
     const output = data?.output || data;
 
-    // tracking
     const txShipments = output?.transactionShipments || [];
     const firstTx = txShipments[0] || {};
 
@@ -283,12 +278,10 @@ function extractShipArtifacts(data) {
         firstTx?.trackingNumber ||
         null;
 
-    // label url(s)
     const docs = firstTx?.shipmentDocuments || [];
     const labelDocs = docs.filter(d => /LABEL/i.test(d?.contentType || d?.type || '') || /LABEL/i.test(d?.documentType || ''));
     const labelUrls = labelDocs.map(d => d?.url).filter(Boolean);
 
-    // commercial invoice url(s)
     const ciDocs = docs.filter(d =>
         /COMMERCIAL/i.test(d?.contentType || '') ||
         /INVOICE/i.test(d?.contentType || '') ||
@@ -324,7 +317,6 @@ function calcPedidoProdutosTotal(pedido = {}) {
 }
 
 function getBoxDimsCm(cx = {}) {
-    // ajuste aqui pros nomes reais do seu model "Caixas"
     const length = Number(cx.lengthCm ?? cx.comprimentoCm ?? cx.comprimento ?? cx.length ?? 0);
     const width = Number(cx.widthCm ?? cx.larguraCm ?? cx.largura ?? cx.width ?? 0);
     const height = Number(cx.heightCm ?? cx.alturaCm ?? cx.altura ?? cx.height ?? 0);
@@ -335,24 +327,22 @@ function getBoxDimsCm(cx = {}) {
 function boxVolumeScore(cx = {}) {
     const d = getBoxDimsCm(cx);
     const vol = (d.length > 0 && d.width > 0 && d.height > 0) ? (d.length * d.width * d.height) : 0;
-    return vol > 0 ? vol : 1; // se nÃ£o tiver dimensÃ£o, score 1 (divide igual)
+    return vol > 0 ? vol : 1;
 }
 
 function distributePedidoWeightAcrossCaixas(totalKg, caixas = []) {
     const total = Number(totalKg);
-    if (!Number.isFinite(total) || total <= 0) throw new Error('pesoTotalPedidoKg invÃ¡lido (precisa ser > 0).');
+    if (!Number.isFinite(total) || total <= 0) throw new Error('pesoTotalPedidoKg inválido (precisa ser > 0).');
     if (!Array.isArray(caixas) || !caixas.length) throw new Error('Nenhuma caixa para dividir peso.');
 
     const scores = caixas.map(boxVolumeScore);
     const sum = scores.reduce((a, b) => a + b, 0) || 1;
 
-    // distribui + arredonda
     let parts = caixas.map((cx, i) => ({
         ...cx,
         weightKg: round3(total * (scores[i] / sum)),
     }));
 
-    // garante soma exata ajustando a Ãºltima caixa
     const sumRounded = parts.reduce((acc, p) => acc + (Number(p.weightKg) || 0), 0);
     const diff = round3(total - sumRounded);
     parts[parts.length - 1].weightKg = round3((parts[parts.length - 1].weightKg || 0) + diff);
@@ -361,13 +351,15 @@ function distributePedidoWeightAcrossCaixas(totalKg, caixas = []) {
 }
 
 function mapClienteToFedexShipper(cliente) {
+    const countryCode = iso2Country(cliente.enderecoPais || 'BR') || 'BR';
     const line1 = [cliente.enderecoRua, cliente.enderecoNumero].filter(Boolean).join(', ');
+
     return {
         contact: {
             personName: cliente.razaoSocial || cliente.nomeFantasia || 'Shipper',
             companyName: cliente.razaoSocial || cliente.nomeFantasia || 'Shipper Company',
             phoneNumber: String(cliente.telefoneCelular || cliente.telefone || '11999999999'),
-            emailAddress: cliente.emailPrincipal || cliente.email || ""
+            emailAddress: cliente.emailPrincipal || cliente.email || ''
         },
         address: {
             streetLines: buildFedexStreetLines(
@@ -376,8 +368,8 @@ function mapClienteToFedexShipper(cliente) {
             ),
             city: cliente.enderecoCidade || 'Sao Paulo',
             stateOrProvinceCode: (cliente.enderecoEstado || 'SP').toUpperCase(),
-            postalCode: cleanPostal(cliente.enderecoCEP || ''),
-            countryCode: iso2Country(cliente.enderecoPais || 'BR') || 'BR',
+            countryCode,
+            postalCode: cleanPostal(countryCode, cliente.enderecoCEP || ''),
         },
         tins: [
             {
@@ -388,13 +380,15 @@ function mapClienteToFedexShipper(cliente) {
 }
 
 function mapClienteToFedexShipperIOR(cliente) {
+    const countryCode = iso2Country(cliente.enderecoPais || 'BR') || 'BR';
     const line1 = [cliente.enderecoIOR, cliente.numeroIOR].filter(Boolean).join(', ');
+
     return {
         contact: {
             personName: cliente.nomeIOR || 'Shipper',
             companyName: cliente.nomeIOR || 'Shipper Company',
             phoneNumber: String(cliente.telefoneIOR || '11999999999'),
-            emailAddress: cliente.emailIOR || ""
+            emailAddress: cliente.emailIOR || ''
         },
         address: {
             streetLines: buildFedexStreetLines(
@@ -403,8 +397,8 @@ function mapClienteToFedexShipperIOR(cliente) {
             ),
             city: cliente.enderecoCidade || 'Sao Paulo',
             stateOrProvinceCode: (cliente.enderecoEstado || '').toUpperCase(),
-            postalCode: cleanPostal(cliente.enderecoPais || 'BR', cliente.enderecoCEP || ''),
-            countryCode: iso2Country(cliente.enderecoPais || 'BR') || 'BR',
+            countryCode,
+            postalCode: cleanPostal(countryCode, cliente.enderecoCEP || ''),
         },
         tins: [
             {
@@ -414,16 +408,11 @@ function mapClienteToFedexShipperIOR(cliente) {
     };
 }
 
-function cleanPostal(countryCode, value) {
-    const raw = String(value || "").trim().toUpperCase();
-    if (!raw) return "";
-    if (countryCode === "BR") return raw.replace(/\D/g, "");
-    return raw.replace(/\s+/g, ""); // UK: TN235RZ
-}
-
 function mapPedidoToFedexRecipient(pedido) {
     const dest = pedido?.endereco || pedido?.shipping_address || pedido?.shippingAddress || {};
     const ruaNum = splitEndereco(dest.rua || dest.address1 || pedido.endereco || '');
+
+    const countryCode = iso2Country(dest.pais || dest.countryCode || pedido.pais || 'US') || 'US';
 
     const base1 = dest.rua || dest.address1 || pedido.endereco || '';
     const base2 = dest.address2 || dest.complemento || dest.complement || '';
@@ -434,7 +423,6 @@ function mapPedidoToFedexRecipient(pedido) {
     const line2 =
         normalizeSpaces(base2) ||
         normalizeSpaces(ruaNum?.complemento || '');
-
 
     return {
         contact: {
@@ -447,8 +435,8 @@ function mapPedidoToFedexRecipient(pedido) {
             streetLines: buildFedexStreetLines(line1, line2),
             city: dest.cidade || dest.city || pedido.cidade || 'Miami',
             stateOrProvinceCode: (dest.estado || dest.province || pedido.estado || '').toUpperCase(),
-            postalCode: cleanPostal(dest.cep || dest.zip || pedido.CEP || ''),
-            countryCode: iso2Country(dest.pais || dest.countryCode || pedido.pais || 'US') || 'US',
+            countryCode,
+            postalCode: cleanPostal(countryCode, dest.cep || dest.zip || pedido.CEP || ''),
             residential: Boolean(dest.residential ?? false),
         },
         tins: [
@@ -457,9 +445,6 @@ function mapPedidoToFedexRecipient(pedido) {
                 number: safeStr(dest.cnpjCpf || dest.cnpj || dest.cpf || ''),
             }
         ],
-        accountNumber: {
-            value: accountNumber
-        }
     };
 }
 
@@ -516,7 +501,6 @@ function mergePedidoItemOverrides(pedido, pedidoManual) {
 function buildCommoditiesFromPedido(pedido, packages = []) {
     const currency = (pedido.moeda || 'USD').toUpperCase();
 
-    // tenta usar peso total vindo dos packages e dividir proporcionalmente se nÃ£o tiver pesoUnit
     const totalKgFromPackages = (Array.isArray(packages) ? packages : []).reduce((acc, p) => {
         const w = Number(p.weightKg ?? p.pesoKg ?? 0);
         return acc + (Number.isFinite(w) ? w : 0);
@@ -524,15 +508,12 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
 
     const itens = Array.isArray(pedido.itens) ? pedido.itens : [];
     const totalQty = itens.reduce((acc, it) => acc + (Number(it.qty || 0) || 0), 0) || 1;
-    const itensSemPesoUnit = itens.every((it) => Number(it.pesoUnit || 0) <= 0);
 
     const commodities = itens.map((it) => {
-        console.log("IT: ", it)
+        console.log('IT: ', it);
         const qty = Number(it.qty || 1) || 1;
-
         const unitPrice = Number(it.preco || 0) || 0;
-
-        const lineTotal = (unitPrice * qty); // Number(it.valorTotalLinha || 0)
+        const lineTotal = (unitPrice * qty);
 
         const hs = firstNonEmpty(
             it.hscode ||
@@ -541,35 +522,28 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
             it.harmonizedCode ||
             it.hscodes
         );
-        console.log(hs)
+        console.log(hs);
 
-        // peso por item: prioridade -> pesoUnit (se vier) -> rateio do total dos packages
-        const pesoUnitKg = Number(it.pesoUnit || 0); // se vocÃª salvar em kg
+        const pesoUnitKg = Number(it.pesoUnit || 0);
         const weightKgRaw =
             (pesoUnitKg > 0 ? pesoUnitKg * qty : 0) ||
             (totalKgFromPackages > 0 ? (totalKgFromPackages * (qty / totalQty)) : 1);
         const weightKg = round3(weightKgRaw);
 
         return {
-            description: (it.titulo || 'Item').slice(0, 450), // FedEx tem limites, corta por seguranÃ§a
+            description: (it.titulo || 'Item').slice(0, 450),
             countryOfManufacture: 'BR',
             quantity: qty,
             quantityUnits: 'PCS',
-
-            // (opcional) HS code se tiver
             ...(hs ? { harmonizedCode: String(hs).trim() } : {}),
-
             unitPrice: { amount: unitPrice, currency },
             customsValue: { amount: lineTotal, currency },
             weight: { units: 'KG', value: weightKg },
         };
     });
-    const totalCommoditiesKg = commodities.reduce((acc, c) => acc + (Number(c.weight?.value) || 0), 0);
 
     return { commodities, currency };
 }
-
-
 
 async function buildFedexShipPayload({
     shipper,
@@ -584,7 +558,7 @@ async function buildFedexShipPayload({
     termsOfSale,
     invoiceOtherAmount = 0
 }) {
-    const acct = process.env.FEDEX_ACCOUNT_NUMBER
+    const acct = process.env.FEDEX_ACCOUNT_NUMBER;
     const requestedPackageLineItems = normalizePackagesForShip(packages, pesoTotalPedidoKg);
 
     const invNumber = String(invoiceNumber || `INV-${Date.now()}`);
@@ -594,53 +568,16 @@ async function buildFedexShipPayload({
     try {
         const s1 = shipper?.address?.streetLines || [];
         const r1 = recipient?.address?.streetLines || [];
-    } catch (_) { }
+    } catch (_) {}
 
     console.log('[FEDEX][SHIP][BUILD_PAYLOAD] commodities:', commodities);
 
-    // total da linha (preferÃªncia: customsValue vindo do builder; fallback: unit*qty)
-
     return {
         labelResponseOptions: 'URL_ONLY',
-        // accountNumber: serÃ¡ injetado no service se nÃ£o vier; aqui pode omitir
-
         requestedShipment: {
             shipDateStamp: toYMDDate(new Date()),
             shipper,
-            // CLIENTE: {
-            //     contact: {
-            //         personName: 'Exporta-Digital',
-            //         companyName: 'Exporta-Digital',
-            //         phoneNumber: '48984848484'
-            //     },
-            //     address: {
-            //         streetLines: ['Rua Teste, 123'],
-            //         city: 'sao jose',
-            //         stateOrProvinceCode: 'SC',
-            //         postalCode: '88888888',
-            //         countryCode: 'BR'
-            //     }
-            // }
-
             recipients: [recipient],
-            // PEDIDO: {
-            //     contact: {
-            //         personName: 'Maria Garcia',
-            //         companyName: 'Recipient Company',
-            //         phoneNumber: '9173715659',
-            //         emailAddress: '212marity@gmail.com'
-            //     },
-            //     address: {
-            //         streetLines: ['414 Thomas S Boyland Street, Apt, 44'],
-            //         city: 'Brooklyn',
-            //         stateOrProvinceCode: 'NY',
-            //         postalCode: '11233',
-            //         countryCode: 'US',
-            //         residential: false
-            //     }
-            // }
-            // soldTo,
-
             serviceType: 'FEDEX_INTERNATIONAL_CONNECT_PLUS',
             packagingType: 'YOUR_PACKAGING',
             pickupType: 'DROPOFF_AT_FEDEX_LOCATION',
@@ -652,14 +589,14 @@ async function buildFedexShipPayload({
 
             shipmentSpecialServices: {
                 specialServiceTypes: [
-                    "ELECTRONIC_TRADE_DOCUMENTS"
+                    'ELECTRONIC_TRADE_DOCUMENTS'
                 ],
                 etdDetail: {
                     requestedDocumentTypes: [
-                        "COMMERCIAL_INVOICE"
+                        'COMMERCIAL_INVOICE'
                     ],
                     attributes: [
-                        "POST_SHIPMENT_UPLOAD_REQUESTED"
+                        'POST_SHIPMENT_UPLOAD_REQUESTED'
                     ]
                 }
             },
@@ -673,24 +610,20 @@ async function buildFedexShipPayload({
                 importerOfRecord: soldTo,
                 commercialInvoice: {
                     invoiceNumber: invNumber,
-
                     customerReferences: [
-                        { customerReferenceType: "INVOICE_NUMBER", value: invNumber }, //pedido_ref para numerar as invoices
-                        // se quiser preencher PO tambÃ©m:
-                        // { customerReferenceType: "PURCHASE_ORDER_NUMBER", value: "PO-123" },
+                        { customerReferenceType: 'INVOICE_NUMBER', value: invNumber },
                     ],
-
                     termsOfSale: normalizeTermsOfSale(termsOfSale),
-                    paymentTerms: "Paid in Advance",
+                    paymentTerms: 'Paid in Advance',
                     freightCharge: {
-                        amount: freightAmount, // valor total do frete
+                        amount: freightAmount,
                         currency
                     },
                     taxesOrMiscellaneousCharge: {
                         amount: otherAmount,
                         currency
                     },
-                    taxesOrMiscellaneousChargeType: "OTHER",
+                    taxesOrMiscellaneousChargeType: 'OTHER',
                 },
                 dutiesPayment: {
                     paymentType: 'SENDER'
@@ -700,10 +633,10 @@ async function buildFedexShipPayload({
                     const qty = Number(c.quantity || 1) || 1;
                     const unit = Number(c.unitPrice?.amount ?? 0) || 0;
 
-                    // total da linha: usa o que veio pronto; senÃ£o calcula unit*qty
                     const customsAmount = Number.isFinite(Number(c.customsValue?.amount))
                         ? Number(c.customsValue.amount)
                         : (unit * qty);
+
                     return {
                         description: c.description || 'Item',
                         countryOfManufacture: iso2Country(c.countryOfManufacture || 'BR') || 'BR',
@@ -722,7 +655,7 @@ async function buildFedexShipPayload({
                             units: 'KG',
                             value: Number(c.weight?.value),
                         },
-                    }
+                    };
                 }),
             },
 
@@ -731,19 +664,19 @@ async function buildFedexShipPayload({
                 commercialInvoiceDetail: {
                     customerImageUsages: [
                         {
-                            id: "IMAGE_2",
-                            type: "LETTER_HEAD",
-                            providedImageType: "LETTER_HEAD"
+                            id: 'IMAGE_2',
+                            type: 'LETTER_HEAD',
+                            providedImageType: 'LETTER_HEAD'
                         },
                         {
-                            id: "IMAGE_2",
-                            type: "SIGNATURE",
-                            providedImageType: "SIGNATURE"
+                            id: 'IMAGE_2',
+                            type: 'SIGNATURE',
+                            providedImageType: 'SIGNATURE'
                         }
                     ],
                     documentFormat: {
-                        stockType: "PAPER_LETTER",
-                        docType: "PDF"
+                        stockType: 'PAPER_LETTER',
+                        docType: 'PDF'
                     }
                 }
             },
@@ -756,10 +689,6 @@ async function buildFedexShipPayload({
     };
 }
 
-/**
- * Extrai tracking, labelUrl e invoiceUrl do retorno da FedEx Ship
- * Estrutura Ã© meio variÃ¡vel, entÃ£o fazemos defensivo.
- */
 function extractFedexShipmentDocs(data = {}) {
     const out = data.output || data;
 
@@ -812,7 +741,6 @@ function extractFedexShipmentDocs(data = {}) {
         }
     }
 
-    // fallback ultra-defensivo
     if (!labelUrl && out.labelUrl) labelUrl = out.labelUrl;
     if (!invoiceUrl && out.invoiceUrl) invoiceUrl = out.invoiceUrl;
 
@@ -824,9 +752,6 @@ function extractFedexShipmentDocs(data = {}) {
     };
 }
 
-/**
- * Faz download de um URL (FedEx) e devolve base64
- */
 async function fetchUrlAsBase64(url) {
     if (!url) return null;
     const resp = await axios.get(url, { responseType: 'arraybuffer' });
@@ -842,16 +767,11 @@ async function loadCaixaImport(packId, clienteId) {
         where: { id: ids, id_cliente: clienteId },
     });
 
-    // findAll retorna array
     const caixas = rows.map(r => r.toJSON());
 
-    // mapeia pro formato "packages" (weightKg + dimCm)
     return caixas.map((cx) => {
         const dims = getBoxDimsCm(cx);
-
-        // ajuste pro seu campo novo: "peso" (em gramas) -> kg
-        // se seu campo for "peso" em gramas:
-        const pesoG = Number(cx.peso ?? cx.peso_g ?? cx.pesoG ?? 500); // default 500g
+        const pesoG = Number(cx.peso ?? cx.peso_g ?? cx.pesoG ?? 500);
         const weightKg = round3(pesoG / 1000);
 
         return {
@@ -866,26 +786,21 @@ async function loadCaixaImport(packId, clienteId) {
     });
 }
 
-
-
-// ========== CONTROLLER ==========
-
 module.exports = {
-    // ---------- RATE ----------
     rate: async (req, res) => {
         try {
             const cliente = await getClienteAtual(req, res);
             const { pedido_ref, packagesId, pesoTotalPedidoKg } = req.body || {};
 
-            if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatÃ³ria.' });
-            if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref Ã© obrigatÃ³rio.' });
-            if (!pesoTotalPedidoKg) return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg Ã© obrigatÃ³rio.' });
+            if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatória.' });
+            if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório.' });
+            if (!Number.isFinite(Number(pesoTotalPedidoKg)) || Number(pesoTotalPedidoKg) <= 0) {
+                return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg é obrigatório e deve ser > 0.' });
+            }
 
-            // 1) carrega N caixas
             let packages = await loadCaixaImport(packagesId, cliente.id);
-            if (!packages.length) return res.status(404).json({ ok: false, error: 'Caixa(s) nÃ£o encontrada(s).' });
+            if (!packages.length) return res.status(404).json({ ok: false, error: 'Caixa(s) não encontrada(s).' });
 
-            // 2) divide o peso total do pedido entre as caixas (isso alimenta requestedPackageLineItems)
             packages = distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
 
             let pedido = await loadPedidoImport(pedido_ref, cliente.id);
@@ -893,15 +808,36 @@ module.exports = {
                 pedido = req.body.pedido_manual;
             }
             pedido = mergePedidoItemOverrides(pedido, req.body?.pedido_manual);
-            if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido nÃ£o encontrado.' });
+            if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
+
+            if (!Array.isArray(pedido.itens) || !pedido.itens.length) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'Pedido sem itens para montar commodities.',
+                });
+            }
 
             const shipperOverride = req.body?.shipper || req.body?.remetente || null;
             const recipientOverride = req.body?.recipient || req.body?.destinatario || null;
             const shipper = mapEnderecoToFedexParty(shipperOverride, mapClienteToFedexShipper(cliente));
             const recipient = mapEnderecoToFedexParty(recipientOverride, mapPedidoToFedexRecipient(pedido));
+
+            if (!shipper?.address?.postalCode) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'CEP do remetente inválido.'
+                });
+            }
+
+            if (!recipient?.address?.postalCode) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'CEP do destinatário inválido.'
+                });
+            }
+
             const { commodities } = buildCommoditiesFromPedido(pedido, packages);
 
-            // IMPORTANTE: quoteRates AINDA precisa de packages (pra montar requestedPackageLineItems)
             const rate_payload = await quoteRates({
                 shipper,
                 recipient,
@@ -917,7 +853,6 @@ module.exports = {
                 carrier: r.carrier || 'FEDEX',
                 currency: r.currency || 'USD',
                 base: r.base || 0,
-                // comentario informal: total ajuda o front a nao mandar override 0
                 total: r.total || r.base || 0,
                 itemized: r.itemized || [],
             }));
@@ -930,20 +865,20 @@ module.exports = {
         }
     },
 
-    // ---------- SHIP ----------
     ship: async (req, res) => {
         try {
             const cliente = await getClienteAtual(req, res);
             const { packagesId, pedido_ref, pesoTotalPedidoKg, rate_payload } = req.body || {};
 
-            if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatÃ³ria.' });
-            if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref Ã© obrigatÃ³rio.' });
-            if (!pesoTotalPedidoKg) return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg Ã© obrigatÃ³rio.' });
+            if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatória.' });
+            if (!pedido_ref) return res.status(400).json({ ok: false, error: 'pedido_ref é obrigatório.' });
+            if (!Number.isFinite(Number(pesoTotalPedidoKg)) || Number(pesoTotalPedidoKg) <= 0) {
+                return res.status(400).json({ ok: false, error: 'pesoTotalPedidoKg é obrigatório e deve ser > 0.' });
+            }
 
             let packages = await loadCaixaImport(packagesId, cliente.id);
-            if (!packages.length) return res.status(404).json({ ok: false, error: 'Caixa(s) nÃ£o encontrada(s).' });
+            if (!packages.length) return res.status(404).json({ ok: false, error: 'Caixa(s) não encontrada(s).' });
 
-            // divide o peso total entre caixas (peso por volume)
             packages = distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
 
             let pedido = await loadPedidoImport(pedido_ref, cliente.id);
@@ -951,7 +886,14 @@ module.exports = {
                 pedido = req.body.pedido_manual;
             }
             pedido = mergePedidoItemOverrides(pedido, req.body?.pedido_manual);
-            if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido nÃ£o encontrado.' });
+            if (!pedido) return res.status(404).json({ ok: false, error: 'Pedido não encontrado.' });
+
+            if (!Array.isArray(pedido.itens) || !pedido.itens.length) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'Pedido sem itens para montar commodities.',
+                });
+            }
 
             console.log(
                 '[FEDEX][SHIP] pedido_ref:',
@@ -964,7 +906,6 @@ module.exports = {
                 pedido?.itens?.[0]?.hscode
             );
 
-            // commodities: se vocÃª nÃ£o tem peso por item, essa funÃ§Ã£o jÃ¡ vai ratear usando o totalKgFromPackages
             const { commodities, currency } = buildCommoditiesFromPedido(pedido, packages);
 
             let breakdown = null;
@@ -1007,6 +948,20 @@ module.exports = {
                 ? calcPedidoProdutosTotal(pedido)
                 : 0;
 
+            if (!shipper?.address?.postalCode) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'CEP do remetente inválido.'
+                });
+            }
+
+            if (!recipient?.address?.postalCode) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'CEP do destinatário inválido.'
+                });
+            }
+
             const payload = await buildFedexShipPayload({
                 shipper,
                 recipient,
@@ -1032,16 +987,15 @@ module.exports = {
         }
     },
 
-    // ---------- TRACK ----------
     track: async (req, res) => {
         try {
             const raw =
                 (req.params && req.params.tracking) ||
                 (req.query && (req.query.tn || req.query.tracking)) ||
-                "";
+                '';
 
-            const tn = String(raw).trim().replace(/['"`\s]/g, "").toUpperCase();
-            if (!tn) return res.status(400).json({ error: "Tracking vazio." });
+            const tn = String(raw).trim().replace(/['"`\s]/g, '').toUpperCase();
+            if (!tn) return res.status(400).json({ error: 'Tracking vazio.' });
 
             const data = await tracking.getByNumber(tn, { includeDetailedScans: true });
             return res.json(data);
@@ -1051,32 +1005,31 @@ module.exports = {
                 e?.details?.errors?.[0]?.message ||
                 e?.details?.error_description ||
                 e?.message ||
-                "Falha ao rastrear";
+                'Falha ao rastrear';
 
-            console.error("[FEDEX/TRACK][ERR]", msg, e?.details || e);
+            console.error('[FEDEX/TRACK][ERR]', msg, e?.details || e);
             return res.status(http).json({ error: msg, details: e?.details });
         }
     },
+
     pickUp: async (req, res) => {
         try {
             const payload = req.body || {};
             if (!payload || typeof payload !== 'object') {
-                return res.status(400).json({ ok: false, error: 'Payload de pickup obrigatÃ³rio.' });
+                return res.status(400).json({ ok: false, error: 'Payload de pickup obrigatório.' });
             }
 
             const data = await createPickup(payload, {
                 idempotencyKey: req.headers['x-idempotency-key'] || null
             });
 
-
-            return res.json({ ok: true, raw: data })
+            return res.json({ ok: true, raw: data });
         } catch (err) {
             return res.status(err.status || 500).json({
                 ok: false,
                 error: err.message || 'Falha no pickup FedEx',
                 raw: err.upstream || null,
-            })
+            });
         }
     }
 };
-

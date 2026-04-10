@@ -321,4 +321,78 @@ router.post(
     uploadOrder.fields([{ name: 'file' }]),
     findCustomerFromCsv
 );
+
+router.post('/register-carrier', async (req, res) => {
+    try {
+        console.log('[REGISTER CARRIER] body:', req.body);
+
+        const shop = String(req.body?.shop || '').toLowerCase().trim();
+
+        if (!shop) {
+            return res.status(400).json({ ok: false, error: 'shop é obrigatório' });
+        }
+
+        const row = await db.Shop.findOne({
+            where: { shop },
+            attributes: ['shop', 'accessToken'],
+            raw: true,
+        });
+
+        if (!row?.accessToken) {
+            return res.status(404).json({ ok: false, error: 'Loja sem token salvo' });
+        }
+
+        const query = `
+          mutation carrierServiceCreate($input: DeliveryCarrierServiceCreateInput!) {
+            carrierServiceCreate(input: $input) {
+              carrierService {
+                id
+                name
+                active
+                callbackUrl
+                supportsServiceDiscovery
+              }
+              userErrors {
+                field
+                message
+              }
+            }
+          }
+        `;
+
+        const variables = {
+            input: {
+                name: 'Intrex Shipping',
+                callbackUrl: 'https://back-exporta.onrender.com/shopify/carrier',
+                supportsServiceDiscovery: true,
+                active: true
+            }
+        };
+
+        const response = await fetch(`https://${shop}/admin/api/2026-04/graphql.json`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Shopify-Access-Token': row.accessToken,
+            },
+            body: JSON.stringify({ query, variables }),
+        });
+
+        const data = await response.json();
+
+        console.log('[REGISTER CARRIER] response:', JSON.stringify(data, null, 2));
+
+        return res.json({
+            ok: response.ok,
+            shop,
+            data
+        });
+    } catch (e) {
+        console.error('[REGISTER CARRIER ERROR]', e);
+        return res.status(500).json({
+            ok: false,
+            error: e.message
+        });
+    }
+});
 module.exports = router;
