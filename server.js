@@ -97,6 +97,7 @@ if (typeof fetch === 'undefined') {
 }
 
 // allowlist CORS
+// allowlist CORS
 const allowlist = (process.env.CORS_ALLOWED_ORIGINS || '')
   .split(',')
   .map((s) => s.trim())
@@ -114,11 +115,7 @@ app.use((req, res, next) => {
 
 // middlewares básicos
 app.use(cors({
-  origin(origin, cb) {
-    if (!origin) return cb(null, true);
-    const ok = allowlist.length ? allowlist.includes(origin) : true;
-    return cb(null, ok);
-  },
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token'],
