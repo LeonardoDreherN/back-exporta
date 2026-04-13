@@ -102,11 +102,10 @@ router.get('/has-token', async (req, res) => {
 });
 
 router.get('/auth', async (req, res) => {
-    const { shop, host: hostFromQuery, hmac } = req.query;
+    const { shop, hmac } = req.query;
     if (!shop || !isValidShopDomain(shop)) return res.status(400).send('Parametro "shop" invalido');
     const shopNorm = shop.toLowerCase();
 
-    // **NOVO**: se o usuário já estiver autenticado na sua plataforma, guarde o vínculo para o callback
     if (req.clienteId) {
         res.cookie('bind_cliente_id', String(req.clienteId), {
             httpOnly: true,
@@ -116,17 +115,14 @@ router.get('/auth', async (req, res) => {
         });
     }
 
-    // Se veio do Admin embedded (com hmac), apenas sobe para top-level
     if (hmac) {
         const handle = toStoreHandle(shopNorm);
         const safeHost = req.query.host || Buffer.from(`admin.shopify.com/store/${handle}`, 'utf8').toString('base64');
 
         const cleanUrl = `${APP_URL}/shopify/auth?shop=${encodeURIComponent(shopNorm)}&host=${encodeURIComponent(safeHost)}`;
-        const html = renderTopLevelRedirect({ apiKey: API_KEY, host: safeHost, targetUrl: cleanUrl });
-        return res.status(200).type('html').send(html);
+        return res.redirect(cleanUrl);
     }
 
-    // Idempotência: se já tem token, só redireciona para o app
     let row = null;
     try {
         row = await db.Shop.findOne({ where: { shop: shopNorm }, attributes: ['accessToken'], raw: true });
@@ -134,26 +130,6 @@ router.get('/auth', async (req, res) => {
         console.error('[AUTH] erro ao checar token (DB):', e?.stack || e);
     }
 
-   /* if (row?.accessToken) {
-        const handle = toStoreHandle(shopNorm);
-        const safeHost = req.query.host || Buffer.from(`admin.shopify.com/store/${handle}`, 'utf8').toString('base64');
-
-        const targetUrl = `${APP_URL}/?shop=${shopNorm}&host=${encodeURIComponent(safeHost)}&embedded=1`;
-        try {
-            const html = renderTopLevelRedirect({ apiKey: API_KEY, host: safeHost, targetUrl });
-            return res.status(200).type('html').send(html);
-        } catch (e) {
-            console.error('[AUTH] erro ao renderTopLevelRedirect:', e?.stack || e);
-            return res.status(200).type('html').send(`<meta http-equiv="refresh" content="0;url='${targetUrl}'">`);
-        }
-    } */
-
-    // Anti-duplo clique (3s)
-    const key = `${req.ip}|${shopNorm}`, now = Date.now(), last = lastAuthByKey.get(key) || 0;
-    if (now - last < 3000) return res.status(429).send('Auth já em andamento');
-    lastAuthByKey.set(key, now);
-
-    // Inicia OAuth
     const state = crypto.randomBytes(16).toString('hex');
     res.cookie('shopify_state', state, {
         httpOnly: true,
@@ -167,18 +143,21 @@ router.get('/auth', async (req, res) => {
     url.searchParams.set('client_id', API_KEY);
     url.searchParams.set('redirect_uri', redirectUri);
     url.searchParams.set('state', state);
+
     if (!SCOPES) {
         console.error('[SHOPIFY] SCOPES vazios! Verifique SHOPIFY_API_SCOPES no .env');
         return res.status(500).send('App mal configurado: SCOPES ausentes');
     }
+
     url.searchParams.set('scope', SCOPES);
-
-
     return res.redirect(url.toString());
 });
 
 router.get('/auth/callback', async (req, res) => {
     try {
+        console.log('[CALLBACK] query:', req.query);
+        console.log('[CALLBACK] cookies:', req.cookies);
+
         const { shop, code, hmac, state } = req.query;
         if (!shop || !code || !hmac || !state) return res.status(400).send('Missing params');
         if (!isValidShopDomain(shop)) return res.status(400).send('Invalid shop');
@@ -208,9 +187,10 @@ router.get('/auth/callback', async (req, res) => {
         });
 
         let body = {};
-        try {
-            body = await r.json();
-        } catch {}
+        try { body = await r.json(); } catch {}
+
+        console.log('[CALLBACK] token status:', r.status);
+        console.log('[CALLBACK] token body:', body);
 
         if (!r.ok || !body?.access_token) {
             console.error('[callback] Falha token', { status: r.status, body });
@@ -224,6 +204,8 @@ router.get('/auth/callback', async (req, res) => {
             accessToken: body.access_token,
             scope: body.scope || null,
         });
+
+        console.log('[CALLBACK] shop salvo com sucesso:', shopNorm);
 
         const bindClienteId = req.cookies?.bind_cliente_id;
         if (bindClienteId) {
