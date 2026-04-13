@@ -216,7 +216,7 @@ const upsNameMap = {
 
 // Mapeamento de nomes FedEx
 const fedexNameMap = {
-    FEDEX_INTERNATIONAL_CONNECT_PLUS: 'FedEx International Economy (3-6 business days)',
+    FEDEX_INTERNATIONAL_CONNECT_PLUS: 'FedEx International Economy (3-7 business days)',
     INTERNATIONAL_PRIORITY: 'FedEx Express (2-4 business days)',
     INTERNATIONAL_ECONOMY: 'FedEx Economy (4-7 business days)',
 };
@@ -260,7 +260,7 @@ if (!hasUps && fedexRate) {
     const upsFallbackCents = Math.max(fedexCents - 200, 100); // mínimo US$ 1.00
 
     rates.push({
-        service_name: 'UPS International Economy (manual rate)',
+        service_name: 'UPS International Economy (3 - 7 business days)',
         service_code: 'UPS_MANUAL_FALLBACK',
         description: 'International shipping via UPS',
         currency: fedexRate.currency || 'USD',
