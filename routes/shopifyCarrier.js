@@ -203,7 +203,7 @@ router.post('/carrier', async (req, res) => {
 
         const rates = [];
 
-        // Mapeamento de nomes UPS
+// Mapeamento de nomes UPS
 const upsNameMap = {
     '01': 'UPS Express (1-3 business days)',
     '02': 'UPS 2nd Day Air',
@@ -221,7 +221,7 @@ const fedexNameMap = {
     INTERNATIONAL_ECONOMY: 'FedEx Economy (4-7 business days)',
 };
 
-// UPS
+// UPS real
 upsQuotes.forEach((q) => {
     if (!q?.total) return;
 
@@ -236,7 +236,7 @@ upsQuotes.forEach((q) => {
     });
 });
 
-// FEDEX
+// FedEx real
 fedexQuotes.forEach((q) => {
     if (!q?.total) return;
 
@@ -251,8 +251,25 @@ fedexQuotes.forEach((q) => {
     });
 });
 
-        console.log('[SHOPIFY CARRIER] final rates:', JSON.stringify(rates, null, 2));
-        if (!rates.length) {
+// UPS fallback manual: se não veio UPS real, cria uma opção UPS US$ 2 mais barata que a FedEx
+const hasUps = rates.some(r => String(r.service_code).startsWith('UPS_'));
+const fedexRate = rates.find(r => String(r.service_code).startsWith('FEDEX_'));
+
+if (!hasUps && fedexRate) {
+    const fedexCents = Number(fedexRate.total_price || 0);
+    const upsFallbackCents = Math.max(fedexCents - 200, 100); // mínimo US$ 1.00
+
+    rates.push({
+        service_name: 'UPS International Economy (manual rate)',
+        service_code: 'UPS_MANUAL_FALLBACK',
+        description: 'International shipping via UPS',
+        currency: fedexRate.currency || 'USD',
+        total_price: String(upsFallbackCents),
+    });
+}
+
+// fallback geral se tudo falhar
+if (!rates.length) {
     console.log('[FALLBACK] no rates, returning fallback');
 
     rates.push({
@@ -260,10 +277,12 @@ fedexQuotes.forEach((q) => {
         service_code: 'INTREX_FALLBACK',
         description: 'International shipping (5-10 business days)',
         currency: 'USD',
-        total_price: '2500', // $25.00
+        total_price: '2500',
     });
 }
-        return res.json({ rates });
+
+console.log('[SHOPIFY CARRIER] final rates:', JSON.stringify(rates, null, 2));
+return res.json({ rates });
     } catch (err) {
         console.error('[SHOPIFY CARRIER ERROR]', err);
         return res.status(200).json({ rates: [] });
