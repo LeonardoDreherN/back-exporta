@@ -207,12 +207,6 @@ router.get('/auth/callback', async (req, res) => {
 
         console.log('[CALLBACK] shop salvo com sucesso:', shopNorm);
 
-                const carrierResult = await autoRegisterCarrier(shopNorm, body.access_token);
-        console.log('[CALLBACK] carrier auto-register:', carrierResult);
-
-        const webhookResult = await autoRegisterOrdersWebhook(shopNorm, body.access_token);
-        console.log('[CALLBACK] webhook auto-register:', webhookResult);
-
         const bindClienteId = req.cookies?.bind_cliente_id;
         if (bindClienteId) {
             await db.InfoShopify.upsert({
