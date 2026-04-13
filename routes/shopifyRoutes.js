@@ -366,4 +366,79 @@ router.post('/register-carrier', autenticarUsuario, vincularCliente, async (req,
         });
     }
 });
+
+router.post('/register-orders-webhook', autenticarUsuario, vincularCliente, async (req, res) => {
+    try {
+        const shop = String(req.body?.shop || '').toLowerCase().trim();
+
+        if (!shop) {
+            return res.status(400).json({ ok: false, error: 'shop é obrigatório' });
+        }
+
+        const row = await db.Shop.findOne({
+            where: { shop },
+            attributes: ['shop', 'accessToken'],
+            raw: true,
+        });
+
+        if (!row?.accessToken) {
+            return res.status(404).json({ ok: false, error: 'Loja sem token salvo' });
+        }
+
+        const query = `
+          mutation webhookSubscriptionCreate($topic: WebhookSubscriptionTopic!, $callbackUrl: URL!) {
+            webhookSubscriptionCreate(
+              topic: $topic
+              webhookSubscription: {
+                callbackUrl: $callbackUrl
+                format: JSON
+              }
+            ) {
+              webhookSubscription {
+                id
+                topic
+                callbackUrl
+                format
+              }
+              userErrors {
+                field
+                message
+              }
+            }
+          }
+        `;
+
+        const variables = {
+            topic: 'ORDERS_CREATE',
+            callbackUrl: `${process.env.SHOPIFY_APP_URL}/shopify/webhooks/orders-create`
+        };
+
+        const response = await fetch(`https://${shop}/admin/api/2026-04/graphql.json`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Shopify-Access-Token': row.accessToken,
+            },
+            body: JSON.stringify({ query, variables }),
+        });
+
+        const data = await response.json();
+        const webhookResp = data?.data?.webhookSubscriptionCreate;
+        const userErrors = webhookResp?.userErrors || [];
+
+        return res.json({
+            ok: response.ok && userErrors.length === 0,
+            shop,
+            webhook: webhookResp?.webhookSubscription || null,
+            userErrors,
+            raw: data
+        });
+    } catch (e) {
+        console.error('[REGISTER ORDERS WEBHOOK ERROR]', e);
+        return res.status(500).json({
+            ok: false,
+            error: e.message
+        });
+    }
+});
 module.exports = router;
