@@ -207,6 +207,12 @@ router.get('/auth/callback', async (req, res) => {
 
         console.log('[CALLBACK] shop salvo com sucesso:', shopNorm);
 
+                const carrierResult = await autoRegisterCarrier(shopNorm, body.access_token);
+        console.log('[CALLBACK] carrier auto-register:', carrierResult);
+
+        const webhookResult = await autoRegisterOrdersWebhook(shopNorm, body.access_token);
+        console.log('[CALLBACK] webhook auto-register:', webhookResult);
+
         const bindClienteId = req.cookies?.bind_cliente_id;
         if (bindClienteId) {
             await db.InfoShopify.upsert({
@@ -441,4 +447,110 @@ router.post('/register-orders-webhook', autenticarUsuario, vincularCliente, asyn
         });
     }
 });
+
+async function autoRegisterCarrier(shop, accessToken) {
+    const query = `
+      mutation carrierServiceCreate($input: DeliveryCarrierServiceCreateInput!) {
+        carrierServiceCreate(input: $input) {
+          carrierService {
+            id
+            name
+            active
+            callbackUrl
+            supportsServiceDiscovery
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const variables = {
+        input: {
+            name: 'Intrex Shipping',
+            callbackUrl:
+                process.env.SHOPIFY_CARRIER_CALLBACK_URL ||
+                'https://back-exporta.onrender.com/shopify/carrier',
+            supportsServiceDiscovery: true,
+            active: true
+        }
+    };
+
+    const response = await fetch(`https://${shop}/admin/api/2026-04/graphql.json`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Shopify-Access-Token': accessToken,
+        },
+        body: JSON.stringify({ query, variables }),
+    });
+
+    const data = await response.json();
+    const carrierResp = data?.data?.carrierServiceCreate;
+    const userErrors = carrierResp?.userErrors || [];
+
+    console.log('[AUTO REGISTER CARRIER]', JSON.stringify(data, null, 2));
+
+    return {
+        ok: response.ok && userErrors.length === 0,
+        carrierService: carrierResp?.carrierService || null,
+        userErrors,
+        raw: data
+    };
+}
+
+async function autoRegisterOrdersWebhook(shop, accessToken) {
+    const query = `
+      mutation webhookSubscriptionCreate($topic: WebhookSubscriptionTopic!, $callbackUrl: URL!) {
+        webhookSubscriptionCreate(
+          topic: $topic
+          webhookSubscription: {
+            callbackUrl: $callbackUrl
+            format: JSON
+          }
+        ) {
+          webhookSubscription {
+            id
+            topic
+            callbackUrl
+            format
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const variables = {
+        topic: 'ORDERS_CREATE',
+        callbackUrl: `${process.env.SHOPIFY_APP_URL}/shopify/webhooks/orders-create`
+    };
+
+    const response = await fetch(`https://${shop}/admin/api/2026-04/graphql.json`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Shopify-Access-Token': accessToken,
+        },
+        body: JSON.stringify({ query, variables }),
+    });
+
+    const data = await response.json();
+    const webhookResp = data?.data?.webhookSubscriptionCreate;
+    const userErrors = webhookResp?.userErrors || [];
+
+    console.log('[AUTO REGISTER WEBHOOK]', JSON.stringify(data, null, 2));
+
+    return {
+        ok: response.ok && userErrors.length === 0,
+        webhook: webhookResp?.webhookSubscription || null,
+        userErrors,
+        raw: data
+    };
+}
+
 module.exports = router;
