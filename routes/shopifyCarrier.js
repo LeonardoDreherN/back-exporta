@@ -129,31 +129,31 @@ router.post('/carrier', async (req, res) => {
         let upsQuotes = [];
         try {
             const upsPayload = {
-                shipper: {
-                    postalCode: origin.postal_code,
-                    country: origin.country,
-                    state: origin.province,
-                    city: origin.city,
-                    addressLine: origin.address1 || undefined,
-                },
-                shipTo: {
-                    postalCode: dest.postal_code,
-                    country: dest.country,
-                    state: dest.province,
-                    city: dest.city,
-                    addressLine: dest.address1 || undefined,
-                },
-                serviceCode: null,
-                packages,
-            };
+    shipper: {
+        postalCode: origin.postal_code,
+        country: origin.country,
+        state: origin.province,
+        city: origin.city,
+        addressLine: origin.address1 || 'Rua Teste, 123',
+    },
+    shipTo: {
+        postalCode: dest.postal_code,
+        country: dest.country,
+        state: dest.province,
+        city: dest.city,
+        addressLine: dest.address1 || 'Address not provided',
+    },
+    packages,
+};
 
             console.log('[SHOPIFY CARRIER][UPS PAYLOAD]', JSON.stringify(upsPayload, null, 2));
 
             const upsResp = await rateMulti(upsPayload);
             upsQuotes = upsResp.quotes || [];
         } catch (e) {
-            console.error('[SHOPIFY CARRIER][UPS ERROR FULL]', e?.response?.data || e);
-        }
+    const details = e?.response?.data || e;
+    console.error('[SHOPIFY CARRIER][UPS ERROR FULL JSON]', JSON.stringify(details, null, 2));
+}
 
         let fedexQuotes = [];
         try {
