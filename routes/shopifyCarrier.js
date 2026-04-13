@@ -147,40 +147,40 @@ router.post('/carrier', async (req, res) => {
         let fedexQuotes = [];
         try {
             const fedexPayload = {
-                shipper: {
-                    contact: {
-                        personName: origin.name || 'Shipper',
-                        companyName: origin.company_name || origin.name || 'Shipper',
-                        phoneNumber: origin.phone || '11999999999',
-                    },
-                    address: {
-                        postalCode: origin.postal_code,
-                        countryCode: origin.country,
-                        city: origin.city,
-                        stateOrProvinceCode: origin.province,
-                        streetLines: [origin.address1 || 'Address not provided'],
-                    }
-                },
-                recipient: {
-                    contact: {
-                        personName: dest.name || 'Recipient',
-                        companyName: dest.company_name || dest.name || 'Recipient',
-                        phoneNumber: dest.phone || '17865994231',
-                        emailAddress: dest.email || undefined,
-                    },
-                    address: {
-                        postalCode: dest.postal_code,
-                        countryCode: dest.country,
-                        city: dest.city,
-                        stateOrProvinceCode: dest.province,
-                        streetLines: [dest.address1 || 'Address not provided'],
-                        residential: false,
-                    }
-                },
-                packages,
-                commodities,
-                currency,
-            };
+    shipper: {
+        contact: {
+            personName: origin.name || 'Shipper',
+            companyName: origin.company_name || origin.name || 'Shipper',
+            phoneNumber: origin.phone || '11999999999',
+        },
+        address: {
+            postalCode: origin.postal_code,
+            countryCode: origin.country,
+            city: origin.city,
+            stateOrProvinceCode: normalizeFedexState(origin.province),
+            streetLines: [origin.address1 || 'Address not provided'],
+        }
+    },
+    recipient: {
+        contact: {
+            personName: dest.name || 'Recipient',
+            companyName: dest.company_name || dest.name || 'Recipient',
+            phoneNumber: dest.phone || '17865994231',
+            emailAddress: dest.email || undefined,
+        },
+        address: {
+            postalCode: dest.postal_code,
+            countryCode: dest.country,
+            city: dest.city,
+            stateOrProvinceCode: normalizeFedexState(dest.province),
+            streetLines: [dest.address1 || 'Address not provided'],
+            residential: false,
+        }
+    },
+    packages,
+    commodities,
+    currency,
+};
 
             console.log('[SHOPIFY CARRIER][FEDEX PAYLOAD]', JSON.stringify(fedexPayload, null, 2));
 
