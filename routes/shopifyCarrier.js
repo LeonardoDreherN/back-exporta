@@ -6,6 +6,18 @@ const { quoteRates } = require('../services/fedex/ratingFedex');
 
 const toKg = (grams) => Number(grams || 0) / 1000;
 
+// Ajuste aqui com os dados reais da sua operação/origem
+const DEFAULT_ORIGIN = {
+    country: 'BR',
+    postal_code: '89160000',
+    province: 'SC',
+    city: 'Rio do Sul',
+    address1: 'Rua Teste, 123',
+    company_name: 'Exporta Digital BR',
+    name: 'Exporta Digital BR',
+    phone: '11999999999',
+};
+
 function buildPackages(items = []) {
     const validItems = Array.isArray(items) ? items.filter(i => i?.requires_shipping !== false) : [];
 
@@ -82,7 +94,20 @@ router.post('/carrier', async (req, res) => {
             return res.status(400).json({ error: 'Missing rate object' });
         }
 
-        const origin = rate.origin || {};
+        const rawOrigin = rate.origin || {};
+        const origin = {
+            ...DEFAULT_ORIGIN,
+            ...rawOrigin,
+            country: rawOrigin.country || DEFAULT_ORIGIN.country,
+            postal_code: rawOrigin.postal_code || DEFAULT_ORIGIN.postal_code,
+            province: rawOrigin.province || DEFAULT_ORIGIN.province,
+            city: rawOrigin.city || DEFAULT_ORIGIN.city,
+            address1: rawOrigin.address1 || DEFAULT_ORIGIN.address1,
+            company_name: rawOrigin.company_name || DEFAULT_ORIGIN.company_name,
+            name: rawOrigin.name || DEFAULT_ORIGIN.name,
+            phone: rawOrigin.phone || DEFAULT_ORIGIN.phone,
+        };
+
         const dest = rate.destination || {};
         const items = Array.isArray(rate.items) ? rate.items : [];
         const currency = rate.currency || 'USD';
@@ -90,7 +115,7 @@ router.post('/carrier', async (req, res) => {
         const packages = buildPackages(items);
         const commodities = buildCommodities(items, currency);
 
-                let upsQuotes = [];
+        let upsQuotes = [];
         try {
             const upsPayload = {
                 shipper: {
@@ -119,7 +144,7 @@ router.post('/carrier', async (req, res) => {
             console.error('[SHOPIFY CARRIER][UPS ERROR FULL]', e?.response?.data || e);
         }
 
-                let fedexQuotes = [];
+        let fedexQuotes = [];
         try {
             const fedexPayload = {
                 shipper: {
@@ -191,7 +216,7 @@ router.post('/carrier', async (req, res) => {
             });
         });
 
-                console.log('[SHOPIFY CARRIER] final rates:', JSON.stringify(rates, null, 2));
+        console.log('[SHOPIFY CARRIER] final rates:', JSON.stringify(rates, null, 2));
         return res.json({ rates });
     } catch (err) {
         console.error('[SHOPIFY CARRIER ERROR]', err);
