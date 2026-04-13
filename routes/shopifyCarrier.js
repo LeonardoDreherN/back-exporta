@@ -143,7 +143,7 @@ router.post('/carrier', async (req, res) => {
                     city: dest.city,
                     addressLine: dest.address1 || undefined,
                 },
-                serviceCode: '08',
+                serviceCode: null,
                 packages,
             };
 
@@ -203,31 +203,66 @@ router.post('/carrier', async (req, res) => {
 
         const rates = [];
 
-        upsQuotes.forEach((q) => {
-            if (!q?.total) return;
+        // Mapeamento de nomes UPS
+const upsNameMap = {
+    '01': 'UPS Express (1-3 business days)',
+    '02': 'UPS 2nd Day Air',
+    '03': 'UPS Ground',
+    '07': 'UPS Express (2-4 business days)',
+    '08': 'UPS Worldwide Expedited (4-7 business days)',
+    '11': 'UPS Standard',
+    '65': 'UPS Saver (2-4 business days)',
+};
 
-            rates.push({
-                service_name: `UPS ${q.serviceLabel || q.service || 'Express'}`,
-                service_code: `UPS_${q.serviceCode || 'STD'}`,
-                description: 'Entrega internacional UPS',
-                currency: q.currency || 'USD',
-                total_price: String(Math.round(Number(q.total) * 100)),
-            });
-        });
+// Mapeamento de nomes FedEx
+const fedexNameMap = {
+    FEDEX_INTERNATIONAL_CONNECT_PLUS: 'FedEx International Economy (3-6 business days)',
+    INTERNATIONAL_PRIORITY: 'FedEx Express (2-4 business days)',
+    INTERNATIONAL_ECONOMY: 'FedEx Economy (4-7 business days)',
+};
 
-        fedexQuotes.forEach((q) => {
-            if (!q?.total) return;
+// UPS
+upsQuotes.forEach((q) => {
+    if (!q?.total) return;
 
-            rates.push({
-                service_name: `FedEx ${q.serviceType || 'International'}`,
-                service_code: `FEDEX_${String(q.serviceType || 'STD').replace(/\s+/g, '_')}`,
-                description: 'Entrega internacional FedEx',
-                currency: q.currency || 'USD',
-                total_price: String(Math.round(Number(q.total) * 100)),
-            });
-        });
+    const code = String(q.serviceCode || '').trim();
+
+    rates.push({
+        service_name: upsNameMap[code] || `UPS ${q.serviceLabel || 'International'}`,
+        service_code: `UPS_${code || 'STD'}`,
+        description: 'International shipping via UPS',
+        currency: q.currency || 'USD',
+        total_price: String(Math.round(Number(q.total) * 100)),
+    });
+});
+
+// FEDEX
+fedexQuotes.forEach((q) => {
+    if (!q?.total) return;
+
+    const type = String(q.serviceType || '').trim();
+
+    rates.push({
+        service_name: fedexNameMap[type] || 'FedEx International Shipping',
+        service_code: `FEDEX_${type.replace(/\s+/g, '_') || 'STD'}`,
+        description: 'International shipping via FedEx',
+        currency: q.currency || 'USD',
+        total_price: String(Math.round(Number(q.total) * 100)),
+    });
+});
 
         console.log('[SHOPIFY CARRIER] final rates:', JSON.stringify(rates, null, 2));
+        if (!rates.length) {
+    console.log('[FALLBACK] no rates, returning fallback');
+
+    rates.push({
+        service_name: 'Intrex Economy Shipping',
+        service_code: 'INTREX_FALLBACK',
+        description: 'International shipping (5-10 business days)',
+        currency: 'USD',
+        total_price: '2500', // $25.00
+    });
+}
         return res.json({ rates });
     } catch (err) {
         console.error('[SHOPIFY CARRIER ERROR]', err);
