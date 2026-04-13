@@ -6,7 +6,7 @@ const db = require('../models');
 
 router.post('/orders-create', async (req, res) => {
     try {
-        const order = req.body;
+        const order = req.body || {};
 
         console.log('[SHOPIFY ORDER RECEIVED]', {
             id: order.id,
@@ -17,6 +17,7 @@ router.post('/orders-create', async (req, res) => {
 
         const customer = order.customer || {};
         const shipping = order.shipping_address || {};
+        const billing = order.billing_address || {};
 
         const shopDomain =
             req.headers['x-shopify-shop-domain'] ||
@@ -39,27 +40,123 @@ router.post('/orders-create', async (req, res) => {
             return res.status(404).send('cliente nao vinculado');
         }
 
+        const nomeCliente =
+            `${customer.first_name || ''} ${customer.last_name || ''}`.trim() ||
+            shipping.name ||
+            billing.name ||
+            order.email ||
+            'Cliente Shopify';
+
+        const telefoneCliente =
+            shipping.phone ||
+            billing.phone ||
+            customer.phone ||
+            '';
+
+        const rua =
+            shipping.address1 ||
+            billing.address1 ||
+            '';
+
+        const complemento =
+            shipping.address2 ||
+            billing.address2 ||
+            '';
+
+        const cidade =
+            shipping.city ||
+            billing.city ||
+            '';
+
+        const estado =
+            shipping.province_code ||
+            shipping.province ||
+            billing.province_code ||
+            billing.province ||
+            '';
+
+        const pais =
+            shipping.country_code ||
+            shipping.country ||
+            billing.country_code ||
+            billing.country ||
+            '';
+
+        const cep =
+            shipping.zip ||
+            billing.zip ||
+            '';
+
+        const numeroPedido = String(order.name || order.order_number || order.id || '').trim();
+        const pedidoLabel = `${numeroPedido} - ${nomeCliente}`.trim();
+
+        const itens = (order.line_items || []).map(item => ({
+            // nomes do produto para a Intrex conseguir preencher a cotação
+            titulo: item.name || '',
+            nome: item.name || '',
+            produto: item.name || '',
+            descricao: item.name || '',
+            description: item.name || '',
+
+            qty: Number(item.quantity || 0),
+            quantidade: Number(item.quantity || 0),
+
+            preco: Number(item.price || 0),
+            valor: Number(item.price || 0),
+        }));
+
         const linhaImportacao = {
-            pedido_ref: String(order.id),
-            nomeComprador: `${customer.first_name || ''} ${customer.last_name || ''}`.trim() || shipping.name || '',
-            emailComprador: customer.email || order.email || '',
-            telefoneComprador: shipping.phone || customer.phone || '',
-            endereco: shipping.address1 || '',
-            numero: '',
-            complemento: shipping.address2 || '',
-            cidade: shipping.city || '',
-            estado: shipping.province_code || shipping.province || '',
-            pais: shipping.country_code || '',
-            CEP: shipping.zip || '',
-            total: Number(order.total_price || 0),
-            itens: (order.line_items || []).map(item => ({
-                titulo: item.name || '',
-                qty: Number(item.quantity || 0),
-                preco: Number(item.price || 0),
-            })),
+            // pedido
+            pedido_ref: numeroPedido,
+            pedidoLabel,
+            pedido_nome: pedidoLabel,
+            referencia: numeroPedido,
+            shopify_order_id: String(order.id || ''),
             origem: 'shopify',
             status: 'pendente',
-            shopify_order_id: order.id,
+
+            // comprador / destinatário
+            nomeComprador: nomeCliente,
+            nomeDestinatario: nomeCliente,
+            destinatario: nomeCliente,
+            nome: nomeCliente,
+            cliente_nome: nomeCliente,
+
+            emailComprador: customer.email || order.email || '',
+            email: customer.email || order.email || '',
+
+            telefoneComprador: telefoneCliente,
+            telefoneDestinatario: telefoneCliente,
+            telefone: telefoneCliente,
+            cliente_telefone: telefoneCliente,
+
+            // endereço
+            endereco: rua,
+            rua,
+            address1: rua,
+
+            numero: '',
+            complemento,
+            address2: complemento,
+
+            cidade,
+            city: cidade,
+
+            estado,
+            province: estado,
+            state: estado,
+
+            pais,
+            country: pais,
+
+            CEP: cep,
+            cep,
+            zip: cep,
+
+            total: Number(order.total_price || 0),
+            valor_total: Number(order.total_price || 0),
+
+            itens,
         };
 
         console.log('[PEDIDO FORMATADO]', JSON.stringify(linhaImportacao, null, 2));
