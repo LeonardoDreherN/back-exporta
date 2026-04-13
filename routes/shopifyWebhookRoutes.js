@@ -87,63 +87,44 @@ router.post('/orders-create', async (req, res) => {
             billing.zip ||
             '';
 
-        const numeroPedido = String(order.name || order.order_number || order.id || '').trim();
-        const pedidoLabel = `${numeroPedido} - ${nomeCliente}`.trim();
+        const numeroPedido = String(order.name || order.order_number || order.id || '')
+            .replace(/^#/, '')
+            .trim();
 
-        const itens = (order.line_items || []).map(item => ({
-            // nomes do produto para a Intrex conseguir preencher a cotação
+        // IMPORTANTE:
+        // o importPedidosInternal espera linhas "flat", uma por item, no estilo CSV
+        const linhasImportacao = (order.line_items || []).map(item => ({
+            id: numeroPedido,
+            pedido_ref: numeroPedido,
+
+            nome_completo: nomeCliente,
+            email: customer.email || order.email || '',
+            telefone: telefoneCliente,
+
+            rua_e_numero: `${rua}${complemento ? ', ' + complemento : ''}`,
+            cidade: cidade,
+            estado_provincia: estado,
+            cep: cep,
+            pais: pais,
+
+            moeda: order.currency || 'USD',
+            valorTotal: Number(order.total_price || 0),
+
             titulo: item.name || '',
-            nome: item.name || '',
-            produto: item.name || '',
-            descricao: item.name || '',
-            description: item.name || '',
-
-            qty: Number(item.quantity || 0),
             quantidade: Number(item.quantity || 0),
-
             preco: Number(item.price || 0),
-            valor: Number(item.price || 0),
+            sku: item.sku || '',
         }));
 
-        const linhaImportacao = {
-    // identificação do pedido
-    id: numeroPedido,
-    pedido_ref: numeroPedido,
+        console.log('[PEDIDO FORMATADO]', JSON.stringify(linhasImportacao, null, 2));
 
-    // dados do comprador / destinatário no formato que o importador usa
-    nome_completo: nomeCliente,
-    email: customer.email || order.email || '',
-    telefone: telefoneCliente,
-
-    // endereço no formato esperado
-    rua_e_numero: `${rua}${complemento ? ', ' + complemento : ''}`,
-    cidade: cidade,
-    estado_provincia: estado,
-    cep: cep,
-    pais: pais,
-
-    // pedido
-    moeda: order.currency || 'USD',
-    valorTotal: Number(order.total_price || 0),
-
-    // itens no formato que o importador usa
-    itens: (order.line_items || []).map(item => ({
-        titulo: item.name || '',
-        quantidade: Number(item.quantity || 0),
-        preco: Number(item.price || 0),
-        sku: item.sku || '',
-    })),
-};
-
-        console.log('[PEDIDO FORMATADO]', JSON.stringify(linhaImportacao, null, 2));
-
-        const imported = await importPedidosInternal(info.id_cliente, [linhaImportacao]);
+        const imported = await importPedidosInternal(info.id_cliente, linhasImportacao);
 
         console.log('[SHOPIFY ORDER IMPORTED]', {
             shopDomain,
             clienteId: info.id_cliente,
             imported,
-            pedido_ref: linhaImportacao.pedido_ref,
+            pedido_ref: numeroPedido,
         });
 
         return res.status(200).send('ok');
