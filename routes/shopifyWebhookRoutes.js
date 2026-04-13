@@ -1,6 +1,3 @@
-const { importPedidosInternal } = require('../controller/PedidoImportController');
-const db = require('../models');
-
 const express = require('express');
 const router = express.Router();
 
