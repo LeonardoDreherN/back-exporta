@@ -179,7 +179,7 @@ router.get('/auth', async (req, res) => {
 
 router.get('/auth/callback', async (req, res) => {
     try {
-        const { shop, code, hmac, state, embedded, id_token } = req.query;
+        const { shop, code, hmac, state } = req.query;
         if (!shop || !code || !hmac || !state) return res.status(400).send('Missing params');
         if (!isValidShopDomain(shop)) return res.status(400).send('Invalid shop');
         if (!isValidHmac(req.query)) return res.status(401).send('Invalid HMAC');
@@ -188,68 +188,53 @@ router.get('/auth/callback', async (req, res) => {
         const host = req.query.host || Buffer.from(`admin.shopify.com/store/${toStoreHandle(shopNorm)}`, 'utf8').toString('base64');
         const targetUrl = `${APP_URL}/?shop=${shopNorm}&host=${encodeURIComponent(host)}&embedded=1`;
 
-        // Se o callback veio embedded, apenas redirecione para a raiz do app
-        if (embedded === '1' || id_token) {
-            return res.redirect(302, targetUrl);
+        if (!req.cookies || req.cookies.shopify_state !== state) {
+            return res.status(401).send('Invalid state');
         }
-
-        if (!req.cookies || req.cookies.shopify_state !== state) return res.status(401).send('Invalid state');
         res.clearCookie('shopify_state', { path: '/shopify' });
 
-        // Se já existe token, só volta para o app
-       /* const existing = await db.Shop.findOne({
-            where: { shop: shopNorm },
-            attributes: ['accessToken'],
-            raw: true
-        });
-        if (existing?.accessToken) {
-            return res.redirect(302, targetUrl);
-        } */
-
-        // Evita reuso do code
         if (isCodeUsed(code)) {
             return res.redirect(302, targetUrl);
         }
 
-        // Troca code -> token
         const r = await fetch(`https://${shop}/admin/oauth/access_token`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ client_id: API_KEY, client_secret: API_SECRET, code }),
+            body: JSON.stringify({
+                client_id: API_KEY,
+                client_secret: API_SECRET,
+                code,
+            }),
         });
 
         let body = {};
-        try { body = await r.json(); } catch { }
+        try {
+            body = await r.json();
+        } catch {}
 
         if (!r.ok || !body?.access_token) {
-            // Se for reuso/invalid code, siga para o app (o Admin vai reentrar e ficar ok)
-            if (r.status === 400 || r.status === 422) {
-                return res.redirect(302, targetUrl);
-            }
             console.error('[callback] Falha token', { status: r.status, body });
             return res.status(502).send('Falha ao obter token da Shopify');
         }
 
         markCodeUsed(code);
+
         await db.Shop.upsert({
             shop: shopNorm,
             accessToken: body.access_token,
-            scope: body.scope || null
+            scope: body.scope || null,
         });
 
-        // Vincula loja ao cliente (se houver cookie)
         const bindClienteId = req.cookies?.bind_cliente_id;
         if (bindClienteId) {
             await db.InfoShopify.upsert({
                 id_cliente: bindClienteId,
-                shopDomain: shopNorm
+                shopDomain: shopNorm,
             });
             res.clearCookie('bind_cliente_id', { path: '/shopify' });
         }
 
-        // Final: sempre redirecione para a raiz embed do app
         return res.redirect(302, targetUrl);
-
     } catch (e) {
         console.error('OAuth callback error:', e);
         return res.status(500).send('OAuth error');
