@@ -18,6 +18,7 @@ const db = require('./models/index.js');
 const uploadRouter = require('./routes/upload.js');
 const { setupSwagger } = require('./swagger');
 
+
 const {
   autenticarUsuario,
   vincularCliente,
@@ -57,6 +58,7 @@ const { valorConversao } = require('./utils/dolar.js');
 
 const shopifyModule = require('./routes/shopifyRoutes.js');
 const shopifyCarrierRoutes = require('./routes/shopifyCarrier.js');
+const shopifyWebhookRoutes = require('./routes/shopifyWebhookRoutes.js');
 const upsRoutes = require('./routes/upsRoutes.js');
 const fedexRoutes = require('./routes/fedexRoutes.js');
 const shipmentsRoutes = require('./routes/shipmentsRoutes.js');
@@ -139,6 +141,7 @@ app.use('/exports', express.static(path.join(__dirname, 'exports'), { maxAge: '1
 // rotas principais
 app.use('/shopify', shopifyModule);
 app.use('/shopify', shopifyCarrierRoutes);
+app.use('/shopify/webhooks', shopifyWebhookRoutes);
 app.use('/api/ups', upsRoutes);
 app.use('/api/fedex', fedexRoutes);
 app.use('/api/shipments', shipmentsRoutes);
