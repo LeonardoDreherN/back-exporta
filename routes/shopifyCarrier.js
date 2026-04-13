@@ -70,9 +70,13 @@ router.get('/carrier-test', (req, res) => {
         ts: Date.now()
     });
 });
+
 router.post('/carrier', async (req, res) => {
     try {
+        console.log('[SHOPIFY CARRIER] body:', JSON.stringify(req.body, null, 2));
+
         const rate = req.body?.rate;
+        console.log('[SHOPIFY CARRIER] parsed rate:', JSON.stringify(rate, null, 2));
 
         if (!rate) {
             return res.status(400).json({ error: 'Missing rate object' });
@@ -86,7 +90,7 @@ router.post('/carrier', async (req, res) => {
         const packages = buildPackages(items);
         const commodities = buildCommodities(items, currency);
 
-        let upsQuotes = [];
+                let upsQuotes = [];
         try {
             const upsPayload = {
                 shipper: {
@@ -107,15 +111,17 @@ router.post('/carrier', async (req, res) => {
                 packages,
             };
 
+            console.log('[SHOPIFY CARRIER][UPS PAYLOAD]', JSON.stringify(upsPayload, null, 2));
+
             const upsResp = await rateMulti(upsPayload);
             upsQuotes = upsResp.quotes || [];
         } catch (e) {
-            console.error('[SHOPIFY CARRIER][UPS ERROR]', e.message);
+            console.error('[SHOPIFY CARRIER][UPS ERROR FULL]', e?.response?.data || e);
         }
 
-        let fedexQuotes = [];
+                let fedexQuotes = [];
         try {
-            const fedexResp = await quoteRates({
+            const fedexPayload = {
                 shipper: {
                     contact: {
                         personName: origin.name || 'Shipper',
@@ -149,11 +155,14 @@ router.post('/carrier', async (req, res) => {
                 packages,
                 commodities,
                 currency,
-            });
+            };
 
+            console.log('[SHOPIFY CARRIER][FEDEX PAYLOAD]', JSON.stringify(fedexPayload, null, 2));
+
+            const fedexResp = await quoteRates(fedexPayload);
             fedexQuotes = fedexResp.rows || [];
         } catch (e) {
-            console.error('[SHOPIFY CARRIER][FEDEX ERROR]', e.message);
+            console.error('[SHOPIFY CARRIER][FEDEX ERROR FULL]', e?.response?.data || e);
         }
 
         const rates = [];
@@ -175,17 +184,18 @@ router.post('/carrier', async (req, res) => {
 
             rates.push({
                 service_name: `FedEx ${q.serviceType || 'International'}`,
-                service_code: `FEDEX_${q.serviceType || 'STD'}`,
+                service_code: `FEDEX_${String(q.serviceType || 'STD').replace(/\s+/g, '_')}`,
                 description: 'Entrega internacional FedEx',
                 currency: q.currency || 'USD',
                 total_price: String(Math.round(Number(q.total) * 100)),
             });
         });
 
+                console.log('[SHOPIFY CARRIER] final rates:', JSON.stringify(rates, null, 2));
         return res.json({ rates });
     } catch (err) {
         console.error('[SHOPIFY CARRIER ERROR]', err);
-        return res.status(500).json({ rates: [] });
+        return res.status(200).json({ rates: [] });
     }
 });
 
