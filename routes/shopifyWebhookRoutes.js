@@ -106,58 +106,34 @@ router.post('/orders-create', async (req, res) => {
         }));
 
         const linhaImportacao = {
-            // pedido
-            pedido_ref: numeroPedido,
-            pedidoLabel,
-            pedido_nome: pedidoLabel,
-            referencia: numeroPedido,
-            shopify_order_id: String(order.id || ''),
-            origem: 'shopify',
-            status: 'pendente',
+    // identificação do pedido
+    id: numeroPedido,
+    pedido_ref: numeroPedido,
 
-            // comprador / destinatário
-            nomeComprador: nomeCliente,
-            nomeDestinatario: nomeCliente,
-            destinatario: nomeCliente,
-            nome: nomeCliente,
-            cliente_nome: nomeCliente,
+    // dados do comprador / destinatário no formato que o importador usa
+    nome_completo: nomeCliente,
+    email: customer.email || order.email || '',
+    telefone: telefoneCliente,
 
-            emailComprador: customer.email || order.email || '',
-            email: customer.email || order.email || '',
+    // endereço no formato esperado
+    rua_e_numero: `${rua}${complemento ? ', ' + complemento : ''}`,
+    cidade: cidade,
+    estado_provincia: estado,
+    cep: cep,
+    pais: pais,
 
-            telefoneComprador: telefoneCliente,
-            telefoneDestinatario: telefoneCliente,
-            telefone: telefoneCliente,
-            cliente_telefone: telefoneCliente,
+    // pedido
+    moeda: order.currency || 'USD',
+    valorTotal: Number(order.total_price || 0),
 
-            // endereço
-            endereco: rua,
-            rua,
-            address1: rua,
-
-            numero: '',
-            complemento,
-            address2: complemento,
-
-            cidade,
-            city: cidade,
-
-            estado,
-            province: estado,
-            state: estado,
-
-            pais,
-            country: pais,
-
-            CEP: cep,
-            cep,
-            zip: cep,
-
-            total: Number(order.total_price || 0),
-            valor_total: Number(order.total_price || 0),
-
-            itens,
-        };
+    // itens no formato que o importador usa
+    itens: (order.line_items || []).map(item => ({
+        titulo: item.name || '',
+        quantidade: Number(item.quantity || 0),
+        preco: Number(item.price || 0),
+        sku: item.sku || '',
+    })),
+};
 
         console.log('[PEDIDO FORMATADO]', JSON.stringify(linhaImportacao, null, 2));
 
