@@ -9,13 +9,13 @@ const toKg = (grams) => Number(grams || 0) / 1000;
 // Ajuste aqui com os dados reais da sua operação/origem
 const DEFAULT_ORIGIN = {
     country: 'BR',
-    postal_code: '89160000',
+    postal_code: '88140570',
     province: 'SC',
-    city: 'Rio do Sul',
-    address1: 'Rua Teste, 123',
+    city: 'Santo Amaro da Imperatriz',
+    address1: 'Rua Saint German, 87',
     company_name: 'Exporta Digital BR',
     name: 'Exporta Digital BR',
-    phone: '11999999999',
+    phone: '47992104226',
 };
 
 // Se vier estado/província com mais de 2 caracteres, omite para a FedEx não quebrar
