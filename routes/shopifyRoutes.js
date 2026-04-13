@@ -134,7 +134,7 @@ router.get('/auth', async (req, res) => {
         console.error('[AUTH] erro ao checar token (DB):', e?.stack || e);
     }
 
-    if (row?.accessToken) {
+   /* if (row?.accessToken) {
         const handle = toStoreHandle(shopNorm);
         const safeHost = req.query.host || Buffer.from(`admin.shopify.com/store/${handle}`, 'utf8').toString('base64');
 
@@ -146,7 +146,7 @@ router.get('/auth', async (req, res) => {
             console.error('[AUTH] erro ao renderTopLevelRedirect:', e?.stack || e);
             return res.status(200).type('html').send(`<meta http-equiv="refresh" content="0;url='${targetUrl}'">`);
         }
-    }
+    } */
 
     // Anti-duplo clique (3s)
     const key = `${req.ip}|${shopNorm}`, now = Date.now(), last = lastAuthByKey.get(key) || 0;
@@ -197,14 +197,14 @@ router.get('/auth/callback', async (req, res) => {
         res.clearCookie('shopify_state', { path: '/shopify' });
 
         // Se já existe token, só volta para o app
-        const existing = await db.Shop.findOne({
+       /* const existing = await db.Shop.findOne({
             where: { shop: shopNorm },
             attributes: ['accessToken'],
             raw: true
         });
         if (existing?.accessToken) {
             return res.redirect(302, targetUrl);
-        }
+        } */
 
         // Evita reuso do code
         if (isCodeUsed(code)) {
