@@ -124,13 +124,15 @@ app.use(cors({
   exposedHeaders: ['Authorization', 'Content-Disposition'],
 }));
 
+const shopifyCompliance = require('./routes/shopifyCompliance');
+
+// IMPORTANTE: compliance webhook precisa entrar ANTES do express.json
+app.use('/shopify/webhooks', shopifyCompliance);
+
 app.use(express.json({ limit: '30mb' }));
 app.use(express.urlencoded({ extended: true, limit: '30mb' }));
 app.use(cookieParser());
 app.use(compression({ threshold: 0 }));
-
-const shopifyCompliance = require('./routes/shopifyCompliance');
-app.use('/shopify/webhooks', shopifyCompliance);
 
 applySecurity(app);
 applyLogging(app);

@@ -2,7 +2,6 @@ client_id = "7e9513a9b39dde8979fc570826744bcc"
 name = "Intrex Shipping"
 application_url = "https://back-exporta.onrender.com"
 embedded = true
-handle = "intrex-shipping"
 
 [webhooks]
 api_version = "2026-04"

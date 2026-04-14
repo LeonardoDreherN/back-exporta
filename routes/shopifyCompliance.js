@@ -1,53 +1,68 @@
-// routes/shopifyCompliance.js
-
 const express = require('express');
 const crypto = require('crypto');
 
 const router = express.Router();
 
 function verifyShopifyHmac(req) {
-    const hmacHeader = req.headers['x-shopify-hmac-sha256'];
-    const body = JSON.stringify(req.body);
+    const hmacHeader = req.get('x-shopify-hmac-sha256') || '';
+    const rawBody = req.body;
+
+    if (!hmacHeader || !rawBody) return false;
 
     const digest = crypto
         .createHmac('sha256', process.env.SHOPIFY_API_SECRET)
-        .update(body, 'utf8')
+        .update(rawBody)
         .digest('base64');
 
-    return digest === hmacHeader;
+    try {
+        return crypto.timingSafeEqual(
+            Buffer.from(digest, 'utf8'),
+            Buffer.from(hmacHeader, 'utf8')
+        );
+    } catch {
+        return false;
+    }
 }
 
-// CUSTOMER DATA REQUEST
-router.post('/customers/data_request', (req, res) => {
+function parseJsonBody(req) {
+    try {
+        return JSON.parse(req.body.toString('utf8'));
+    } catch {
+        return null;
+    }
+}
+
+router.post('/customers/data_request', express.raw({ type: '*/*' }), (req, res) => {
     if (!verifyShopifyHmac(req)) {
         return res.status(401).send('Invalid HMAC');
     }
 
-    console.log('[GDPR] data_request', req.body);
+    const payload = parseJsonBody(req);
+    console.log('[GDPR] data_request', payload);
 
-    res.status(200).send('ok');
+    return res.status(200).send('ok');
 });
 
-// CUSTOMER REDACT
-router.post('/customers/redact', (req, res) => {
+router.post('/customers/redact', express.raw({ type: '*/*' }), (req, res) => {
     if (!verifyShopifyHmac(req)) {
         return res.status(401).send('Invalid HMAC');
     }
 
-    console.log('[GDPR] customers_redact', req.body);
+    const payload = parseJsonBody(req);
+    console.log('[GDPR] customers_redact', payload);
 
-    res.status(200).send('ok');
+    return res.status(200).send('ok');
 });
 
-// SHOP REDACT
-router.post('/shop/redact', (req, res) => {
+router.post('/shop/redact', express.raw({ type: '*/*' }), (req, res) => {
     if (!verifyShopifyHmac(req)) {
         return res.status(401).send('Invalid HMAC');
     }
 
-    console.log('[GDPR] shop_redact', req.body);
+    const payload = parseJsonBody(req);
+    console.log('[GDPR] shop_redact', payload);
 
-    res.status(200).send('ok');
+    return res.status(200).send('ok');
 });
 
 module.exports = router;

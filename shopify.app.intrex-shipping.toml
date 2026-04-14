@@ -1,0 +1,18 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "22158e979f8568260fc57b3b1b483294"
+name = "Intrex Shipping"
+application_url = "https://front-end-rho-black.vercel.app/"
+embedded = true
+
+[webhooks]
+api_version = "2026-01"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_fulfillments,write_fulfillments,read_orders,read_products,read_shipping,write_shipping"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [ "http://localhost:3001/shopify/auth/callback" ]
