@@ -176,36 +176,58 @@ router.get('/auth/callback', async (req, res) => {
             return res.redirect(302, targetUrl);
         }
 
-        const r = await fetch(`https://${shop}/admin/oauth/access_token`, {
+                const r = await fetch(`https://${shop}/admin/oauth/access_token`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 client_id: API_KEY,
                 client_secret: API_SECRET,
                 code,
+                expiring: 1,
             }),
         });
 
         let body = {};
-        try { body = await r.json(); } catch {}
+        try {
+            body = await r.json();
+        } catch {}
 
         console.log('[CALLBACK] token status:', r.status);
         console.log('[CALLBACK] token body:', body);
 
         if (!r.ok || !body?.access_token) {
-            console.error('[callback] Falha token', { status: r.status, body });
+            console.error('[CALLBACK] Falha ao obter token', {
+                status: r.status,
+                body,
+            });
             return res.status(502).send('Falha ao obter token da Shopify');
         }
 
         markCodeUsed(code);
 
-        await db.Shop.upsert({
-            shop: shopNorm,
-            accessToken: body.access_token,
-            scope: body.scope || null,
-        });
+        const expiresAt = body.expires_in
+            ? new Date(Date.now() + Number(body.expires_in) * 1000)
+            : null;
 
-        console.log('[CALLBACK] shop salvo com sucesso:', shopNorm);
+        try {
+            await db.Shop.upsert({
+                shop: shopNorm,
+                accessToken: body.access_token,
+                refreshToken: body.refresh_token || null,
+                tokenExpiresAt: expiresAt,
+                scope: body.scope || null,
+            });
+
+            console.log('[CALLBACK] shop salvo com sucesso:', {
+                shop: shopNorm,
+                hasAccessToken: !!body.access_token,
+                hasRefreshToken: !!body.refresh_token,
+                tokenExpiresAt: expiresAt,
+            });
+        } catch (e) {
+            console.error('[CALLBACK] erro ao salvar shop:', e);
+            return res.status(500).send('Erro ao salvar token');
+        }
 
         const bindClienteId = req.cookies?.bind_cliente_id;
         if (bindClienteId) {
