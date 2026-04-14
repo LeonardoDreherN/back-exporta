@@ -6,19 +6,18 @@ const { quoteRates } = require('../services/fedex/ratingFedex');
 
 const toKg = (grams) => Number(grams || 0) / 1000;
 
-// Ajuste aqui com os dados reais da sua operação/origem
+// ORIGEM FIXA PARA TODOS OS CÁLCULOS
 const DEFAULT_ORIGIN = {
     country: 'BR',
     postal_code: '88140570',
     province: 'SC',
     city: 'Santo Amaro da Imperatriz',
     address1: 'Rua Saint German, 87',
-    company_name: 'Exporta Digital BR',
+    company_name: 'Teste Intrex Shipping',
     name: 'Exporta Digital BR',
     phone: '47992104226',
 };
 
-// Se vier estado/província com mais de 2 caracteres, omite para a FedEx não quebrar
 function normalizeFedexState(state) {
     if (!state) return undefined;
 
@@ -105,19 +104,7 @@ router.post('/carrier', async (req, res) => {
             return res.status(400).json({ error: 'Missing rate object' });
         }
 
-        const rawOrigin = rate.origin || {};
-        const origin = {
-            ...DEFAULT_ORIGIN,
-            ...rawOrigin,
-            country: rawOrigin.country || DEFAULT_ORIGIN.country,
-            postal_code: rawOrigin.postal_code || DEFAULT_ORIGIN.postal_code,
-            province: rawOrigin.province || DEFAULT_ORIGIN.province,
-            city: rawOrigin.city || DEFAULT_ORIGIN.city,
-            address1: rawOrigin.address1 || DEFAULT_ORIGIN.address1,
-            company_name: rawOrigin.company_name || DEFAULT_ORIGIN.company_name,
-            name: rawOrigin.name || DEFAULT_ORIGIN.name,
-            phone: rawOrigin.phone || DEFAULT_ORIGIN.phone,
-        };
+        const origin = { ...DEFAULT_ORIGIN };
 
         const dest = rate.destination || {};
         const items = Array.isArray(rate.items) ? rate.items : [];
@@ -127,79 +114,78 @@ router.post('/carrier', async (req, res) => {
         const commodities = buildCommodities(items, currency);
 
         let upsQuotes = [];
-        try {
-            const upsPayload = {
-    shipper: {
-        postalCode: origin.postal_code,
-        country: origin.country,
-        state: origin.province,
-        city: origin.city,
-        addressLine: origin.address1 || 'Rua Teste, 123',
-    },
-    shipTo: {
-        postalCode: dest.postal_code,
-        country: dest.country,
-        state: dest.province,
-        city: dest.city,
-        addressLine: dest.address1 || 'Address not provided',
-    },
-    packages,
-};
+try {
+    const upsPayload = {
+        shipper: {
+            postalCode: origin.postal_code,
+            country: origin.country,
+            state: origin.province,
+            city: origin.city,
+            addressLine: origin.address1 || undefined,
+        },
+        shipTo: {
+            postalCode: dest.postal_code,
+            country: dest.country,
+            state: dest.province,
+            city: dest.city,
+            addressLine: dest.address1 || undefined,
+        },
+        packages,
+    };
 
-            console.log('[SHOPIFY CARRIER][UPS PAYLOAD]', JSON.stringify(upsPayload, null, 2));
+    console.log('[SHOPIFY CARRIER][UPS PAYLOAD]', JSON.stringify(upsPayload, null, 2));
 
-            const upsResp = await rateMulti(upsPayload);
-            upsQuotes = upsResp.quotes || [];
-        } catch (e) {
-    const details = e?.response?.data || e;
-    console.error('[SHOPIFY CARRIER][UPS ERROR FULL JSON]', JSON.stringify(details, null, 2));
+    const upsResp = await rateMulti(upsPayload);
+    upsQuotes = upsResp.quotes || [];
+} catch (e) {
+    console.error('[SHOPIFY CARRIER][UPS ERROR FULL]', e?.response?.data || e);
 }
 
-        let fedexQuotes = [];
-        try {
-            const fedexPayload = {
-                shipper: {
-                    contact: {
-                        personName: origin.name || 'Shipper',
-                        companyName: origin.company_name || origin.name || 'Shipper',
-                        phoneNumber: origin.phone || '11999999999',
-                    },
-                    address: {
-                        postalCode: origin.postal_code,
-                        countryCode: origin.country,
-                        city: origin.city,
-                        stateOrProvinceCode: normalizeFedexState(origin.province),
-                        streetLines: [origin.address1 || 'Address not provided'],
-                    }
-                },
-                recipient: {
-                    contact: {
-                        personName: dest.name || 'Recipient',
-                        companyName: dest.company_name || dest.name || 'Recipient',
-                        phoneNumber: dest.phone || '17865994231',
-                        emailAddress: dest.email || undefined,
-                    },
-                    address: {
-                        postalCode: dest.postal_code,
-                        countryCode: dest.country,
-                        city: dest.city,
-                        stateOrProvinceCode: normalizeFedexState(dest.province),
-                        streetLines: [dest.address1 || 'Address not provided'],
-                        residential: false,
-                    }
-                },
-                packages,
-                commodities,
-                currency,
-            };
+       let fedexQuotes = [];
+try {
+    const fedexPayload = {
+        shipper: {
+            contact: {
+                personName: origin.name || 'Shipper',
+                companyName: origin.company_name || origin.name || 'Shipper',
+                phoneNumber: origin.phone || '47992104226',
+            },
+            address: {
+                postalCode: origin.postal_code,
+                countryCode: origin.country,
+                city: origin.city,
+                stateOrProvinceCode: normalizeFedexState(origin.province),
+                streetLines: [origin.address1 || 'Address not provided'],
+            }
+        },
+        recipient: {
+            contact: {
+                personName: dest.name || 'Recipient',
+                companyName: dest.company_name || dest.name || 'Recipient',
+                phoneNumber: dest.phone || '17865994231',
+                emailAddress: dest.email || undefined,
+            },
+            address: {
+                postalCode: dest.postal_code,
+                countryCode: dest.country,
+                city: dest.city,
+                stateOrProvinceCode: normalizeFedexState(dest.province),
+                streetLines: [dest.address1 || 'Address not provided'],
+                residential: false,
+            }
+        },
+        packages,
+        commodities,
+        currency,
+    };
 
-            console.log('[SHOPIFY CARRIER][FEDEX PAYLOAD]', JSON.stringify(fedexPayload, null, 2));
+    console.log('[SHOPIFY CARRIER][FEDEX PAYLOAD]', JSON.stringify(fedexPayload, null, 2));
 
-            const fedexResp = await quoteRates(fedexPayload);
-            fedexQuotes = fedexResp.rows || [];
-        } catch (e) {
-            console.error('[SHOPIFY CARRIER][FEDEX ERROR FULL]', e?.response?.data || e);
-        }
+    const fedexResp = await quoteRates(fedexPayload);
+    fedexQuotes = fedexResp.rows || [];
+} catch (e) {
+    console.error('[SHOPIFY CARRIER][FEDEX ERROR FULL]', e?.response?.data || e);
+}
 
         const rates = [];
 
