@@ -129,6 +129,9 @@ app.use(express.urlencoded({ extended: true, limit: '30mb' }));
 app.use(cookieParser());
 app.use(compression({ threshold: 0 }));
 
+const shopifyCompliance = require('./routes/shopifyCompliance');
+app.use('/shopify/webhooks', shopifyCompliance);
+
 applySecurity(app);
 applyLogging(app);
 setupSwagger(app);
