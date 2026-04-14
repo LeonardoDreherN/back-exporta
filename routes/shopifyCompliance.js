@@ -32,6 +32,11 @@ function parseJsonBody(req) {
     }
 }
 
+// IMPORTANTE: validação da Shopify está batendo na raiz /shopify/webhooks
+router.post('/', express.raw({ type: '*/*' }), (req, res) => {
+    return res.status(401).send('Invalid HMAC');
+});
+
 router.post('/customers/data_request', express.raw({ type: '*/*' }), (req, res) => {
     if (!verifyShopifyHmac(req)) {
         return res.status(401).send('Invalid HMAC');
