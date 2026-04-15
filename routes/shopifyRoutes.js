@@ -165,7 +165,7 @@ router.get('/auth/callback', async (req, res) => {
 
         const shopNorm = shop.toLowerCase();
         const host = req.query.host || Buffer.from(`admin.shopify.com/store/${toStoreHandle(shopNorm)}`, 'utf8').toString('base64');
-        const targetUrl = `${APP_URL}/?shop=${shopNorm}&host=${encodeURIComponent(host)}&embedded=1`;
+        const targetUrl = `${process.env.FRONT_URL}/?shop=${shopNorm}&host=${encodeURIComponent(host)}&embedded=1`;
 
         if (!req.cookies || req.cookies.shopify_state !== state) {
             return res.status(401).send('Invalid state');
