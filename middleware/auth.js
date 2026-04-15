@@ -6,7 +6,6 @@ function extrairToken(req) {
   if (req.cookies?.token) return req.cookies.token;
   if (req.cookies?.access_token) return req.cookies.access_token;
 
-  // 1) Authorization: Bearer xxx
   const auth = req.headers.authorization || "";
   const m = auth.match(/^Bearer\s+(.+)$/i);
   if (m) return m[1];
@@ -14,44 +13,103 @@ function extrairToken(req) {
   return null;
 }
 
-function logAuthDebug(req, stage, extra = {}) {
-  if (process.env.AUTH_DEBUG === '1') {
-    //   hasAuthHeader: !!req.headers.authorization,
-    //   hasAccessCookie: !!req.cookies?.access_token,
-    //   hasLegacyCookie: !!req.cookies?.token,
-    //   clienteId: req.clienteId,
-    //   usuario: req.usuario?.id,
-    //   ...extra,
-    // });
+function getHostFromUrlMaybe(value) {
+  try {
+    return new URL(String(value)).host.toLowerCase();
+  } catch {
+    return null;
   }
 }
 
-function autenticarShopify(req, res, next) {
+function isProbablyShopifySessionToken(token) {
+  try {
+    const decoded = jwt.decode(token);
+    return !!(
+      decoded &&
+      typeof decoded === "object" &&
+      (decoded.dest || decoded.aud || decoded.iss)
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function tryAuthenticateShopifySession(req, token) {
+  if (!isProbablyShopifySessionToken(token)) return false;
+
+  const decoded = jwt.verify(token, process.env.SHOPIFY_API_SECRET, {
+    algorithms: ["HS256"],
+    audience: process.env.SHOPIFY_API_KEY,
+  });
+
+  const destHost = getHostFromUrlMaybe(decoded.dest);
+  const issHost = getHostFromUrlMaybe(decoded.iss);
+
+  if (!destHost || !destHost.endsWith(".myshopify.com")) {
+    throw new Error("Shopify session token sem dest válido");
+  }
+
+  if (issHost && !issHost.includes("shopify")) {
+    throw new Error("Shopify session token com iss inválido");
+  }
+
+  const info = await db.InfoShopify.findOne({
+    where: { shopDomain: destHost },
+    attributes: ["id_cliente", "shopDomain"],
+    raw: true,
+  });
+
+  req.shopifySession = decoded;
+  req.shopDomain = destHost;
+
+  if (info?.id_cliente) {
+    req.clienteId = Number(info.id_cliente);
+  }
+
+  req.usuario = {
+    id: null,
+    clienteId: req.clienteId ?? null,
+    email: null,
+    roles: ["shopify_embedded"],
+    razaoSocial: null,
+    shopDomain: destHost,
+    shopifySub: decoded.sub || null,
+  };
+
+  req.user = {
+    id: null,
+    clienteId: req.clienteId ?? null,
+    email: null,
+    roles: ["shopify_embedded"],
+    shopDomain: destHost,
+  };
+
+  return true;
+}
+
+async function autenticarShopify(req, res, next) {
   const token = extrairToken(req);
   if (!token) {
     return res.status(401).json({ erro: "Token não fornecido" });
   }
 
   try {
+    const okShopify = await tryAuthenticateShopifySession(req, token);
+    if (okShopify) return next();
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // aceite as variações de claims
     const clienteId = decoded.sub || decoded.id || decoded.clienteId;
     if (!clienteId) {
       return res.status(401).json({ erro: "Token válido, mas sem clienteId" });
     }
 
-    // padronize sempre nestes campos:
-    req.clienteId = clienteId;
+    req.clienteId = Number(clienteId);
     req.user = {
-      id: clienteId,
+      id: Number(clienteId),
       email: decoded.email || decoded.emailPrincipal || null,
       roles: decoded.roles || [],
-      // se quiser manter o payload completo:
-      // payload: decoded,
     };
-
-    logAuthDebug(req, "autenticarShopify_ok", { decoded });
 
     return next();
   } catch (e) {
@@ -60,8 +118,7 @@ function autenticarShopify(req, res, next) {
   }
 }
 
-function autenticarUsuario(req, res, next) {
-
+async function autenticarUsuario(req, res, next) {
   const token = extrairToken(req);
 
   if (!token) {
@@ -69,6 +126,8 @@ function autenticarUsuario(req, res, next) {
   }
 
   try {
+    const okShopify = await tryAuthenticateShopifySession(req, token);
+    if (okShopify) return next();
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
@@ -79,8 +138,6 @@ function autenticarUsuario(req, res, next) {
       return res.status(403).json({ erro: "Usuário/cliente não identificado no token" });
     }
 
-    const roles = decoded.roles ?? decoded.scope ?? null
-
     const usuario = {
       id: userId ? Number(userId) : null,
       clienteId: clienteId ? Number(clienteId) : null,
@@ -89,7 +146,6 @@ function autenticarUsuario(req, res, next) {
       razaoSocial: decoded.razaoSocial ?? null,
     };
 
-
     req.usuario = usuario;
     req.user = {
       id: usuario.id,
@@ -97,34 +153,31 @@ function autenticarUsuario(req, res, next) {
       email: usuario.email,
       roles: usuario.roles,
     };
+
     if (req.usuario.clienteId) req.clienteId = req.usuario.clienteId;
 
     return next();
   } catch (e) {
-    console.error('[auth] erro ao verificar token', e);
+    console.error("[auth] erro ao verificar token", e);
     const msg = e?.name === "TokenExpiredError" ? "Token expirado" : "Token inválido";
     return res.status(401).json({ erro: msg });
   }
 }
 
-
-// Resolve qual é o cliente logado e injeta req.clienteId
 const vincularCliente = async (req, res, next) => {
   try {
-    // 1) Se o token já trouxer clienteId, use-o
     if (req.clienteId) {
       req.clienteId = Number(req.clienteId);
       return next();
     }
 
-    // 2) Caso contrário, tente derivar pelo id do payload
     const possibleId = Number(req.usuario?.id);
-    if (!possibleId) return res.status(403).json({ erro: "Usuário não identificado no token" });
+    if (!possibleId) {
+      return res.status(403).json({ erro: "Usuário não identificado no token" });
+    }
 
-    // Primeiro tenta por PK
     let cliente = await db.Cliente.findByPk(possibleId);
 
-    // Opcional: se você tem a coluna user_id na tabela clientes, tente por ela
     if (!cliente && db.Cliente.rawAttributes.user_id) {
       cliente = await db.Cliente.findOne({ where: { user_id: possibleId } });
     }
@@ -139,20 +192,25 @@ const vincularCliente = async (req, res, next) => {
 };
 
 function csrfRequired(req, res, next) {
-  const auth = req.headers.authorization || '';
+  const auth = req.headers.authorization || "";
   const hasBearer = /^Bearer\s+/i.test(auth);
   if (hasBearer) {
     return next();
   }
 
-  // Só exige em métodos que mudam estado
   if (!/^(POST|PUT|PATCH|DELETE)$/i.test(req.method)) return next();
-  const header = req.get('x-csrf-token');
+
+  const header = req.get("x-csrf-token");
   const cookie = req.cookies?.csrf_token;
+
   if (header && cookie && header === cookie) return next();
 
+  return res.status(403).json({ erro: "CSRF inválido" });
+}
 
-  return res.status(403).json({ erro: 'CSRF inválido' });
+module.exports = {
+  autenticarShopify,
+  vincularCliente,
+  autenticarUsuario,
+  csrfRequired,
 };
-
-module.exports = { autenticarShopify, vincularCliente, autenticarUsuario, csrfRequired };
