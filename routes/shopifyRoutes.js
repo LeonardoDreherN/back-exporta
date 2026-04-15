@@ -569,4 +569,95 @@ async function autoRegisterOrdersWebhook(shop, accessToken) {
     };
 }
 
+router.get('/app-status', autenticarUsuario, async (req, res) => {
+    try {
+        const shopFromQuery = String(req.query?.shop || '').toLowerCase().trim();
+        const shopFromSession = String(req.shopDomain || '').toLowerCase().trim();
+
+        const shop = shopFromQuery || shopFromSession;
+
+        if (!shop) {
+            return res.status(400).json({
+                ok: false,
+                erro: 'Loja não identificada',
+            });
+        }
+
+        const shopRow = await db.Shop.findOne({
+            where: { shop },
+            attributes: ['shop', 'accessToken'],
+            raw: true,
+        });
+
+        const infoRow = await db.InfoShopify.findOne({
+            where: { shopDomain: shop },
+            attributes: ['id_cliente', 'shopDomain'],
+            raw: true,
+        });
+
+        let hasCarrier = false;
+        let hasOrdersWebhook = false;
+
+        if (shopRow?.accessToken) {
+            const query = `
+              query AppStatusCheck {
+                deliveryCarrierServices(first: 20) {
+                  nodes {
+                    id
+                    name
+                    active
+                    callbackUrl
+                  }
+                }
+                webhookSubscriptions(first: 50) {
+                  nodes {
+                    id
+                    topic
+                    callbackUrl
+                  }
+                }
+              }
+            `;
+
+            const response = await fetch(`https://${shop}/admin/api/2026-04/graphql.json`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Shopify-Access-Token': shopRow.accessToken,
+                },
+                body: JSON.stringify({ query }),
+            });
+
+            const data = await response.json();
+
+            const carriers = data?.data?.deliveryCarrierServices?.nodes || [];
+            const webhooks = data?.data?.webhookSubscriptions?.nodes || [];
+
+            hasCarrier = carriers.some((c) =>
+                String(c?.name || '').toLowerCase().includes('intrex')
+            );
+
+            hasOrdersWebhook = webhooks.some((w) =>
+                String(w?.topic || '').toUpperCase() === 'ORDERS_CREATE'
+            );
+        }
+
+        return res.json({
+            ok: true,
+            shop,
+            hasToken: !!shopRow?.accessToken,
+            hasInfoShopify: !!infoRow?.id_cliente,
+            hasCarrier,
+            hasOrdersWebhook,
+            intrexConnected: !!infoRow?.id_cliente,
+        });
+    } catch (e) {
+        console.error('[APP STATUS ERROR]', e);
+        return res.status(500).json({
+            ok: false,
+            erro: 'Falha ao consultar status do app',
+        });
+    }
+});
+
 module.exports = router;
