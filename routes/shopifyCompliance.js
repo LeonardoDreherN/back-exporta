@@ -32,42 +32,30 @@ function parseJsonBody(req) {
     }
 }
 
-// IMPORTANTE: validação da Shopify está batendo na raiz /shopify/webhooks
-router.post('/', express.raw({ type: '*/*' }), (req, res) => {
-    return res.status(401).send('Invalid HMAC');
-});
-
-router.post('/customers/data_request', express.raw({ type: '*/*' }), (req, res) => {
+function handleComplianceWebhook(req, res) {
     if (!verifyShopifyHmac(req)) {
         return res.status(401).send('Invalid HMAC');
     }
 
+    const topic = req.get('x-shopify-topic') || '';
+    const shop = req.get('x-shopify-shop-domain') || '';
     const payload = parseJsonBody(req);
-    console.log('[GDPR] data_request', payload);
+
+    console.log('[SHOPIFY COMPLIANCE]', {
+        topic,
+        shop,
+        payload,
+    });
 
     return res.status(200).send('ok');
-});
+}
 
-router.post('/customers/redact', express.raw({ type: '*/*' }), (req, res) => {
-    if (!verifyShopifyHmac(req)) {
-        return res.status(401).send('Invalid HMAC');
-    }
+// Shopify pode entregar no endpoint base /shopify/webhooks
+router.post('/', express.raw({ type: '*/*' }), handleComplianceWebhook);
 
-    const payload = parseJsonBody(req);
-    console.log('[GDPR] customers_redact', payload);
-
-    return res.status(200).send('ok');
-});
-
-router.post('/shop/redact', express.raw({ type: '*/*' }), (req, res) => {
-    if (!verifyShopifyHmac(req)) {
-        return res.status(401).send('Invalid HMAC');
-    }
-
-    const payload = parseJsonBody(req);
-    console.log('[GDPR] shop_redact', payload);
-
-    return res.status(200).send('ok');
-});
+// Compatibilidade com subrotas
+router.post('/customers/data_request', express.raw({ type: '*/*' }), handleComplianceWebhook);
+router.post('/customers/redact', express.raw({ type: '*/*' }), handleComplianceWebhook);
+router.post('/shop/redact', express.raw({ type: '*/*' }), handleComplianceWebhook);
 
 module.exports = router;
