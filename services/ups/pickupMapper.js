@@ -33,6 +33,9 @@ function buildUpsPickupPayload(data) {
     }
 
     const countryCode = String(data.countryCode || 'BR').toUpperCase();
+    const destinationCountryCode = String(
+        data.destinationCountryCode || countryCode
+    ).toUpperCase();
 
     return {
         PickupCreationRequest: {
@@ -51,7 +54,7 @@ function buildUpsPickupPayload(data) {
             PickupAddress: {
                 CompanyName: data.companyName || data.contactName || 'Intrex',
                 ContactName: data.contactName,
-                AddressLine: [String(data.addressLine1 || '')].filter(Boolean),
+                AddressLine: String(data.addressLine1 || ''),
                 Room: data.room || '',
                 Floor: data.floor || '',
                 City: data.city,
@@ -60,33 +63,25 @@ function buildUpsPickupPayload(data) {
                 PostalCode: onlyDigits(data.postalCode),
                 CountryCode: countryCode,
                 ResidentialIndicator: String(data.residentialIndicator || 'N'),
-
-                // ✅ CORREÇÃO AQUI
+                PickupPoint: data.pickupPoint || '',
                 Phone: {
                     Number: onlyDigits(data.phone),
                     Extension: data.phoneExtension || '',
                 },
-                EmailAddress: data.emailAddress || '',
             },
-
             AlternateAddressIndicator: data.alternateAddressIndicator || 'Y',
-
             PickupPiece: [
                 {
                     ServiceCode: data.serviceCode || '001',
                     Quantity: String(data.packageCount || 1),
-                    DestinationCountryCode: String(data.destinationCountryCode || countryCode).toUpperCase(),
+                    DestinationCountryCode: destinationCountryCode,
                     ContainerCode: data.containerCode || '01',
                 },
             ],
-
             TotalWeight: {
                 Weight: String(data.totalWeight || 1),
-                UnitOfMeasurement: {
-                    Code: data.weightUnit || 'KGS',
-                },
+                UnitOfMeasurement: data.weightUnit || 'KGS',
             },
-
             OverweightIndicator: data.overweightIndicator || 'N',
             PaymentMethod: data.paymentMethod || '01',
             SpecialInstruction: data.specialInstructions || '',
