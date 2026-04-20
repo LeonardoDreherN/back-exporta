@@ -41,6 +41,7 @@ module.exports = (sequelize) => {
     numeroIOR: { type: DataTypes.STRING, allowNull: false },
     telefoneIOR: { type: DataTypes.STRING, allowNull: false },
     state_tax_idIOR: { type: DataTypes.STRING, allowNull: false },
+    ups_shipper_number: { type: DataTypes.STRING, allowNull: true },
     customerAsaas: { type: DataTypes.STRING, allowNull: true }, // id do customer no Asaas
   });
 }

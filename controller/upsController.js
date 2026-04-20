@@ -5,6 +5,7 @@ const tracking = require('../services/ups/tracking');
 const axios = require('axios');
 const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
 const Cotacao = require('../models/Cotacao');
+const Cliente = require('../models/Cliente');
 const { getUpsToken } = require('../services/upsAuth');
 const { iso2Country } = require('../services/cotacoesHelpers');
 // const { Cotacao } = db;
@@ -19,6 +20,39 @@ const UPS_ACCOUNT_NUMBER = process.env.UPS_ACCOUNT_NUMBER;
 const UPS_STUB = String(process.env.UPS_STUB || '') === 'true';
 const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || '';
 const UPS_CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || '';
+
+function resolveUpsAccount(cliente, fallbackAccount) {
+    return (
+        cliente?.ups_shipper_number ||
+        cliente?.ups_account_number ||
+        fallbackAccount ||
+        undefined
+    );
+}
+
+async function getClienteFromRequest(req) {
+    const clienteIdRaw =
+    req.clienteId ||
+    req.user?.clienteId ||
+    req.headers['x-cliente-id'] ||
+    req.body?.clienteId ||
+    req.query?.clienteId ||
+    null;
+
+    const clienteId = Number(clienteIdRaw);
+    if (!clienteId || Number.isNaN(clienteId)) return null;
+
+    try {
+        const cliente = await Cliente.findByPk(clienteId);
+        return cliente || null;
+    } catch (err) {
+        console.error('[UPS] erro ao buscar cliente por x-cliente-id:', {
+            clienteId,
+            err: err?.message,
+        });
+        return null;
+    }
+}
 
 
 const onlyDigits = (s) => String(s || '').replace(/\D+/g, '');
@@ -577,6 +611,13 @@ module.exports = {
     rate: async (req, res, next) => {
         try {
             const body = req.body || {};
+            const cliente = await getClienteFromRequest(req);
+            const upsAccountNumber = resolveUpsAccount(cliente, UPS_ACCOUNT_NUMBER);
+
+            console.log('[UPS RATE] clienteId:', req.clienteId);
+console.log('[UPS RATE] cliente encontrado:', cliente?.id);
+console.log('[UPS RATE] ups_shipper_number:', cliente?.ups_shipper_number);
+console.log('[UPS RATE] conta usada:', upsAccountNumber);
 
             if (body?.RateRequest) {
                 const rr = body.RateRequest;
@@ -672,7 +713,7 @@ module.exports = {
                     Request: { TransactionReference: { CustomerContext: 'back-exporta' } },
                     Shipment: {
                         Shipper: {
-                            ShipperNumber: UPS_ACCOUNT_NUMBER || undefined,
+                            ShipperNumber: upsAccountNumber || undefined,
                             Address: {
                                 PostalCode: safeShipper.postalCode,
                                 CountryCode: safeShipper.country,
@@ -1051,7 +1092,37 @@ module.exports = {
             return res.status(http).json({ error: msg, details: e?.details });
         }
     },
+    // 🚀 NOVO: PICKUP UPS
+    createPickup: async (req, res) => {
+        try {
+            const { createPickup } = require('../services/ups/pickupUps');
+            const { buildUpsPickupPayload } = require('../services/ups/pickupMapper');
+
+            const payload = buildUpsPickupPayload(req.body);
+
+            const result = await createPickup(payload);
+
+            return res.status(200).json({
+                ok: true,
+                message: 'Coleta UPS agendada com sucesso',
+                data: result,
+            });
+
+        } catch (err) {
+            console.error('[UPS/PICKUP ERROR]', err?.message, err?.upstream);
+
+            return res.status(err.status || 500).json({
+                ok: false,
+                message: err.message || 'Erro ao agendar coleta UPS',
+                upstream: err.upstream || null,
+            });
+        }
+    },
+
     getUpsToken
+};
+
+    
 
     // ---------------- PICKUP ----------------
     // pickup: async (req, res) => {
@@ -1193,4 +1264,4 @@ module.exports = {
     //     }
     // },
 
-};
+
