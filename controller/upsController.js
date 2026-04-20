@@ -322,7 +322,7 @@ function mapToUpsShipment(reqBody) {
         };
     };
 
-    const shipperNumber = UPS_ACCOUNT_NUMBER || payment?.account || undefined;
+    const shipperNumber = payment?.account || UPS_ACCOUNT_NUMBER || undefined;
     const paymentInformation = (() => {
         const bill = payment?.bill;
         const account = payment?.account || UPS_ACCOUNT_NUMBER || undefined;
@@ -897,6 +897,14 @@ console.log('[UPS RATE] conta usada:', upsAccountNumber);
                 cli = translateFrontShipSRToBiz(cli);
             }
 
+            const cliente = await getClienteFromRequest(req);
+            const upsAccountNumber = resolveUpsAccount(cliente, UPS_ACCOUNT_NUMBER);
+
+            console.log('[UPS SHIP] clienteId:', req.clienteId);
+console.log('[UPS SHIP] cliente encontrado:', cliente?.id);
+console.log('[UPS SHIP] ups_shipper_number:', cliente?.ups_shipper_number);
+console.log('[UPS SHIP] conta resolvida:', upsAccountNumber);
+
             let rateReq;
 
             if (req.body?.RateRequest) {
@@ -929,8 +937,8 @@ console.log('[UPS RATE] conta usada:', upsAccountNumber);
                 return res.status(400).json({ ok: false, error: 'payment.bill é obrigatório' });
             }
             if (cli.payment.bill === 'Shipper' && !cli.payment.account) {
-                cli.payment.account = UPS_ACCOUNT_NUMBER;
-            }
+    cli.payment.account = upsAccountNumber;
+}
 
             if (UPS_STUB) {
                 return res.json({
@@ -946,6 +954,9 @@ console.log('[UPS RATE] conta usada:', upsAccountNumber);
             }
 
             const upsReq = mapToUpsShipment(cli);
+
+            console.log('[UPS SHIP] shipperNumber payload:', upsReq?.ShipmentRequest?.Shipment?.Shipper?.ShipperNumber);
+console.log('[UPS SHIP] billing account payload:', upsReq?.ShipmentRequest?.Shipment?.PaymentInformation?.ShipmentCharge);
 
             // Se o front mandou IF, injeta sanitizado (sobrepõe o base)
             if (originalIF) {
