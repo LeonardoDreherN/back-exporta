@@ -1114,9 +1114,9 @@ console.log('[UPS SHIP] billing account payload:', upsReq?.ShipmentRequest?.Ship
             const upsAccountNumber = resolveUpsAccount(cliente, UPS_ACCOUNT_NUMBER);
 
             const payload = buildUpsPickupPayload({
-                ...req.body,
-                accountNumber: req.body?.accountNumber || upsAccountNumber,
-            });
+    ...req.body,
+    accountNumber: upsAccountNumber,
+});
 
             const result = await createPickup(payload);
 
