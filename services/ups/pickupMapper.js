@@ -1,32 +1,94 @@
+function onlyDigits(s) {
+    return String(s || '').replace(/\D+/g, '');
+}
+
+function toYMD(value) {
+    if (!value) return '';
+    const s = String(value).trim();
+
+    if (/^\d{8}$/.test(s)) return s;
+
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) return `${m[1]}${m[2]}${m[3]}`;
+
+    return s.replace(/\D/g, '');
+}
+
+function toHM(value) {
+    if (!value) return '';
+    const s = String(value).trim();
+
+    if (/^\d{4}$/.test(s)) return s;
+
+    const m = s.match(/^(\d{2}):(\d{2})$/);
+    if (m) return `${m[1]}${m[2]}`;
+
+    return s.replace(/\D/g, '').slice(0, 4);
+}
+
 function buildUpsPickupPayload(data) {
-  return {
-    accountNumber: data.accountNumber,
+    const accountNumber = data.accountNumber;
+    if (!accountNumber) {
+        throw new Error('Conta UPS não informada para pickup.');
+    }
 
-    requester: {
-      name: data.contactName,
-      phone: data.phone,
-    },
+    const countryCode = String(data.countryCode || 'BR').toUpperCase();
 
-    pickupAddress: {
-      countryCode: data.countryCode,
-      stateProvince: data.stateCode,
-      city: data.city,
-      postalCode: data.postalCode,
-      addressLine: data.addressLine1,
-    },
-
-    pickupDate: data.pickupDate,
-    readyTime: data.readyTime,
-    closeTime: data.closeTime,
-
-    totalWeight: Number(data.totalWeight),
-    weightUnit: data.weightUnit || 'KGS',
-    packageCount: Number(data.packageCount),
-
-    specialInstructions: data.specialInstructions || '',
-  };
+    return {
+        PickupCreationRequest: {
+            RatePickupIndicator: data.ratePickupIndicator || 'N',
+            Shipper: {
+                Account: {
+                    AccountNumber: accountNumber,
+                    AccountCountryCode: countryCode,
+                },
+            },
+            PickupDateInfo: {
+                CloseTime: toHM(data.closeTime),
+                PickupDate: toYMD(data.pickupDate),
+                ReadyTime: toHM(data.readyTime),
+            },
+            PickupAddress: {
+                CompanyName: data.companyName || data.contactName || 'Intrex',
+                ContactName: data.contactName,
+                AddressLine: [String(data.addressLine1 || '')].filter(Boolean),
+                Room: data.room || '',
+                Floor: data.floor || '',
+                City: data.city,
+                StateProvince: data.stateCode,
+                Urbanization: data.neighborhood || '',
+                PostalCode: onlyDigits(data.postalCode),
+                CountryCode: countryCode,
+                ResidentialIndicator: String(data.residentialIndicator || 'N'),
+            },
+            AlternateAddressIndicator: data.alternateAddressIndicator || 'Y',
+            PickupPiece: [
+                {
+                    ServiceCode: data.serviceCode || '001',
+                    Quantity: String(data.packageCount || 1),
+                    DestinationCountryCode: String(data.destinationCountryCode || countryCode).toUpperCase(),
+                    ContainerCode: data.containerCode || '01',
+                },
+            ],
+            TotalWeight: {
+                Weight: String(data.totalWeight || 1),
+                UnitOfMeasurement: {
+                    Code: data.weightUnit || 'KGS',
+                },
+            },
+            OverweightIndicator: data.overweightIndicator || 'N',
+            PaymentMethod: data.paymentMethod || '01',
+            SpecialInstruction: data.specialInstructions || '',
+            ReferenceNumber: data.referenceNumber || '',
+            EmailAddress: data.emailAddress || '',
+            Phone: {
+                Number: onlyDigits(data.phone),
+                Extension: data.phoneExtension || '',
+            },
+        },
+    };
 }
 
 module.exports = {
-  buildUpsPickupPayload,
+    buildUpsPickupPayload,
 };

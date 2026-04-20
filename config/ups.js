@@ -8,6 +8,7 @@ module.exports = {
     rate: `${base}/api/rating/v2407/Rate`,
     ship: `${base}/api/shipments/v2407/ship`,
     track: `${base}/api/track/v1/details`,
+    pickupCreate: `${base}/api/pickupcreation/v2407/pickup`,
     account: process.env.UPS_ACCOUNT_NUMBER,
     clientId: process.env.UPS_CLIENT_ID,
     clientSecret: process.env.UPS_CLIENT_SECRET,
