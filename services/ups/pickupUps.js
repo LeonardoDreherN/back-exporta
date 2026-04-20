@@ -31,17 +31,30 @@ async function createPickup(payload, { transactionId } = {}) {
             transactionSrc: 'exporta-digital',
         };
 
+        // 🔍 LOG DO PAYLOAD ENVIADO
+        console.log('[UPS PICKUP PAYLOAD]');
+        console.log(JSON.stringify(payload, null, 2));
+
         const res = await http.post(cfg.pickupCreate, payload, {
             headers,
             timeout: cfg.timeoutMs || 15000,
             validateStatus: s => s < 500,
         });
 
+        // 🔍 LOG DA RESPOSTA DA UPS
+        console.log('[UPS PICKUP RESPONSE]');
+        console.log('status:', res.status);
+        console.log(JSON.stringify(res.data, null, 2));
+
         if (res.status >= 400) {
             const msg = extractUpsMessage({ response: res }) || `UPS Pickup ${res.status}`;
             const e = new Error(msg);
             e.status = res.status;
             e.upstream = res.data;
+
+            console.error('[UPS PICKUP ERROR - UPS RESPONSE]');
+            console.error(JSON.stringify(res.data, null, 2));
+
             throw e;
         }
 
@@ -49,6 +62,11 @@ async function createPickup(payload, { transactionId } = {}) {
     } catch (err) {
         const status = err?.response?.status || err.status || 500;
         const data = err?.response?.data || err.upstream;
+
+        console.error('[UPS PICKUP ERROR]');
+        console.error('status:', status);
+        console.error('message:', err.message);
+        console.error('upstream:', JSON.stringify(data, null, 2));
 
         const e = new Error(
             extractUpsMessage(err) || `UPS Pickup failed with status ${status}`
