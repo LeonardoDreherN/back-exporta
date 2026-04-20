@@ -5,7 +5,7 @@ const tracking = require('../services/ups/tracking');
 const axios = require('axios');
 const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
 const Cotacao = require('../models/Cotacao');
-const Cliente = require('../models/Cliente');
+const db = require('../models');
 const { getUpsToken } = require('../services/upsAuth');
 const { iso2Country } = require('../services/cotacoesHelpers');
 // const { Cotacao } = db;
@@ -43,7 +43,7 @@ async function getClienteFromRequest(req) {
     if (!clienteId || Number.isNaN(clienteId)) return null;
 
     try {
-        const cliente = await Cliente.findByPk(clienteId);
+        const cliente = await db.Cliente.findByPk(clienteId);
         return cliente || null;
     } catch (err) {
         console.error('[UPS] erro ao buscar cliente por x-cliente-id:', {
