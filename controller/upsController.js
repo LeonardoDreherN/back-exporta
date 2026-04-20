@@ -1106,36 +1106,33 @@ console.log('[UPS SHIP] billing account payload:', upsReq?.ShipmentRequest?.Ship
     },
     // 🚀 NOVO: PICKUP UPS
         createPickup: async (req, res) => {
-        try {
-            const { createPickup } = require('../services/ups/pickupUps');
-            const { buildUpsPickupPayload } = require('../services/ups/pickupMapper');
+    try {
+        const { createPickup } = require('../services/ups/pickupUps');
+        const { buildUpsPickupPayload } = require('../services/ups/pickupMapper');
 
-            const cliente = await getClienteFromRequest(req);
-            const upsAccountNumber = resolveUpsAccount(cliente, UPS_ACCOUNT_NUMBER);
+        const payload = buildUpsPickupPayload({
+            ...req.body,
+            accountNumber: UPS_ACCOUNT_NUMBER,
+        });
 
-            const payload = buildUpsPickupPayload({
-    ...req.body,
-    accountNumber: upsAccountNumber,
-});
+        const result = await createPickup(payload);
 
-            const result = await createPickup(payload);
+        return res.status(200).json({
+            ok: true,
+            message: 'Coleta UPS agendada com sucesso',
+            data: result,
+        });
 
-            return res.status(200).json({
-                ok: true,
-                message: 'Coleta UPS agendada com sucesso',
-                data: result,
-            });
+    } catch (err) {
+        console.error('[UPS/PICKUP ERROR]', err?.message, err?.upstream);
 
-        } catch (err) {
-            console.error('[UPS/PICKUP ERROR]', err?.message, err?.upstream);
-
-            return res.status(err.status || 500).json({
-                ok: false,
-                message: err.message || 'Erro ao agendar coleta UPS',
-                upstream: err.upstream || null,
-            });
-        }
-    },
+        return res.status(err.status || 500).json({
+            ok: false,
+            message: err.message || 'Erro ao agendar coleta UPS',
+            upstream: err.upstream || null,
+        });
+    }
+},
 
     getUpsToken
 };
