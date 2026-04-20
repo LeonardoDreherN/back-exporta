@@ -60,8 +60,17 @@ function buildUpsPickupPayload(data) {
                 PostalCode: onlyDigits(data.postalCode),
                 CountryCode: countryCode,
                 ResidentialIndicator: String(data.residentialIndicator || 'N'),
+
+                // ✅ CORREÇÃO AQUI
+                Phone: {
+                    Number: onlyDigits(data.phone),
+                    Extension: data.phoneExtension || '',
+                },
+                EmailAddress: data.emailAddress || '',
             },
+
             AlternateAddressIndicator: data.alternateAddressIndicator || 'Y',
+
             PickupPiece: [
                 {
                     ServiceCode: data.serviceCode || '001',
@@ -70,21 +79,18 @@ function buildUpsPickupPayload(data) {
                     ContainerCode: data.containerCode || '01',
                 },
             ],
+
             TotalWeight: {
                 Weight: String(data.totalWeight || 1),
                 UnitOfMeasurement: {
                     Code: data.weightUnit || 'KGS',
                 },
             },
+
             OverweightIndicator: data.overweightIndicator || 'N',
             PaymentMethod: data.paymentMethod || '01',
             SpecialInstruction: data.specialInstructions || '',
             ReferenceNumber: data.referenceNumber || '',
-            EmailAddress: data.emailAddress || '',
-            Phone: {
-                Number: onlyDigits(data.phone),
-                Extension: data.phoneExtension || '',
-            },
         },
     };
 }
