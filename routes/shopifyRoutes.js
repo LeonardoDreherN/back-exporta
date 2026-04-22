@@ -44,6 +44,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 const express = require('express');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const db = require('../models');
 const { autenticarUsuario, vincularCliente } = require('../middleware/auth');
 const { uploadOrdersMinimal } = require('../controller/pedidosMinimalController');
@@ -112,20 +113,19 @@ router.post('/prepare-install', autenticarUsuario, async (req, res) => {
         return res.status(403).json({ erro: 'Cliente não identificado' });
     }
 
-    res.cookie('bind_cliente_id', String(clienteId), {
-        httpOnly: true,
-        sameSite: 'none',
-        secure: true,
-        path: '/shopify',
-        maxAge: 10 * 60 * 1000,
-    });
+    // Token curto assinado — evita problema de cookie cross-origin (Vercel → Render)
+    const bindToken = jwt.sign(
+        { clienteId, shop },
+        process.env.JWT_SECRET,
+        { expiresIn: '10m' }
+    );
 
-    const authUrl = `${APP_URL}/shopify/auth?shop=${encodeURIComponent(shop)}`;
+    const authUrl = `${APP_URL}/shopify/auth?shop=${encodeURIComponent(shop)}&bind_token=${encodeURIComponent(bindToken)}`;
     return res.json({ authUrl });
 });
 
 router.get('/auth', async (req, res) => {
-    const { shop, hmac } = req.query;
+    const { shop, hmac, bind_token } = req.query;
     if (!shop || !isValidShopDomain(shop)) return res.status(400).send('Parametro "shop" invalido');
     const shopNorm = shop.toLowerCase();
 
@@ -137,8 +137,29 @@ router.get('/auth', async (req, res) => {
         return res.redirect(cleanUrl);
     }
 
-    // Sem cookie de vínculo: redireciona para o frontend fazer login + preparar instalação
-    if (!req.cookies?.bind_cliente_id) {
+    // Verifica bind_token na URL (evita problema de cookie cross-origin Vercel → Render)
+    let bindClienteIdFromToken = null;
+    if (bind_token) {
+        try {
+            const decoded = jwt.verify(String(bind_token), process.env.JWT_SECRET);
+            if (decoded.clienteId && decoded.shop === shopNorm) {
+                bindClienteIdFromToken = String(decoded.clienteId);
+                // Seta cookie same-domain para o callback ler normalmente
+                res.cookie('bind_cliente_id', bindClienteIdFromToken, {
+                    httpOnly: true,
+                    sameSite: 'none',
+                    secure: true,
+                    path: '/shopify',
+                    maxAge: 10 * 60 * 1000,
+                });
+            }
+        } catch {
+            // token inválido ou expirado — cai no redirect abaixo
+        }
+    }
+
+    // Sem vínculo via token nem via cookie: redireciona para login
+    if (!bindClienteIdFromToken && !req.cookies?.bind_cliente_id) {
         const installUrl = `${process.env.FRONT_URL}/shopify-install?shop=${encodeURIComponent(shopNorm)}`;
         return res.redirect(installUrl);
     }
