@@ -158,8 +158,19 @@ router.get('/auth', async (req, res) => {
         }
     }
 
-    // Sem vínculo via token nem via cookie: redireciona para login
+    // Sem vínculo via token nem via cookie
     if (!bindClienteIdFromToken && !req.cookies?.bind_cliente_id) {
+        // Loja já instalada (tem token): só reabrir o app embedded
+        try {
+            const existingShop = await db.Shop.findOne({ where: { shop: shopNorm }, attributes: ['accessToken'], raw: true });
+            if (existingShop?.accessToken) {
+                const handle = toStoreHandle(shopNorm);
+                const safeHost = req.query.host || Buffer.from(`admin.shopify.com/store/${handle}`, 'utf8').toString('base64');
+                const targetUrl = `${process.env.FRONT_URL}/?shop=${shopNorm}&host=${encodeURIComponent(safeHost)}&embedded=1`;
+                return res.redirect(targetUrl);
+            }
+        } catch { /* continua para fluxo de install */ }
+
         const installUrl = `${process.env.FRONT_URL}/shopify-install?shop=${encodeURIComponent(shopNorm)}`;
         return res.redirect(installUrl);
     }
