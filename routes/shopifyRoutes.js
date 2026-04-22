@@ -101,19 +101,33 @@ router.get('/has-token', async (req, res) => {
     res.json({ hasToken: !!row, shop });
 });
 
+router.post('/prepare-install', autenticarUsuario, async (req, res) => {
+    const shop = String(req.body?.shop || '').toLowerCase().trim();
+    if (!shop || !isValidShopDomain(shop)) {
+        return res.status(400).json({ erro: 'Domínio da loja inválido' });
+    }
+
+    const clienteId = req.clienteId ?? req.usuario?.clienteId;
+    if (!clienteId) {
+        return res.status(403).json({ erro: 'Cliente não identificado' });
+    }
+
+    res.cookie('bind_cliente_id', String(clienteId), {
+        httpOnly: true,
+        sameSite: 'none',
+        secure: true,
+        path: '/shopify',
+        maxAge: 10 * 60 * 1000,
+    });
+
+    const authUrl = `${APP_URL}/shopify/auth?shop=${encodeURIComponent(shop)}`;
+    return res.json({ authUrl });
+});
+
 router.get('/auth', async (req, res) => {
     const { shop, hmac } = req.query;
     if (!shop || !isValidShopDomain(shop)) return res.status(400).send('Parametro "shop" invalido');
     const shopNorm = shop.toLowerCase();
-
-    if (req.clienteId) {
-        res.cookie('bind_cliente_id', String(req.clienteId), {
-            httpOnly: true,
-            sameSite: 'none',
-            secure: process.env.NODE_ENV !== 'development',
-            path: '/shopify'
-        });
-    }
 
     if (hmac) {
         const handle = toStoreHandle(shopNorm);
@@ -121,6 +135,12 @@ router.get('/auth', async (req, res) => {
 
         const cleanUrl = `${APP_URL}/shopify/auth?shop=${encodeURIComponent(shopNorm)}&host=${encodeURIComponent(safeHost)}`;
         return res.redirect(cleanUrl);
+    }
+
+    // Sem cookie de vínculo: redireciona para o frontend fazer login + preparar instalação
+    if (!req.cookies?.bind_cliente_id) {
+        const installUrl = `${process.env.FRONT_URL}/shopify-install?shop=${encodeURIComponent(shopNorm)}`;
+        return res.redirect(installUrl);
     }
 
     let row = null;
@@ -236,6 +256,17 @@ router.get('/auth/callback', async (req, res) => {
                 shopDomain: shopNorm,
             });
             res.clearCookie('bind_cliente_id', { path: '/shopify' });
+
+            // Auto-registra carrier e webhook após vincular a conta Intrex
+            Promise.all([
+                autoRegisterCarrier(shopNorm, body.access_token),
+                autoRegisterOrdersWebhook(shopNorm, body.access_token),
+            ]).then(([carrierResult, webhookResult]) => {
+                console.log('[CALLBACK] auto-register carrier:', carrierResult.ok, carrierResult.userErrors);
+                console.log('[CALLBACK] auto-register webhook:', webhookResult.ok, webhookResult.userErrors);
+            }).catch(err => {
+                console.error('[CALLBACK] auto-register error:', err);
+            });
         }
 
         return res.redirect(302, targetUrl);
