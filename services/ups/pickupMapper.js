@@ -71,13 +71,13 @@ function buildUpsPickupPayload(data) {
             },
             AlternateAddressIndicator: data.alternateAddressIndicator || 'Y',
             PickupPiece: [
-                {
-                    ServiceCode: data.serviceCode || '001',
-                    Quantity: String(data.packageCount || 1),
-                    DestinationCountryCode: destinationCountryCode,
-                    ContainerCode: data.containerCode || '01',
-                },
-            ],
+    {
+        ServiceCode: '001',
+        Quantity: String(data.packageCount || 1),
+        DestinationCountryCode: 'US',
+        ContainerCode: data.containerCode || '01',
+    },
+],
             TotalWeight: {
                 Weight: String(data.totalWeight || 1),
                 UnitOfMeasurement: data.weightUnit || 'KGS',
