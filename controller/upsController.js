@@ -943,9 +943,9 @@ console.log('[UPS SHIP] conta resolvida:', upsAccountNumber);
             if (!cli.payment?.bill) {
                 return res.status(400).json({ ok: false, error: 'payment.bill é obrigatório' });
             }
-            if (cli.payment.bill === 'Shipper' && !cli.payment.account) {
-    cli.payment.account = upsAccountNumber;
-}
+            if (cli.payment.bill === 'Shipper') {
+                cli.payment.account = upsAccountNumber || cli.payment.account;
+            }
 
             if (UPS_STUB) {
                 return res.json({
