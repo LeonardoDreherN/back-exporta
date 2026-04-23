@@ -147,6 +147,7 @@ app.use('/exports', express.static(path.join(__dirname, 'exports'), { maxAge: '1
 app.use('/shopify', shopifyModule);
 app.use('/shopify', shopifyCarrierRoutes);
 app.use('/shopify/webhooks', shopifyWebhookRoutes);
+app.use('/api/public-quote', require('./routes/publicQuoteRoute.js'));
 app.use('/api/ups', autenticarUsuario, vincularCliente, upsRoutes);
 app.use('/api/fedex', fedexRoutes);
 app.use('/api/shipments', shipmentsRoutes);
