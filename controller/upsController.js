@@ -328,7 +328,12 @@ function mapToUpsShipment(reqBody) {
         const bill = payment?.bill;
         const account = payment?.account || UPS_ACCOUNT_NUMBER || undefined;
         if (bill === 'Shipper') {
-            return { ShipmentCharge: { Type: '01', BillShipper: { AccountNumber: shipperNumber } } };
+            const charges = [{ Type: '01', BillShipper: { AccountNumber: shipperNumber } }];
+            // DDP: shipper also pays duties & taxes (Type '02')
+            if (triangulacao === 'DDP') {
+                charges.push({ Type: '02', BillShipper: { AccountNumber: shipperNumber } });
+            }
+            return { ShipmentCharge: charges };
         } else if (bill === 'Receiver') {
             return { ShipmentCharge: { Type: '02', BillReceiver: { AccountNumber: account, Address: { PostalCode: addr(shipTo).Address.PostalCode, CountryCode: addr(shipTo).Address.CountryCode } } } };
         } else {
@@ -587,6 +592,7 @@ function translateFrontShipSRToBiz(body) {
         payment: paymentBiz,
         packages: packagesBiz,
         invoice: invoiceBiz && invoiceBiz.items.length ? invoiceBiz : null,
+        triangulacao: IF?.TermsOfShipment || undefined,
     };
 }
 
