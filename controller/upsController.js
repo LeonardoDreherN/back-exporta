@@ -629,9 +629,9 @@ console.log('[UPS RATE] conta usada:', upsAccountNumber);
             if (body?.RateRequest) {
                 const rr = body.RateRequest;
 
-                // Injeta ShipperNumber do cliente (necessário para tarifas negociadas)
-                if (upsAccountNumber && rr?.Shipment?.Shipper) {
-                    rr.Shipment.Shipper.ShipperNumber = upsAccountNumber;
+                // Para cotação, ShipperNumber deve bater com o x-merchant-id do token OAuth (account global)
+                if (UPS_ACCOUNT_NUMBER && rr?.Shipment?.Shipper) {
+                    rr.Shipment.Shipper.ShipperNumber = UPS_ACCOUNT_NUMBER;
                 }
 
                 const fixAddr = (node) => {
@@ -949,7 +949,7 @@ console.log('[UPS SHIP] conta resolvida:', upsAccountNumber);
                 return res.status(400).json({ ok: false, error: 'payment.bill é obrigatório' });
             }
             if (cli.payment.bill === 'Shipper') {
-                cli.payment.account = upsAccountNumber || cli.payment.account;
+                cli.payment.account = UPS_ACCOUNT_NUMBER || upsAccountNumber || cli.payment.account;
             }
 
             if (UPS_STUB) {
