@@ -629,6 +629,11 @@ console.log('[UPS RATE] conta usada:', upsAccountNumber);
             if (body?.RateRequest) {
                 const rr = body.RateRequest;
 
+                // Injeta ShipperNumber do cliente (necessário para tarifas negociadas)
+                if (upsAccountNumber && rr?.Shipment?.Shipper) {
+                    rr.Shipment.Shipper.ShipperNumber = upsAccountNumber;
+                }
+
                 const fixAddr = (node) => {
                     if (!node || !node.Address) return;
                     const A = node.Address;
