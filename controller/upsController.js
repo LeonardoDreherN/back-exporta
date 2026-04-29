@@ -38,16 +38,14 @@ function resolveUpsCredentials(cliente) {
             billingNumber: cliente.ups_shipper_number,
         };
     }
-    // Sub-conta: OAuth sempre usa conta mãe (x-merchant-id = conta mãe).
-    // Shipper.ShipperNumber e BillShipper.AccountNumber devem ser iguais (regra UPS 120415).
-    // Usa sub-conta do cliente se tiver, senão usa conta mãe para ambos.
-    const shipperNumber = cliente?.ups_shipper_number || UPS_ACCOUNT_NUMBER;
+    // Sub-conta: ShipperNumber sempre é a conta mãe (sub-conta não é válida como shipper na API).
+    // billingNumber usa a sub-conta do cliente (cobrado via BillThirdParty no ship).
     return {
         clientId: UPS_CLIENT_ID,
         clientSecret: UPS_CLIENT_SECRET,
-        merchantId: UPS_ACCOUNT_NUMBER,   // sempre conta mãe para OAuth (token)
-        shipperNumber,                     // sub-conta ou conta mãe
-        billingNumber: shipperNumber,      // deve ser igual ao shipperNumber
+        merchantId: UPS_ACCOUNT_NUMBER,
+        shipperNumber: UPS_ACCOUNT_NUMBER,
+        billingNumber: cliente?.ups_shipper_number || UPS_ACCOUNT_NUMBER,
     };
 }
 
@@ -357,7 +355,16 @@ function mapToUpsShipment(reqBody) {
         } else if (bill === 'Receiver') {
             return { ShipmentCharge: { Type: '02', BillReceiver: { AccountNumber: account, Address: { PostalCode: addr(shipTo).Address.PostalCode, CountryCode: addr(shipTo).Address.CountryCode } } } };
         } else {
-            return { ShipmentCharge: { Type: '03', BillThirdParty: { AccountNumber: account, Address: { PostalCode: addr(shipper).Address.PostalCode, CountryCode: addr(shipper).Address.CountryCode } } } };
+            // ThirdParty: sub-conta do cliente paga o frete (não precisa ser ShipperNumber)
+            const tpAddr = {
+                PostalCode: payment?.thirdPartyPostal || addr(shipper).Address.PostalCode,
+                CountryCode: payment?.thirdPartyCountry || addr(shipper).Address.CountryCode,
+            };
+            const charges = [{ Type: '01', BillThirdParty: { AccountNumber: account, Address: tpAddr } }];
+            if (triangulacao === 'DDP') {
+                charges.push({ Type: '02', BillThirdParty: { AccountNumber: account, Address: tpAddr } });
+            }
+            return { ShipmentCharge: charges };
         }
     })();
 
@@ -971,8 +978,16 @@ console.log('[UPS SHIP] conta resolvida:', creds.shipperNumber);
                 return res.status(400).json({ ok: false, error: 'payment.bill é obrigatório' });
             }
             if (cli.payment.bill === 'Shipper') {
-                // billing na sub-conta do cliente; ShipperNumber de auth vem da conta mãe (abaixo)
-                cli.payment.account = creds.billingNumber || cli.payment.account;
+                if (creds.billingNumber && creds.billingNumber !== creds.shipperNumber) {
+                    // Sub-conta: BillShipper exigiria que AccountNumber == ShipperNumber (erro 120415).
+                    // Usa BillThirdParty para cobrar na sub-conta sem violar essa regra.
+                    cli.payment.bill = 'ThirdParty';
+                    cli.payment.account = creds.billingNumber;
+                    cli.payment.thirdPartyPostal = cleanZip(cliente?.enderecoCEP || '');
+                    cli.payment.thirdPartyCountry = iso2Country(cliente?.enderecoPais) || 'BR';
+                } else {
+                    cli.payment.account = creds.shipperNumber;
+                }
             }
 
             if (UPS_STUB) {
