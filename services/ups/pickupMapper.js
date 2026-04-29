@@ -72,9 +72,9 @@ function buildUpsPickupPayload(data) {
             AlternateAddressIndicator: data.alternateAddressIndicator || 'Y',
             PickupPiece: [
     {
-        ServiceCode: '001',
+        ServiceCode: String(data.serviceCode || '008').padStart(3, '0'),
         Quantity: String(data.packageCount || 1),
-        DestinationCountryCode: 'US',
+        DestinationCountryCode: destinationCountryCode,
         ContainerCode: data.containerCode || '01',
     },
 ],

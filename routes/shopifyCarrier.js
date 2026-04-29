@@ -241,7 +241,7 @@ const fedexNameMap = {
     INTERNATIONAL_ECONOMY: 'FedEx Economy (4-7 business days)',
 };
 
-function buildDescription(base, total, itemized = []) {
+function buildDescription(base, total) {
     const cur = 'USD';
     const taxes = Number((total - base).toFixed(2));
     const parts = [`Base: ${cur} ${Number(base).toFixed(2)}`];
