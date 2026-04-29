@@ -34,7 +34,7 @@ function buildUpsPickupPayload(data) {
 
     const countryCode = String(data.countryCode || 'BR').toUpperCase();
     const destinationCountryCode = String(
-        data.destinationCountryCode || countryCode
+        data.destinationCountryCode || 'US'
     ).toUpperCase();
 
     return {
@@ -72,7 +72,7 @@ function buildUpsPickupPayload(data) {
             AlternateAddressIndicator: data.alternateAddressIndicator || 'Y',
             PickupPiece: [
     {
-        ServiceCode: String(data.serviceCode || '008').padStart(3, '0'),
+        ServiceCode: '008',
         Quantity: String(data.packageCount || 1),
         DestinationCountryCode: destinationCountryCode,
         ContainerCode: data.containerCode || '01',
