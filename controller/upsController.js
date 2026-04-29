@@ -658,6 +658,9 @@ console.log('[UPS RATE] conta usada:', creds.shipperNumber);
 
                 const raw = await rating.quote({ RateRequest: rr }, creds);
 
+                console.log('[UPS RATE] raw keys:', Object.keys(raw || {}));
+                console.log('[UPS RATE] RatedShipment:', JSON.stringify(raw?.RateResponse?.RatedShipment)?.slice(0, 300));
+
                 const rs = raw?.RateResponse?.RatedShipment;
                 const items = Array.isArray(rs) ? rs : (rs ? [rs] : []);
                 const services = items.map(it => ({
@@ -1085,7 +1088,8 @@ console.log('[UPS SHIP] billing account payload:', upsReq?.ShipmentRequest?.Ship
             } else {
                 console.error('[UPS ship HTTP error]', {
                     status: err?.response?.status,
-                    data: err?.response?.data,
+                    errors: JSON.stringify(err?.response?.data?.response?.errors),
+                    data: JSON.stringify(err?.response?.data)?.slice(0, 500),
                 });
             }
             const { status, message, raw } = normalizeUpsError(err);
