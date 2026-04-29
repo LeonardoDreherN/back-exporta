@@ -241,6 +241,14 @@ const fedexNameMap = {
     INTERNATIONAL_ECONOMY: 'FedEx Economy (4-7 business days)',
 };
 
+function buildDescription(base, total, itemized = []) {
+    const cur = 'USD';
+    const taxes = Number((total - base).toFixed(2));
+    const parts = [`Base: ${cur} ${Number(base).toFixed(2)}`];
+    if (taxes > 0) parts.push(`Taxas: ${cur} ${taxes.toFixed(2)}`);
+    return `- ${parts.join(' | ')} ⓘ`;
+}
+
 // UPS real
 upsQuotes.forEach((q) => {
     if (!q?.total) return;
@@ -250,7 +258,7 @@ upsQuotes.forEach((q) => {
     rates.push({
         service_name: upsNameMap[code] || `UPS ${q.serviceLabel || 'International'}`,
         service_code: `UPS_${code || 'STD'}`,
-        description: 'International shipping via UPS',
+        description: buildDescription(q.base, q.total, q.itemized),
         currency: q.currency || 'USD',
         total_price: String(Math.round(Number(q.total) * 100)),
     });
@@ -265,7 +273,7 @@ fedexQuotes.forEach((q) => {
     rates.push({
         service_name: fedexNameMap[type] || 'FedEx International Shipping',
         service_code: `FEDEX_${type.replace(/\s+/g, '_') || 'STD'}`,
-        description: 'International shipping via FedEx',
+        description: buildDescription(q.base, q.total, q.itemized),
         currency: q.currency || 'USD',
         total_price: String(Math.round(Number(q.total) * 100)),
     });
