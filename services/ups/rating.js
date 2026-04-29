@@ -20,9 +20,9 @@ function extractUpsMessage(err) {
     );
 }
 
-async function quote(payload) {
+async function quote(payload, creds = {}) {
     try {
-        const token = await getToken();
+        const token = await getToken(false, creds);
         
         const res = await http.post(
             cfg.rate,

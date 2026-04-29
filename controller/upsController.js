@@ -22,13 +22,15 @@ const UPS_STUB = String(process.env.UPS_STUB || '') === 'true';
 const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || '';
 const UPS_CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || '';
 
-function resolveUpsAccount(cliente, fallbackAccount) {
-    return (
-        cliente?.ups_shipper_number ||
-        cliente?.ups_account_number ||
-        fallbackAccount ||
-        undefined
-    );
+// Subcontas usam as mesmas credenciais OAuth da conta mãe, só o ShipperNumber/merchantId muda.
+// Se o cliente tiver ups_shipper_number, gera o token com x-merchant-id do número dele (subconta).
+// Clientes sem ups_shipper_number usam a conta mãe.
+// Se um dia precisar de credenciais OAuth próprias, ups_client_id/ups_client_secret sobrepõem.
+function resolveUpsCredentials(cliente) {
+    const shipperNumber = cliente?.ups_shipper_number || UPS_ACCOUNT_NUMBER;
+    const clientId = cliente?.ups_client_id || UPS_CLIENT_ID;
+    const clientSecret = cliente?.ups_client_secret || UPS_CLIENT_SECRET;
+    return { clientId, clientSecret, merchantId: shipperNumber, shipperNumber };
 }
 
 async function getClienteFromRequest(req) {
@@ -619,19 +621,18 @@ module.exports = {
         try {
             const body = req.body || {};
             const cliente = await getClienteFromRequest(req);
-            const upsAccountNumber = resolveUpsAccount(cliente, UPS_ACCOUNT_NUMBER);
+            const creds = resolveUpsCredentials(cliente);
 
             console.log('[UPS RATE] clienteId:', req.clienteId);
 console.log('[UPS RATE] cliente encontrado:', cliente?.id);
 console.log('[UPS RATE] ups_shipper_number:', cliente?.ups_shipper_number);
-console.log('[UPS RATE] conta usada:', upsAccountNumber);
+console.log('[UPS RATE] conta usada:', creds.shipperNumber);
 
             if (body?.RateRequest) {
                 const rr = body.RateRequest;
 
-                // Para cotação, ShipperNumber deve bater com o x-merchant-id do token OAuth (account global)
-                if (UPS_ACCOUNT_NUMBER && rr?.Shipment?.Shipper) {
-                    rr.Shipment.Shipper.ShipperNumber = UPS_ACCOUNT_NUMBER;
+                if (creds.shipperNumber && rr?.Shipment?.Shipper) {
+                    rr.Shipment.Shipper.ShipperNumber = creds.shipperNumber;
                 }
 
                 const fixAddr = (node) => {
@@ -655,7 +656,7 @@ console.log('[UPS RATE] conta usada:', upsAccountNumber);
                 fixAddr(rr?.Shipment?.ShipFrom, 'ShipFrom');
                 fixAddr(rr?.Shipment?.ShipTo, 'ShipTo');
 
-                const raw = await rating.quote({ RateRequest: rr });
+                const raw = await rating.quote({ RateRequest: rr }, creds);
 
                 const rs = raw?.RateResponse?.RatedShipment;
                 const items = Array.isArray(rs) ? rs : (rs ? [rs] : []);
@@ -725,7 +726,7 @@ console.log('[UPS RATE] conta usada:', upsAccountNumber);
                     Request: { TransactionReference: { CustomerContext: 'back-exporta' } },
                     Shipment: {
                         Shipper: {
-                            ShipperNumber: upsAccountNumber || undefined,
+                            ShipperNumber: creds.shipperNumber || undefined,
                             Address: {
                                 PostalCode: safeShipper.postalCode,
                                 CountryCode: safeShipper.country,
@@ -755,7 +756,7 @@ console.log('[UPS RATE] conta usada:', upsAccountNumber);
                 }
             };
 
-            const raw = await rating.quote(ratePayload);
+            const raw = await rating.quote(ratePayload, creds);
 
             //     JSON.stringify(
             //         Array.isArray(raw?.RateResponse?.RatedShipment)
@@ -910,12 +911,12 @@ console.log('[UPS RATE] conta usada:', upsAccountNumber);
             }
 
             const cliente = await getClienteFromRequest(req);
-            const upsAccountNumber = resolveUpsAccount(cliente, UPS_ACCOUNT_NUMBER);
+            const creds = resolveUpsCredentials(cliente);
 
             console.log('[UPS SHIP] clienteId:', req.clienteId);
 console.log('[UPS SHIP] cliente encontrado:', cliente?.id);
 console.log('[UPS SHIP] ups_shipper_number:', cliente?.ups_shipper_number);
-console.log('[UPS SHIP] conta resolvida:', upsAccountNumber);
+console.log('[UPS SHIP] conta resolvida:', creds.shipperNumber);
 
             let rateReq;
 
@@ -933,7 +934,7 @@ console.log('[UPS SHIP] conta resolvida:', upsAccountNumber);
             // chama a UPS Rating (negotiated preferido)
             let freightFromRate = null;
             try {
-                const rateRaw = await rating.quote(rateReq);
+                const rateRaw = await rating.quote(rateReq, creds);
                 freightFromRate = pickFreightFromRate(rateRaw);
             } catch (e) {
                 console.warn('[UPS/SHIP] Falha ao recalcular Rate para FreightCharges (seguindo sem frete na CI).', e?.message);
@@ -949,7 +950,7 @@ console.log('[UPS SHIP] conta resolvida:', upsAccountNumber);
                 return res.status(400).json({ ok: false, error: 'payment.bill é obrigatório' });
             }
             if (cli.payment.bill === 'Shipper') {
-                cli.payment.account = UPS_ACCOUNT_NUMBER || upsAccountNumber || cli.payment.account;
+                cli.payment.account = creds.shipperNumber || cli.payment.account;
             }
 
             if (UPS_STUB) {
@@ -1005,7 +1006,7 @@ console.log('[UPS SHIP] billing account payload:', upsReq?.ShipmentRequest?.Ship
 
             const url = `${UPS_BASE}/api/shipments/v2407/ship`;
             const transId = req.headers['x-idempotency-key'] || `tx-${Date.now()}`;
-            let token = await getUpsToken();
+            let token = await getUpsToken(false, creds);
 
             const doPost = async (bearer) => axios.post(url, upsReq, {
                 headers: {
@@ -1024,7 +1025,7 @@ console.log('[UPS SHIP] billing account payload:', upsReq?.ShipmentRequest?.Ship
             } catch (e) {
                 const status = e?.response?.status;
                 if (status === 401) {
-                    token = await getUpsToken(true);
+                    token = await getUpsToken(true, creds);
                     resp = await doPost(token);
                 } else {
                     throw e;
