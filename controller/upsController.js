@@ -22,15 +22,30 @@ const UPS_STUB = String(process.env.UPS_STUB || '') === 'true';
 const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || '';
 const UPS_CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || '';
 
-// Subcontas usam as mesmas credenciais OAuth da conta mãe, só o ShipperNumber/merchantId muda.
-// Se o cliente tiver ups_shipper_number, gera o token com x-merchant-id do número dele (subconta).
-// Clientes sem ups_shipper_number usam a conta mãe.
-// Se um dia precisar de credenciais OAuth próprias, ups_client_id/ups_client_secret sobrepõem.
+// Sub-contas compartilham as credenciais OAuth da conta mãe.
+// Token e ShipperNumber de autenticação sempre são da conta mãe.
+// ups_shipper_number do cliente é usado apenas no faturamento (BillShipper).
+// Se o cliente tiver ups_client_id/ups_client_secret próprios (conta UPS independente),
+// usa essas credenciais com o próprio shipperNumber para tudo.
 function resolveUpsCredentials(cliente) {
-    const shipperNumber = cliente?.ups_shipper_number || UPS_ACCOUNT_NUMBER;
-    const clientId = cliente?.ups_client_id || UPS_CLIENT_ID;
-    const clientSecret = cliente?.ups_client_secret || UPS_CLIENT_SECRET;
-    return { clientId, clientSecret, merchantId: shipperNumber, shipperNumber };
+    if (cliente?.ups_client_id && cliente?.ups_client_secret && cliente?.ups_shipper_number) {
+        // Conta UPS própria com credenciais OAuth independentes
+        return {
+            clientId: cliente.ups_client_id,
+            clientSecret: cliente.ups_client_secret,
+            merchantId: cliente.ups_shipper_number,
+            shipperNumber: cliente.ups_shipper_number,
+            billingNumber: cliente.ups_shipper_number,
+        };
+    }
+    // Sub-conta: OAuth + ShipperNumber sempre da conta mãe; billing na sub-conta se tiver
+    return {
+        clientId: UPS_CLIENT_ID,
+        clientSecret: UPS_CLIENT_SECRET,
+        merchantId: UPS_ACCOUNT_NUMBER,
+        shipperNumber: UPS_ACCOUNT_NUMBER,
+        billingNumber: cliente?.ups_shipper_number || UPS_ACCOUNT_NUMBER,
+    };
 }
 
 async function getClienteFromRequest(req) {
@@ -953,7 +968,8 @@ console.log('[UPS SHIP] conta resolvida:', creds.shipperNumber);
                 return res.status(400).json({ ok: false, error: 'payment.bill é obrigatório' });
             }
             if (cli.payment.bill === 'Shipper') {
-                cli.payment.account = creds.shipperNumber || cli.payment.account;
+                // billing na sub-conta do cliente; ShipperNumber de auth vem da conta mãe (abaixo)
+                cli.payment.account = creds.billingNumber || cli.payment.account;
             }
 
             if (UPS_STUB) {
@@ -970,6 +986,11 @@ console.log('[UPS SHIP] conta resolvida:', creds.shipperNumber);
             }
 
             const upsReq = mapToUpsShipment(cli);
+
+            // Garante que Shipper.ShipperNumber é sempre a conta mãe (autorizada no OAuth)
+            if (upsReq?.ShipmentRequest?.Shipment?.Shipper) {
+                upsReq.ShipmentRequest.Shipment.Shipper.ShipperNumber = creds.shipperNumber;
+            }
 
             console.log('[UPS SHIP] shipperNumber payload:', upsReq?.ShipmentRequest?.Shipment?.Shipper?.ShipperNumber);
 console.log('[UPS SHIP] billing account payload:', upsReq?.ShipmentRequest?.Shipment?.PaymentInformation?.ShipmentCharge);
