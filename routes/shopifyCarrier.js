@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 
-const { rateMulti } = require('../services/rate/multi');
+const upsRating = require('../services/ups/rating');
+const normUps = require('../utils/normalize/upsRate');
 const { quoteRates } = require('../services/fedex/ratingFedex');
 
 const toKg = (grams) => Number(grams || 0) / 1000;
@@ -115,30 +116,62 @@ router.post('/carrier', async (req, res) => {
 
         let upsQuotes = [];
 try {
+    const shipperNumber = process.env.UPS_ACCOUNT_NUMBER || undefined;
+
+    const upsPkgs = packages.map(p => ({
+        PackagingType: { Code: '02' },
+        PackageWeight: {
+            UnitOfMeasurement: { Code: 'KGS' },
+            Weight: String(Math.max(0.5, Number((p.weightKg || 1).toFixed(2)))),
+        },
+        Dimensions: {
+            UnitOfMeasurement: { Code: 'CM' },
+            Height: String(Math.round(p.dimCm?.height || 10)),
+            Width: String(Math.round(p.dimCm?.width || 15)),
+            Length: String(Math.round(p.dimCm?.length || 20)),
+        },
+    }));
+
     const upsPayload = {
-        shipper: {
-            postalCode: origin.postal_code,
-            country: origin.country,
-            state: origin.province,
-            city: origin.city,
-            addressLine: origin.address1 || undefined,
+        RateRequest: {
+            Request: {
+                RequestOption: 'Shop',
+                TransactionReference: { CustomerContext: 'shopify-carrier' },
+            },
+            Shipment: {
+                Shipper: {
+                    ...(shipperNumber ? { ShipperNumber: shipperNumber } : {}),
+                    Address: {
+                        PostalCode: origin.postal_code,
+                        CountryCode: origin.country,
+                        StateProvinceCode: origin.province || undefined,
+                        City: origin.city || undefined,
+                        AddressLine: origin.address1 ? [origin.address1] : undefined,
+                    },
+                },
+                ShipTo: {
+                    Address: {
+                        PostalCode: dest.postal_code,
+                        CountryCode: dest.country,
+                        StateProvinceCode: dest.province || undefined,
+                        City: dest.city || undefined,
+                        AddressLine: dest.address1 ? [dest.address1] : undefined,
+                    },
+                },
+                ShipmentRatingOptions: { NegotiatedRatesIndicator: 'Y' },
+                Package: upsPkgs,
+            },
         },
-        shipTo: {
-            postalCode: dest.postal_code,
-            country: dest.country,
-            state: dest.province,
-            city: dest.city,
-            addressLine: dest.address1 || undefined,
-        },
-        packages,
     };
 
     console.log('[SHOPIFY CARRIER][UPS PAYLOAD]', JSON.stringify(upsPayload, null, 2));
 
-    const upsResp = await rateMulti(upsPayload);
-    upsQuotes = upsResp.quotes || [];
+    const upsResp = await upsRating.quote(upsPayload);
+    upsQuotes = normUps({ raw: upsResp });
 } catch (e) {
-    console.error('[SHOPIFY CARRIER][UPS ERROR FULL]', e?.response?.data || e);
+    console.error('[SHOPIFY CARRIER][UPS ERROR] status:', e?.status);
+    console.error('[SHOPIFY CARRIER][UPS ERROR] message:', e?.message);
+    console.error('[SHOPIFY CARRIER][UPS ERROR] details:', JSON.stringify(e?.details || e?.response?.data || null, null, 2));
 }
 
        let fedexQuotes = [];
@@ -236,23 +269,6 @@ fedexQuotes.forEach((q) => {
         total_price: String(Math.round(Number(q.total) * 100)),
     });
 });
-
-// UPS fallback manual: se não veio UPS real, cria uma opção UPS US$ 2 mais barata que a FedEx
-const hasUps = rates.some(r => String(r.service_code).startsWith('UPS_'));
-const fedexRate = rates.find(r => String(r.service_code).startsWith('FEDEX_'));
-
-if (!hasUps && fedexRate) {
-    const fedexCents = Number(fedexRate.total_price || 0);
-    const upsFallbackCents = Math.max(fedexCents - 200, 100); // mínimo US$ 1.00
-
-    rates.push({
-        service_name: 'UPS International Economy (3 - 7 business days)',
-        service_code: 'UPS_MANUAL_FALLBACK',
-        description: 'International shipping via UPS',
-        currency: fedexRate.currency || 'USD',
-        total_price: String(upsFallbackCents),
-    });
-}
 
 // fallback geral se tudo falhar
 if (!rates.length) {
