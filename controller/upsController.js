@@ -38,13 +38,16 @@ function resolveUpsCredentials(cliente) {
             billingNumber: cliente.ups_shipper_number,
         };
     }
-    // Sub-conta: OAuth + ShipperNumber sempre da conta mãe; billing na sub-conta se tiver
+    // Sub-conta: OAuth sempre usa conta mãe (x-merchant-id = conta mãe).
+    // Shipper.ShipperNumber e BillShipper.AccountNumber devem ser iguais (regra UPS 120415).
+    // Usa sub-conta do cliente se tiver, senão usa conta mãe para ambos.
+    const shipperNumber = cliente?.ups_shipper_number || UPS_ACCOUNT_NUMBER;
     return {
         clientId: UPS_CLIENT_ID,
         clientSecret: UPS_CLIENT_SECRET,
-        merchantId: UPS_ACCOUNT_NUMBER,
-        shipperNumber: UPS_ACCOUNT_NUMBER,
-        billingNumber: cliente?.ups_shipper_number || UPS_ACCOUNT_NUMBER,
+        merchantId: UPS_ACCOUNT_NUMBER,   // sempre conta mãe para OAuth (token)
+        shipperNumber,                     // sub-conta ou conta mãe
+        billingNumber: shipperNumber,      // deve ser igual ao shipperNumber
     };
 }
 
