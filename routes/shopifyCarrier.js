@@ -135,10 +135,11 @@ try {
     const upsPayload = {
         RateRequest: {
             Request: {
-                RequestOption: 'Shop',
+                RequestOption: 'Rate',
                 TransactionReference: { CustomerContext: 'shopify-carrier' },
             },
             Shipment: {
+                Service: { Code: '08' },
                 Shipper: {
                     ...(shipperNumber ? { ShipperNumber: shipperNumber } : {}),
                     Address: {
