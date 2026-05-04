@@ -98,14 +98,22 @@ function extractUpsRates(upsRaw) {
         arr[0];
     if (!preferred) return null;
 
-    const currency = preferred?.TotalCharges?.CurrencyCode || 'USD';
+    const currency   = preferred?.TotalCharges?.CurrencyCode || 'USD';
     const published  = +Number(preferred?.TotalCharges?.MonetaryValue || 0).toFixed(2);
     const negotiated = +Number(
         preferred?.NegotiatedRateCharges?.TotalCharge?.MonetaryValue ||
         preferred?.TotalCharges?.MonetaryValue || 0
     ).toFixed(2);
 
-    return { negotiated, published, currency };
+    const baseRaw = +Number(
+        preferred?.NegotiatedRateCharges?.BaseServiceCharge?.MonetaryValue ||
+        preferred?.TransportationCharges?.MonetaryValue ||
+        0
+    ).toFixed(2);
+    const base       = baseRaw > 0 ? baseRaw : negotiated;
+    const surcharges = +Math.max(0, negotiated - base).toFixed(2);
+
+    return { negotiated, published, currency, base, surcharges };
 }
 
 function extractFedexRates(fedexResp) {
@@ -119,6 +127,9 @@ function extractFedexRates(fedexResp) {
 
     const negotiated = +Number(icpRow.total || 0).toFixed(2);
     const currency   = icpRow.currency || 'USD';
+    const baseRaw    = +Number(icpRow.base || 0).toFixed(2);
+    const base       = baseRaw > 0 ? baseRaw : negotiated;
+    const surcharges = +Math.max(0, negotiated - base).toFixed(2);
 
     // Extract LIST (public) rate from raw response
     let published = negotiated;
@@ -143,7 +154,7 @@ function extractFedexRates(fedexResp) {
         }
     }
 
-    return { negotiated, published, currency };
+    return { negotiated, published, currency, base, surcharges };
 }
 
 async function publicQuote(req, res) {
