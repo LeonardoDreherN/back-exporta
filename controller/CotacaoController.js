@@ -311,7 +311,8 @@ async function createCotacaoReal(req, res) {
             rate_payload,          // payload completo do carrier (UPS)
             preco_base,            // override do front (string "42,55" ok)
             freightValueNum,        // compat antigo
-            serviceCode
+            serviceCode,
+            pesoTotalPedidoKg,     // peso total dos itens (aba cotação) — sobrescreve Package.Weight na UPS
         } = req.body || {};
 
         const pedido_ref =
@@ -352,6 +353,7 @@ async function createCotacaoReal(req, res) {
                 preco_base,
                 freightValueNum,
                 plano,
+                pesoTotalPedidoKg,
             });
         } else if (carrier == "FEDEX") {
             carrierResult = await prepararCotacaoFedex({

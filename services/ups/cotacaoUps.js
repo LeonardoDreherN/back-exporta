@@ -9,7 +9,48 @@ const { cleanPostal } = require("../../utils/postalcode");
 
 const SHIPPER_NUMBER = process.env.UPS_ACCOUNT_NUMBER
 
-async function prepararCotacaoUPS({ req, rate_payload, preco_base, freightValueNum }) {
+// Substitui Package.PackageWeight.Weight no rate_payload pela soma pesoTotalKg,
+// distribuída igualmente entre os pacotes. Não muta o original.
+function overrideUpsPackageWeight(payload, pesoTotalKg) {
+    const total = Number(pesoTotalKg);
+    if (!Number.isFinite(total) || total <= 0) return payload;
+
+    const rr = payload?.RateRequest;
+    if (!rr?.Shipment?.Package) return payload;
+
+    const pkgArr = Array.isArray(rr.Shipment.Package)
+        ? rr.Shipment.Package
+        : [rr.Shipment.Package];
+
+    const perPkg = Number((total / pkgArr.length).toFixed(3));
+
+    const newPkgs = pkgArr.map((pkg, i) => {
+        const weight = i === pkgArr.length - 1
+            ? Number((total - perPkg * (pkgArr.length - 1)).toFixed(3))
+            : perPkg;
+        return {
+            ...pkg,
+            PackageWeight: {
+                ...(pkg.PackageWeight || {}),
+                UnitOfMeasurement: pkg.PackageWeight?.UnitOfMeasurement || { Code: 'KGS' },
+                Weight: String(weight),
+            },
+        };
+    });
+
+    return {
+        ...payload,
+        RateRequest: {
+            ...rr,
+            Shipment: {
+                ...rr.Shipment,
+                Package: pkgArr.length === 1 ? newPkgs[0] : newPkgs,
+            },
+        },
+    };
+}
+
+async function prepararCotacaoUPS({ req, rate_payload, preco_base, freightValueNum, pesoTotalPedidoKg }) {
     let precoBase = null;      // valor base retornado/override
     let carrierResp = null;    // resposta do adapter UPS
     let breakdown = null;      // resultado do extractUpsBreakdown
@@ -37,7 +78,10 @@ async function prepararCotacaoUPS({ req, rate_payload, preco_base, freightValueN
     } else if (rate_payload) {
         // Não tem override, então chamamos o adapter UPS (cotarCarrier)
         try {
-            carrierResp = await cotarCarrier({ payload: rate_payload });
+            const payloadParaCotar = Number(pesoTotalPedidoKg) > 0
+                ? overrideUpsPackageWeight(rate_payload, pesoTotalPedidoKg)
+                : rate_payload;
+            carrierResp = await cotarCarrier({ payload: payloadParaCotar });
 
             const rateRaw =
                 carrierResp?.raw?.RateResponse || carrierResp?.raw?.rateResponse

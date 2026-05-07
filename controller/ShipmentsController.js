@@ -67,6 +67,8 @@ async function compareRates(req, res) {
 
             // serviceCode fixo (UPS geralmente exige isso no rating)
             serviceCode,
+
+            pesoTotalPedidoKg,
         } = req.body || {};
 
         const pedido_ref = normRef(pedido_ref_raw);
@@ -88,6 +90,7 @@ async function compareRates(req, res) {
                 preco_base: preco_base_ups,
                 freightValueNum: freightValueNum_ups,
                 plano,
+                pesoTotalPedidoKg,
             });
         } catch (e) {
             errors.UPS = e?.message || 'Falha ao cotar UPS';
@@ -125,6 +128,7 @@ async function compareRates(req, res) {
             pedido_manual: pedido_manual && typeof pedido_manual === 'object' ? pedido_manual : null,
             caixa: caixa && typeof caixa === 'object' ? caixa : {},
             plano,
+            pesoTotalPedidoKg: Number(pesoTotalPedidoKg) > 0 ? Number(pesoTotalPedidoKg) : null,
             quotes: {
                 UPS: upsResult ? normalizeRateResult(upsResult) : null,
                 FEDEX: fedexResult ? normalizeRateResult(fedexResult) : null,
@@ -250,6 +254,7 @@ async function confirmRate(req, res) {
                 preco_base: quote.base,          // override para garantir consistência
                 freightValueNum: null,
                 serviceCode: quote.serviceCode || rate_result?.pedido?.serviceCode || null,
+                pesoTotalPedidoKg: rate_result?.pesoTotalPedidoKg || null,
             }
         };
 
