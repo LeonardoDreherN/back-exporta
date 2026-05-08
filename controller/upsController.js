@@ -681,6 +681,9 @@ console.log('[UPS RATE] conta usada:', creds.shipperNumber);
                 fixAddr(rr?.Shipment?.ShipFrom, 'ShipFrom');
                 fixAddr(rr?.Shipment?.ShipTo, 'ShipTo');
 
+                const pkgs = Array.isArray(rr.Shipment?.Package) ? rr.Shipment.Package : (rr.Shipment?.Package ? [rr.Shipment.Package] : []);
+                console.log('[UPS RATE] pesos enviados:', pkgs.map(p => p?.PackageWeight?.Weight));
+
                 const raw = await rating.quote({ RateRequest: rr }, creds);
 
                 console.log('[UPS RATE] raw keys:', Object.keys(raw || {}));
