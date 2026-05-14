@@ -76,7 +76,10 @@ async function getClienteFromRequest(req) {
 
 const onlyDigits = (s) => String(s || '').replace(/\D+/g, '');
 const trunc = (s, n) => (s ? String(s).slice(0, n) : undefined);
-function cleanZip(s = '') { return String(s).replace(/['"`\s]/g, '').replace(/\D/g, ''); }
+function cleanZip(s = '', country = '') {
+    const raw = String(s).replace(/['"`\s]/g, '').toUpperCase();
+    return country === 'BR' ? raw.replace(/\D/g, '') : raw;
+}
 function kgToLbs(kg) { const n = Number(kg) || 0; return +(n * 2.2046226218).toFixed(3); }
 function cmToIn(cm) { const n = Number(cm) || 0; return +(n / 2.54).toFixed(2); }
 function round2(n) { return +((Number(n) || 0).toFixed(2)); }
@@ -715,14 +718,14 @@ console.log('[UPS RATE] conta usada:', creds.shipperNumber);
             const shipToCountry = iso2Country(shipTo.country);
 
             const safeShipper = {
-                postalCode: cleanZip(shipper.postalCode),
+                postalCode: cleanZip(shipper.postalCode, shipperCountry),
                 country: shipperCountry,
                 state: shipper.state || undefined,
                 city: shipper.city || undefined,
                 addressLine: shipper.addressLine || undefined,
             };
             const safeShipTo = {
-                postalCode: cleanZip(shipTo.postalCode),
+                postalCode: cleanZip(shipTo.postalCode, shipToCountry),
                 country: shipToCountry,
                 state: shipTo.state || undefined,
                 city: shipTo.city || undefined,
@@ -838,7 +841,6 @@ console.log('[UPS RATE] conta usada:', creds.shipperNumber);
                 if (!node || !node.Address) return;
                 const A = node.Address;
                 if (A.StateProvinceCode) A.StateProvinceCode = String(A.StateProvinceCode).toUpperCase();
-                if (A.PostalCode) A.PostalCode = cleanZip(A.PostalCode);
                 if (A.CountryCode) {
                     A.CountryCode = iso2Country(A.CountryCode);
                 } else {
@@ -852,6 +854,7 @@ console.log('[UPS RATE] conta usada:', creds.shipperNumber);
                     }
                     A.CountryCode = fallback;
                 }
+                if (A.PostalCode) A.PostalCode = cleanZip(A.PostalCode, A.CountryCode);
                 if (A.AddressLine && !Array.isArray(A.AddressLine)) A.AddressLine = [String(A.AddressLine)];
                 if (Array.isArray(A.AddressLine)) A.AddressLine = A.AddressLine.map(s => String(s).slice(0, 35)).slice(0, 2);
             };
