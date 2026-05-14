@@ -192,8 +192,8 @@ function pickFreightFromRate(rateRaw) {
 function buildRateRequestFromCli(cli) {
     const toAddr = (p) => ({
         Address: {
-            PostalCode: String(p?.cep || p?.postalCode || p?.zip || '').replace(/\D/g, ''),
             CountryCode: iso2Country(p?.pais || p?.country),
+            PostalCode: cleanZip(p?.cep || p?.postalCode || p?.zip || '', iso2Country(p?.pais || p?.country)),
             StateProvinceCode: (p?.estado || p?.state || undefined),
             City: (p?.cidade || p?.city || undefined),
             AddressLine: [[String(p?.rua || p?.street || ''), String(p?.numero || p?.number || '')].filter(Boolean).join(', ')].filter(Boolean),
@@ -320,7 +320,7 @@ function mapToUpsShipment(reqBody) {
         const phone = onlyDigits(p?.telefone || p?.phone || '');
         const countryISO2 = iso2Country(p?.pais || p?.country);
         const state = (p?.estado || p?.state || '').toString().trim().toUpperCase() || undefined;
-        const postal = String(p?.cep || p?.postalCode || p?.zip || '').replace(/\D/g, '') || undefined;
+        const postal = cleanZip(p?.cep || p?.postalCode || p?.zip || '', countryISO2) || undefined;
 
         const line1 = p?.addressLine
             ? String(p.addressLine)
