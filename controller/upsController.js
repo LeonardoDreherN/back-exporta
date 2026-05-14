@@ -8,6 +8,7 @@ const Cotacao = require('../models/Cotacao');
 const db = require('../models');
 const { getUpsToken } = require('../services/upsAuth');
 const { iso2Country } = require('../services/cotacoesHelpers');
+const { autoFulfillShopifyOrder } = require('../services/shopify/fulfillment');
 
 // const { Cotacao } = db;
 
@@ -1099,6 +1100,16 @@ console.log('[UPS SHIP] billing account payload:', upsReq?.ShipmentRequest?.Ship
 
                         if (Object.keys(patch).length) {
                             await row.update(patch);
+                        }
+
+                        // ===== AUTO-FULFILL SHOPIFY =====
+                        if (patch.tracking_number) {
+                            autoFulfillShopifyOrder({
+                                clienteId: row.cliente_id,
+                                pedidoRef: row.pedido_ref,
+                                trackingNumber: patch.tracking_number,
+                                carrier: 'UPS',
+                            });
                         }
 
                         // ===== LABEL → Supabase Storage =====

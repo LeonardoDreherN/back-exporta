@@ -286,6 +286,7 @@ function groupRowsByOrder(rows) {
         if (!byId.has(pedido_ref)) {
             byId.set(pedido_ref, {
                 pedido_ref,
+                shopify_order_id: r.shopify_order_id || null,
                 moeda: "",
                 total: 0,
                 nomeComprador: "",
@@ -301,6 +302,7 @@ function groupRowsByOrder(rows) {
         }
 
         const acc = byId.get(pedido_ref);
+        if (!acc.shopify_order_id && r.shopify_order_id) acc.shopify_order_id = r.shopify_order_id;
 
         const item = {
             sku: s(r.sku),
@@ -433,6 +435,7 @@ async function importPedidosInternal(cliente_id, linhas) {
         const payload = {
             cliente_id,
             pedido_ref: p.pedido_ref,
+            shopify_order_id: p.shopify_order_id || null,
             // origem: p.origem,
             moeda: p.moeda || null,
             total: p.total || null,

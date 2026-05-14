@@ -15,6 +15,7 @@ module.exports = (sequelize) => {
         estado: { type: DataTypes.STRING },
         CEP: { type: DataTypes.STRING },
         pais: { type: DataTypes.STRING },
+        shopify_order_id: { type: DataTypes.BIGINT, allowNull: true, defaultValue: null },
         status: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: "false" },
         itens: { type: DataTypes.JSONB, allowNull: false, defaultValue: [] },
     }, {

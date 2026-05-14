@@ -2,9 +2,10 @@
 const axios = require('axios');
 const { iso2Country, splitEndereco } = require('../services/cotacoesHelpers');
 const { createShipment } = require('../services/fedex/shippingFedex');
-// const Cotacao = require('../models/Cotacao');
-// const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
+const Cotacao = require('../models/Cotacao');
+const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
 const { quoteRates, loadPedidoImport } = require('../services/fedex/ratingFedex');
+const { autoFulfillShopifyOrder } = require('../services/shopify/fulfillment');
 const { extractFedexBreakdown } = require('../services/fedex/cotacaoFedex');
 const db = require('../models');
 // const { accountNumber } = require('../config/fedex');
@@ -977,6 +978,52 @@ module.exports = {
             });
 
             const data = await createShipment(payload);
+
+            // ===== SALVAR TRACKING + DOCS SE vier cotacaoId =====
+            const cotacaoId = req.body?.cotacaoId || req.query?.cotacaoId || null;
+            if (cotacaoId) {
+                try {
+                    const row = await Cotacao.findByPk(cotacaoId);
+                    if (!row) {
+                        console.warn('[FEDEX/SHIP] Cotação não encontrada para salvar anexos:', cotacaoId);
+                    } else {
+                        const { trackingNumbers, labelUrl, invoiceUrl } = extractFedexShipmentDocs(data);
+                        const patch = {};
+
+                        if (trackingNumbers?.[0]) {
+                            patch.tracking_number = trackingNumbers[0];
+                        }
+
+                        if (Object.keys(patch).length) {
+                            await row.update(patch);
+                        }
+
+                        // label e invoice via URL (FedEx retorna URL, não base64)
+                        if (labelUrl) {
+                            await salvarEtiquetaNaStorage(row.id, labelUrl, 'application/pdf');
+                        }
+                        if (invoiceUrl) {
+                            await salvarInvoiceNaStorage(row.id, invoiceUrl, 'application/pdf');
+                        }
+
+                        // ===== AUTO-FULFILL SHOPIFY =====
+                        if (patch.tracking_number) {
+                            autoFulfillShopifyOrder({
+                                clienteId: row.cliente_id,
+                                pedidoRef: row.pedido_ref,
+                                trackingNumber: patch.tracking_number,
+                                carrier: 'FEDEX',
+                            });
+                        }
+                    }
+                } catch (errSave) {
+                    console.error('[FEDEX/SHIP] Falha ao salvar tracking/docs na Cotacao', {
+                        cotacaoId,
+                        err: errSave?.message,
+                    });
+                }
+            }
+
             return res.json({ ok: true, raw: data });
         } catch (err) {
             return res.status(err.status || 500).json({

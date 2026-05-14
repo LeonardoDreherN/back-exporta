@@ -96,6 +96,7 @@ router.post('/orders-create', async (req, res) => {
         const linhasImportacao = (order.line_items || []).map(item => ({
             id: numeroPedido,
             pedido_ref: numeroPedido,
+            shopify_order_id: order.id || null,
 
             nome_completo: nomeCliente,
             email: customer.email || order.email || '',
