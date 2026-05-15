@@ -1085,6 +1085,7 @@ console.log('[UPS SHIP] billing account payload:', upsReq?.ShipmentRequest?.Ship
 
             // >>> SALVAR NO BANCO SE vier cotacaoId:
             const cotacaoId = req.body?.cotacaoId || req.query?.cotacaoId || null;
+            console.log('[UPS/SHIP] cotacaoId recebido:', cotacaoId);
             if (cotacaoId) {
                 try {
                     const row = await Cotacao.findByPk(cotacaoId);
