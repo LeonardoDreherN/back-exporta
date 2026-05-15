@@ -113,6 +113,8 @@ async function autoFulfillShopifyOrder({ clienteId, pedidoRef, trackingNumber, c
             return;
         }
 
+        console.log(`[AUTO-FULFILL] usando shop=${infoShopify.shopDomain} token=${shop.accessToken ? shop.accessToken.slice(0,8)+'...' : 'null'}`);
+
         const fulfillmentOrderIds = await getFulfillmentOrderIds(
             infoShopify.shopDomain,
             shop.accessToken,
