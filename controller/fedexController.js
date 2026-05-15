@@ -2,12 +2,12 @@
 const axios = require('axios');
 const { iso2Country, splitEndereco } = require('../services/cotacoesHelpers');
 const { createShipment } = require('../services/fedex/shippingFedex');
-const Cotacao = require('../models/Cotacao');
 const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
 const { quoteRates, loadPedidoImport } = require('../services/fedex/ratingFedex');
 const { autoFulfillShopifyOrder } = require('../services/shopify/fulfillment');
 const { extractFedexBreakdown } = require('../services/fedex/cotacaoFedex');
 const db = require('../models');
+const { Cotacao } = db;
 // const { accountNumber } = require('../config/fedex');
 // const { getToken, baseUrl } = require('../services/fedex/authFedex');
 const { getClienteAtual } = require('./ClientesController');

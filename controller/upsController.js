@@ -4,13 +4,11 @@ const shipping = require('../services/ups/shipping'); // (não usado aqui, mas m
 const tracking = require('../services/ups/tracking');
 const axios = require('axios');
 const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
-const Cotacao = require('../models/Cotacao');
 const db = require('../models');
+const { Cotacao } = db;
 const { getUpsToken } = require('../services/upsAuth');
 const { iso2Country } = require('../services/cotacoesHelpers');
 const { autoFulfillShopifyOrder } = require('../services/shopify/fulfillment');
-
-// const { Cotacao } = db;
 
 // ====== CONFIG ======
 const UPS_BASE =
