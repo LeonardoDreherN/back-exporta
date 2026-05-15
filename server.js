@@ -408,7 +408,10 @@ app.use(errorHandler);
 
 // start
 db.sequelize.sync()
-  .then(() => {
+  .then(async () => {
+    await db.sequelize.query(
+      'ALTER TABLE pedidos_importados ADD COLUMN IF NOT EXISTS shopify_order_id BIGINT'
+    );
     console.log('Banco sincronizado:', PORT);
     app.listen(PORT, () => {
       console.log(`Servidor rodando na porta ${PORT}`);
