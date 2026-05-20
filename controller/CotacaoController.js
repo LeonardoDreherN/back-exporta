@@ -122,15 +122,7 @@ async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'image/png') {
 
 async function salvarInvoiceNaStorage(cotacaoId, base64, mime = 'application/pdf') {
     try {
-        let b64toSave = base64;
-        if (mime === 'application/pdf') {
-            try {
-                b64toSave = await keepFirstPageFromPdfB64(base64);
-            } catch (err) {
-                console.error('Erro ao extrair primeira página do PDF da invoice:', err);
-            }
-        }
-        const buf = Buffer.from(b64toSave, 'base64');
+        const buf = Buffer.from(base64, 'base64');
         const ext = guessLabelFilename(mime)
         const path = `cotacoes/${cotacaoId}/invoice-${Date.now()}.${ext}`;
 
