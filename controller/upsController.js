@@ -413,6 +413,7 @@ function mapToUpsShipment(reqBody) {
                     InternationalForms: {
                         FormType: '01',
                         ImageFormat: { Code: 'PDF' },
+                        NumberOfCopies: '1',
 
                         InvoiceDate: invDate,
                         InvoiceNumber: invNumber,
@@ -869,9 +870,10 @@ console.log('[UPS RATE] conta usada:', creds.shipperNumber);
                 if (!IFraw || typeof IFraw !== 'object') return null;
                 const IF = { ...IFraw };
 
-                // Força CI em PDF
+                // Força CI em PDF, 1 cópia apenas
                 IF.FormType = '01';
                 IF.ImageFormat = { Code: 'PDF' };
+                IF.NumberOfCopies = '1';
 
                 // Remove campos de NAFTA/CoO
                 delete IF.FormGroupIdName;
