@@ -19,7 +19,7 @@ const corsOpts = cors({
     optionsSuccessStatus: 204,
 });
 
-router.options('*', corsOpts, (_req, res) => res.sendStatus(204));
+router.options('(.*)', corsOpts, (_req, res) => res.sendStatus(204));
 
 router.get('/masters', corsOpts, ctrl.listMasters);
 router.post('/masters', corsOpts, ctrl.createMaster);
