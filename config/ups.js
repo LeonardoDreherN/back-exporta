@@ -9,6 +9,8 @@ module.exports = {
     ship: `${base}/api/shipments/v2407/ship`,
     track: `${base}/api/track/v1/details`,
     pickupCreate: `${base}/api/pickupcreation/v2407/pickup`,
+    worldeaseCloseout: `${base}/api/ship/v1/master-shipment/closeout`,
+    worldeaseDelete: `${base}/api/ship/v1/master-shipment`,
     account: process.env.UPS_ACCOUNT_NUMBER,
     clientId: process.env.UPS_CLIENT_ID,
     clientSecret: process.env.UPS_CLIENT_SECRET,

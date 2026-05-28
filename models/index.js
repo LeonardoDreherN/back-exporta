@@ -8,6 +8,7 @@ const CotacaoModel = require('./Cotacao.js');
 const PedidoImportModel = require('./PedidoImport.js');
 const ShipmentModel = require('./Shipment.js');
 const AsaasBoletosModel = require('./AsaasBoletos.js');
+const WorldeaseMasterModel = require('./WorldeaseMaster.js');
 
 require('dotenv/config');
 
@@ -39,6 +40,7 @@ const db = {
   PedidoImport: PedidoImportModel(sequelize),
   AsaasBoletos: AsaasBoletosModel(sequelize),
   Shipment: ShipmentModel(sequelize),
+  WorldeaseMaster: WorldeaseMasterModel(sequelize),
 };
 
 module.exports = db;
