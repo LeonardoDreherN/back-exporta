@@ -1,5 +1,5 @@
 const db = require('../models');
-const { closeOutShipment, deleteMasterShipment } = require('../services/ups/worldease');
+const { createMasterShipment, closeOutShipment, deleteMasterShipment } = require('../services/ups/worldease');
 const { generateWorldeaseOverlabel } = require('../utils/generateWorldeaseOverlabel');
 const { createClient } = require('@supabase/supabase-js');
 
@@ -40,13 +40,30 @@ async function createMaster(req, res) {
         }
 
         const cliente = await db.Cliente.findByPk(clienteId);
-        const { shipperAccountNumber } = resolveWorldeaseCredentials(cliente);
+        const { clientId, clientSecret, merchantId, shipperAccountNumber } = resolveWorldeaseCredentials(cliente);
+        const accountNumber = shipper_account_number || shipperAccountNumber;
+
+        // Tenta criar o master na UPS para obter o GCCN
+        let gccnFromUps = null;
+        let upsRaw = null;
+        try {
+            const upsResponse = await createMasterShipment({ shipperAccountNumber: accountNumber, clientId, clientSecret, merchantId });
+            gccnFromUps = upsResponse?.WorldEaseExecutionReferenceNumber || null;
+            upsRaw = upsResponse;
+            if (gccnFromUps) {
+                console.log('[WorldEase] GCCN obtido da UPS:', gccnFromUps);
+            }
+        } catch (upsErr) {
+            console.warn('[WorldEase] createMasterShipment falhou — GCCN deverá ser informado manualmente:', upsErr.message);
+        }
 
         const master = await db.WorldeaseMaster.create({
             cliente_id: clienteId,
-            shipper_account_number: shipper_account_number || shipperAccountNumber,
+            shipper_account_number: accountNumber,
             cotacao_ids,
+            gccn: gccnFromUps,
             status: 'ABERTO',
+            raw_response: upsRaw,
         });
 
         return res.status(201).json({ ok: true, master });

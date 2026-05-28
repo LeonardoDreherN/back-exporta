@@ -76,4 +76,35 @@ async function deleteMasterShipment({ gccn, shipperAccountNumber, clientId, clie
     }
 }
 
-module.exports = { closeOutShipment, deleteMasterShipment };
+async function createMasterShipment({ shipperAccountNumber, clientId, clientSecret, merchantId }) {
+    try {
+        const token = await getUpsToken(false, { clientId, clientSecret, merchantId });
+        // POST /api/ship/v1/master-shipment — cria o master e retorna WorldEaseExecutionReferenceNumber (GCCN)
+        const res = await axios.post(
+            cfg.worldeaseDelete, // mesmo base URL, método POST
+            { shipperAccountNumber },
+            {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    transId: uuidv4().replace(/-/g, '').slice(0, 32),
+                    transactionSrc: 'intrex-exporta',
+                },
+                timeout: cfg.timeoutMs,
+            }
+        );
+        return res.data;
+    } catch (err) {
+        const status = err?.response?.status || 500;
+        console.error('[WorldEase] createMaster error =>', {
+            status,
+            data: err?.response?.data,
+        });
+        const e = new Error(extractUpsMessage(err) || `WorldEase CreateMaster failed (${status})`);
+        e.status = status;
+        e.upstream = err?.response?.data;
+        throw e;
+    }
+}
+
+module.exports = { createMasterShipment, closeOutShipment, deleteMasterShipment };
