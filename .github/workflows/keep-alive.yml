@@ -1,0 +1,25 @@
+name: Keep Render Services Alive
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping all Render services
+        run: |
+          urls=(
+            "https://back-exporta.onrender.com/healthz"
+            "https://back-exporta-2.onrender.com/healthz"
+            "https://back-exporta-3.onrender.com/healthz"
+            "https://back-exporta-4.onrender.com/healthz"
+            "https://back-exporta-5.onrender.com/healthz"
+          )
+
+          for url in "${urls[@]}"; do
+            status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$url") || status="timeout"
+            echo "$url → $status"
+          done
