@@ -1038,11 +1038,11 @@ console.log('[UPS SHIP] billing account payload:', upsReq?.ShipmentRequest?.Ship
             // WorldEase: embute GCCN na label se o front passar worldease_gccn
             const worldeaseGccn = req.body?.worldease_gccn;
             if (worldeaseGccn) {
-                upsReq.ShipmentRequest.Shipment.ShipmentServiceOptions = {
-                    ...(upsReq.ShipmentRequest.Shipment.ShipmentServiceOptions || {}),
-                    WorldEase: {
-                        Base64GeneralCargoManifestNumber: Buffer.from(String(worldeaseGccn)).toString('base64'),
-                    },
+                const shipTo = upsReq.ShipmentRequest.Shipment.ShipTo?.Address || {};
+                upsReq.ShipmentRequest.Shipment.WorldEase = {
+                    GCCN: String(worldeaseGccn),
+                    DestinationCountryCode: shipTo.CountryCode || req.body?.pais_dest || 'US',
+                    DestinationPostalCode: shipTo.PostalCode || req.body?.cep_dest || '',
                 };
             }
 
