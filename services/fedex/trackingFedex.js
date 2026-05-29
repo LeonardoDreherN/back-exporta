@@ -254,7 +254,7 @@ function fromFEDEX(evt = {}) {
         'ADDRESS',
         'DAMAGED'
     ];
-    if (hasAny(exceptionHints)) return 'EXCACAO';
+    if (hasAny(exceptionHints)) return 'EXCECAO';
 
     // RETORNADO
     const returnedHints = [

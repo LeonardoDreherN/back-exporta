@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const ctrl = require('../controller/upsController');
 const { Cotacao } = require('../models');
+const { normalize } = require('../services/ups/tracking');
 
 const router = express.Router();
 

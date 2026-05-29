@@ -31,7 +31,7 @@ module.exports = (sequelize) => {
         // um tracking principal por cotação (se tiver multi-pacote, você pode guardar o master)
         tracking_number: { type: DataTypes.STRING(64), allowNull: true },
         status_norm: {
-            type: DataTypes.ENUM('CRIADO', 'EM_TRANSITO', 'ENTREGUE'),
+            type: DataTypes.ENUM('CRIADO', 'EM_TRANSITO', 'ENTREGUE', 'EXCECAO', 'CANCELADO', 'RETORNADO', 'SAIU_PARA_ENTREGA', 'COLETADO'),
             allowNull: false,
             defaultValue: 'CRIADO',
         },
