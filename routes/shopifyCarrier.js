@@ -114,112 +114,110 @@ router.post('/carrier', async (req, res) => {
         const packages = buildPackages(items);
         const commodities = buildCommodities(items, currency);
 
+        const shipperNumber = process.env.UPS_ACCOUNT_NUMBER || undefined;
+
+        const upsPkgs = packages.map(p => ({
+            PackagingType: { Code: '02' },
+            PackageWeight: {
+                UnitOfMeasurement: { Code: 'KGS' },
+                Weight: String(Math.max(0.5, Number((p.weightKg || 1).toFixed(2)))),
+            },
+            Dimensions: {
+                UnitOfMeasurement: { Code: 'CM' },
+                Height: String(Math.round(p.dimCm?.height || 10)),
+                Width: String(Math.round(p.dimCm?.width || 15)),
+                Length: String(Math.round(p.dimCm?.length || 20)),
+            },
+        }));
+
+        const upsPayload = {
+            RateRequest: {
+                Request: {
+                    RequestOption: 'Rate',
+                    TransactionReference: { CustomerContext: 'shopify-carrier' },
+                },
+                Shipment: {
+                    Service: { Code: '08' },
+                    Shipper: {
+                        ...(shipperNumber ? { ShipperNumber: shipperNumber } : {}),
+                        Address: {
+                            PostalCode: origin.postal_code,
+                            CountryCode: origin.country,
+                            StateProvinceCode: origin.province || undefined,
+                            City: origin.city || undefined,
+                            AddressLine: origin.address1 ? [origin.address1] : undefined,
+                        },
+                    },
+                    ShipTo: {
+                        Address: {
+                            PostalCode: dest.postal_code,
+                            CountryCode: dest.country,
+                            StateProvinceCode: dest.province || undefined,
+                            City: dest.city || undefined,
+                            AddressLine: dest.address1 ? [dest.address1] : undefined,
+                        },
+                    },
+                    ShipmentRatingOptions: { NegotiatedRatesIndicator: 'Y' },
+                    Package: upsPkgs,
+                },
+            },
+        };
+
+        const fedexPayload = {
+            shipper: {
+                contact: {
+                    personName: origin.name || 'Shipper',
+                    companyName: origin.company_name || origin.name || 'Shipper',
+                    phoneNumber: origin.phone || '47992104226',
+                },
+                address: {
+                    postalCode: origin.postal_code,
+                    countryCode: origin.country,
+                    city: origin.city,
+                    stateOrProvinceCode: normalizeFedexState(origin.province),
+                    streetLines: [origin.address1 || 'Address not provided'],
+                }
+            },
+            recipient: {
+                contact: {
+                    personName: dest.name || 'Recipient',
+                    companyName: dest.company_name || dest.name || 'Recipient',
+                    phoneNumber: dest.phone || '17865994231',
+                    emailAddress: dest.email || undefined,
+                },
+                address: {
+                    postalCode: dest.postal_code,
+                    countryCode: dest.country,
+                    city: dest.city,
+                    stateOrProvinceCode: normalizeFedexState(dest.province),
+                    streetLines: [dest.address1 || 'Address not provided'],
+                    residential: false,
+                }
+            },
+            packages,
+            commodities,
+            currency,
+        };
+
+        // UPS e FedEx em paralelo — evita estourar o timeout de ~10s da Shopify
+        const [upsResult, fedexResult] = await Promise.allSettled([
+            upsRating.quote(upsPayload),
+            quoteRates(fedexPayload),
+        ]);
+
         let upsQuotes = [];
-try {
-    const shipperNumber = process.env.UPS_ACCOUNT_NUMBER || undefined;
+        if (upsResult.status === 'fulfilled') {
+            upsQuotes = normUps({ raw: upsResult.value });
+        } else {
+            console.error('[SHOPIFY CARRIER][UPS ERROR]', upsResult.reason?.message, upsResult.reason?.details || upsResult.reason?.response?.data || null);
+        }
 
-    const upsPkgs = packages.map(p => ({
-        PackagingType: { Code: '02' },
-        PackageWeight: {
-            UnitOfMeasurement: { Code: 'KGS' },
-            Weight: String(Math.max(0.5, Number((p.weightKg || 1).toFixed(2)))),
-        },
-        Dimensions: {
-            UnitOfMeasurement: { Code: 'CM' },
-            Height: String(Math.round(p.dimCm?.height || 10)),
-            Width: String(Math.round(p.dimCm?.width || 15)),
-            Length: String(Math.round(p.dimCm?.length || 20)),
-        },
-    }));
-
-    const upsPayload = {
-        RateRequest: {
-            Request: {
-                RequestOption: 'Rate',
-                TransactionReference: { CustomerContext: 'shopify-carrier' },
-            },
-            Shipment: {
-                Service: { Code: '08' },
-                Shipper: {
-                    ...(shipperNumber ? { ShipperNumber: shipperNumber } : {}),
-                    Address: {
-                        PostalCode: origin.postal_code,
-                        CountryCode: origin.country,
-                        StateProvinceCode: origin.province || undefined,
-                        City: origin.city || undefined,
-                        AddressLine: origin.address1 ? [origin.address1] : undefined,
-                    },
-                },
-                ShipTo: {
-                    Address: {
-                        PostalCode: dest.postal_code,
-                        CountryCode: dest.country,
-                        StateProvinceCode: dest.province || undefined,
-                        City: dest.city || undefined,
-                        AddressLine: dest.address1 ? [dest.address1] : undefined,
-                    },
-                },
-                ShipmentRatingOptions: { NegotiatedRatesIndicator: 'Y' },
-                Package: upsPkgs,
-            },
-        },
-    };
-
-    console.log('[SHOPIFY CARRIER][UPS PAYLOAD]', JSON.stringify(upsPayload, null, 2));
-
-    const upsResp = await upsRating.quote(upsPayload);
-    upsQuotes = normUps({ raw: upsResp });
-} catch (e) {
-    console.error('[SHOPIFY CARRIER][UPS ERROR] status:', e?.status);
-    console.error('[SHOPIFY CARRIER][UPS ERROR] message:', e?.message);
-    console.error('[SHOPIFY CARRIER][UPS ERROR] details:', JSON.stringify(e?.details || e?.response?.data || null, null, 2));
-}
-
-       let fedexQuotes = [];
-try {
-    const fedexPayload = {
-        shipper: {
-            contact: {
-                personName: origin.name || 'Shipper',
-                companyName: origin.company_name || origin.name || 'Shipper',
-                phoneNumber: origin.phone || '47992104226',
-            },
-            address: {
-                postalCode: origin.postal_code,
-                countryCode: origin.country,
-                city: origin.city,
-                stateOrProvinceCode: normalizeFedexState(origin.province),
-                streetLines: [origin.address1 || 'Address not provided'],
-            }
-        },
-        recipient: {
-            contact: {
-                personName: dest.name || 'Recipient',
-                companyName: dest.company_name || dest.name || 'Recipient',
-                phoneNumber: dest.phone || '17865994231',
-                emailAddress: dest.email || undefined,
-            },
-            address: {
-                postalCode: dest.postal_code,
-                countryCode: dest.country,
-                city: dest.city,
-                stateOrProvinceCode: normalizeFedexState(dest.province),
-                streetLines: [dest.address1 || 'Address not provided'],
-                residential: false,
-            }
-        },
-        packages,
-        commodities,
-        currency,
-    };
-
-    console.log('[SHOPIFY CARRIER][FEDEX PAYLOAD]', JSON.stringify(fedexPayload, null, 2));
-
-    const fedexResp = await quoteRates(fedexPayload);
-    fedexQuotes = fedexResp.rows || [];
-} catch (e) {
-    console.error('[SHOPIFY CARRIER][FEDEX ERROR FULL]', e?.response?.data || e);
-}
+        let fedexQuotes = [];
+        if (fedexResult.status === 'fulfilled') {
+            fedexQuotes = fedexResult.value?.rows || [];
+        } else {
+            console.error('[SHOPIFY CARRIER][FEDEX ERROR]', fedexResult.reason?.response?.data || fedexResult.reason);
+        }
 
         const rates = [];
 
