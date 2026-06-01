@@ -25,8 +25,6 @@ const supabase = createClient(
 const LABELS_BUCKET = 'labels';
 const INVOICES_BUCKET = 'invoices';
 
-// const up = (s) => (typeof s === 'string' ? s.toUpperCase() : s);
-
 function toInt(v) {
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
@@ -1026,7 +1024,6 @@ async function getCotacaoDetails(req, res) {
         const svc = Number(sur?.serviceOptions || 0);
         if (svc) itemized.unshift({ code: 'SVC', label: 'Service options (UPS)', value: svc });
 
-        // const planAdj = Number(pricing?.ajuste || 0);
         if (planAdj) {
             const planLabel = pricing?.plano_aplicado
                 ? `Markup plano (${pricing.plano_aplicado})`

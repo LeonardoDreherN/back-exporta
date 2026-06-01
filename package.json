@@ -6,9 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon server.js",
-    "dev:watch": "node --watch server.js",
-    "bot:slack": "node bot/slackRelatorio.js",
-    "bot:slack:once": "node bot/slackRelatorio.js once"
+    "dev:watch": "node --watch server.js"
   },
   "keywords": [],
   "author": "",

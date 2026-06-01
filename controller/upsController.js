@@ -1,6 +1,5 @@
 // controller/upsController.js
 const rating = require('../services/ups/rating');
-const shipping = require('../services/ups/shipping'); // (não usado aqui, mas mantido)
 const tracking = require('../services/ups/tracking');
 const axios = require('axios');
 const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
@@ -131,49 +130,6 @@ function normalizeUpsError(err) {
     const raw = err?.response?.data;
     return { status, message, raw };
 }
-
-// Concatena rua + número
-// function joinAddressLine(rua, numero) {
-//     const a = String(rua || '').trim();
-//     const b = String(numero || '').trim();
-//     return [a, b].filter(Boolean).join(', ');
-// }
-
-// let _upsTokenCache = { token: null, expTs: 0 }; // epoch ms
-// async function getUpsToken(force = false) {
-//     const now = Date.now();
-//     if (!force && _upsTokenCache.token && now < _upsTokenCache.expTs - 60_000) {
-//         return _upsTokenCache.token;
-//     }
-//     if (!UPS_CLIENT_ID || !UPS_CLIENT_SECRET) {
-//         throw new Error('UPS OAuth2: defina UPS_CLIENT_ID e UPS_CLIENT_SECRET no .env');
-//     }
-//     const oauthUrl = `${UPS_BASE}/security/v1/oauth/token`;
-//     const basic = Buffer.from(`${UPS_CLIENT_ID}:${UPS_CLIENT_SECRET}`).toString('base64');
-
-//     const resp = await axios.post(
-//         oauthUrl,
-//         'grant_type=client_credentials',
-//         {
-//             headers: {
-//                 'Content-Type': 'application/x-www-form-urlencoded',
-//                 'Authorization': `Basic ${basic}`,
-//                 'Accept': 'application/json',
-//             },
-//             timeout: 15000,
-//         }
-//     );
-
-//     const token = resp?.data?.access_token;
-//     const expiresIn = Number(resp?.data?.expires_in || 0);
-//     if (!token) throw new Error('UPS OAuth2: token ausente na resposta');
-
-//     _upsTokenCache = {
-//         token,
-//         expTs: Date.now() + expiresIn * 1000,
-//     };
-//     return token;
-// }
 
 function pickFreightFromRate(rateRaw) {
     const rs = rateRaw?.RateResponse?.RatedShipment;

@@ -1,5 +1,3 @@
-// deploy com FEDEX
-
 const express = require('express');
 const app = express();
 
@@ -99,12 +97,6 @@ if (typeof fetch === 'undefined') {
     import('node-fetch').then(({ default: f }) => f(...args));
 }
 
-// allowlist CORS
-// allowlist CORS
-const allowlist = (process.env.CORS_ALLOWED_ORIGINS || '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
 
 // headers globais para app embedded Shopify
 app.use((req, res, next) => {
@@ -157,7 +149,7 @@ app.use('/dashboard', autenticarUsuario, vincularCliente, dashboardModule);
 app.use('/api/cotacoes', autenticarUsuario, vincularCliente, require('./routes/cotacoesRoutes.js'));
 app.use('/api/relatorio', autenticarUsuario, vincularCliente, require('./routes/relatorioPagamentos.js'));
 app.use('/api/rate', require('./routes/rateMulti.js'));
-app.use(require('./routes/debugFedex.js'));
+app.use(autenticarUsuario, require('./routes/debugFedex.js'));
 
 // saúde
 app.get('/health', (_, res) => res.send('ok'));
@@ -232,7 +224,7 @@ app.get('/', (req, res) => {
 });
 
 // debug Shopify
-app.get('/_debug/shops', async (_req, res) => {
+app.get('/_debug/shops', autenticarUsuario, async (_req, res) => {
   try {
     const rows = await db.Shop.findAll({
       attributes: ['shop', 'scope', 'accessToken', 'updatedAt'],
@@ -262,7 +254,7 @@ app.get('/_debug/shops', async (_req, res) => {
   }
 });
 
-app.get('/_debug/scopes', async (req, res) => {
+app.get('/_debug/scopes', autenticarUsuario, async (req, res) => {
   try {
     const shop = String(req.query.shop || '').toLowerCase();
     if (!shop) return res.status(400).json({ erro: 'informe ?shop=...' });

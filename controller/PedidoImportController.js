@@ -213,55 +213,6 @@ function mapOrderToGroupedShape(order, { productMap, variantMap }) {
 }
 
 
-// function groupRowsByOrder(rows) {
-//     const byId = new Map();
-//     for (const r of rows) {
-//         const raw = r.id ?? r.orderId ?? "";
-//         if (!raw) continue;
-//         const pedido_ref = normalizeId(raw);
-//         if (!byId.has(pedido_ref)) {
-//             byId.set(pedido_ref, {
-//                 pedido_ref,
-//                 moeda: "", total: 0,
-//                 nomeComprador: "", emailComprador: "", telefoneComprador: "",
-//                 endereco: "", cidade: "", estado: "", CEP: "", pais: "",
-//                 itens: [],
-//             });
-//         }
-//         const acc = byId.get(pedido_ref);
-
-//         const item = {
-//             sku: s(r.sku),
-//             titulo: s(r.titulo),
-//             qty: Number(r.quantidade || 0),
-//             preco: Number(r.preco || 0),
-//             categoria: s(r.categoria),
-//             hscode: s(r.hscode),
-//             descricao: s(r.descricao),
-//             pesoUnit: s(r.pesoUnit),
-//             valorTotalLinha: Number(r.valorTotal || (Number(r.preco || 0) * Number(r.quantidade || 0))),
-//             moedaLinha: s(r.moeda),
-//             __debug: r.__debug ?? null,
-//         };
-//         acc.itens.push(item);
-
-//         if (!acc.moeda) acc.moeda = s(r.moeda);
-//         acc.total = item.valorTotalLinha;
-
-//         acc.nomeComprador = pickFirst(acc.nomeComprador, r.nome_completo);
-//         acc.emailComprador = pickFirst(acc.emailComprador, r.email);
-//         acc.telefoneComprador = pickFirst(acc.telefoneComprador, r.telefone);
-
-//         acc.endereco = pickFirst(acc.endereco, r.rua_e_numero);
-//         acc.cidade = pickFirst(acc.cidade, r.cidade);
-//         acc.estado = pickFirst(acc.estado, r.estado_provincia);
-//         acc.CEP = pickFirst(acc.CEP, r.cep);
-//         acc.pais = pickFirst(acc.pais, r.pais);
-
-//     }
-//     return Array.from(byId.values()).map(p => ({ ...p, total: Number(p.total.toFixed(2)) }));
-// }
-
 function groupRowsByOrder(rows) {
     const byId = new Map();
 

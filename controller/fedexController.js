@@ -8,8 +8,6 @@ const { autoFulfillShopifyOrder } = require('../services/shopify/fulfillment');
 const { extractFedexBreakdown } = require('../services/fedex/cotacaoFedex');
 const db = require('../models');
 const { Cotacao } = db;
-// const { accountNumber } = require('../config/fedex');
-// const { getToken, baseUrl } = require('../services/fedex/authFedex');
 const { getClienteAtual } = require('./ClientesController');
 const tracking = require('../services/fedex/trackingFedex');
 const { accountNumber } = require('../config/fedex');
@@ -790,7 +788,7 @@ async function loadCaixaImport(packId, clienteId) {
 module.exports = {
     rate: async (req, res) => {
         try {
-            const cliente = await getClienteAtual(req, res);
+            const cliente = await getClienteAtual(req);
             const { pedido_ref, packagesId, pesoTotalPedidoKg } = req.body || {};
 
             if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatória.' });
@@ -868,7 +866,7 @@ module.exports = {
 
     ship: async (req, res) => {
         try {
-            const cliente = await getClienteAtual(req, res);
+            const cliente = await getClienteAtual(req);
             const { packagesId, pedido_ref, pesoTotalPedidoKg, rate_payload } = req.body || {};
 
             if (!packagesId) return res.status(400).json({ ok: false, error: 'Caixa obrigatória.' });

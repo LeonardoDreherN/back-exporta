@@ -20,7 +20,7 @@ async function pool() {
             const eventTime = new Date(evt.eventTime || evt.dateTime || Date.now());
             const isNewer = !c.last_tracking_at || eventTime > c.last_tracking_at;
 
-            if (isNewer || c.status_norm !== novo) {
+            if (isNewer && c.status_norm !== novo) {
                 await c.update({
                     status_norm: novo,
                     last_tracking_at: eventTime,
