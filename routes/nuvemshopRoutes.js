@@ -69,7 +69,7 @@ router.get('/callback', async (req, res) => {
     try {
         const { code, user_id, state } = req.query;
 
-        if (!code || !user_id) return res.status(400).send('Parâmetros ausentes (code, user_id)');
+        if (!code) return res.status(400).send('Parâmetro ausente: code');
 
         if (state && req.cookies?.ns_state && req.cookies.ns_state !== state) {
             return res.status(401).send('State inválido');
@@ -89,12 +89,15 @@ router.get('/callback', async (req, res) => {
 
         const tokenBody = await tokenResp.json().catch(() => ({}));
 
+        console.log('[NS CALLBACK] tokenBody:', tokenBody);
+
         if (!tokenResp.ok || !tokenBody?.access_token) {
             console.error('[NS CALLBACK] Falha ao obter token:', tokenResp.status, tokenBody);
             return res.status(502).send('Falha ao obter token da Nuvemshop');
         }
 
-        const storeId = String(user_id);
+        // Nuvemshop retorna user_id no corpo do token, não na URL
+        const storeId = String(user_id || tokenBody.user_id || tokenBody.store_id || '');
 
         await db.NuvemshopShop.upsert({
             storeId,
