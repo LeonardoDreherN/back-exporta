@@ -54,6 +54,7 @@ const { uploadOrder } = require('./middleware/shopifyAuth.js');
 const { pool } = require('./jobs/poolTracking.js');
 const { valorConversao } = require('./utils/dolar.js');
 
+const nuvemshopRoutes = require('./routes/nuvemshopRoutes.js');
 const shopifyModule = require('./routes/shopifyRoutes.js');
 const shopifyCarrierRoutes = require('./routes/shopifyCarrier.js');
 const shopifyWebhookRoutes = require('./routes/shopifyWebhookRoutes.js');
@@ -137,6 +138,7 @@ app.use('/upload', uploadRouter);
 app.use('/exports', express.static(path.join(__dirname, 'exports'), { maxAge: '1h', etag: true }));
 
 // rotas principais
+app.use('/nuvemshop', nuvemshopRoutes);
 app.use('/shopify', shopifyModule);
 app.use('/shopify', shopifyCarrierRoutes);
 app.use('/shopify/webhooks', shopifyWebhookRoutes);
