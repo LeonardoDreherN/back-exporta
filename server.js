@@ -149,7 +149,7 @@ app.use('/dashboard', autenticarUsuario, vincularCliente, dashboardModule);
 app.use('/api/cotacoes', autenticarUsuario, vincularCliente, require('./routes/cotacoesRoutes.js'));
 app.use('/api/relatorio', autenticarUsuario, vincularCliente, require('./routes/relatorioPagamentos.js'));
 app.use('/api/rate', require('./routes/rateMulti.js'));
-app.use(autenticarUsuario, require('./routes/debugFedex.js'));
+app.use('/__fedex', autenticarUsuario, require('./routes/debugFedex.js'));
 
 // saúde
 app.get('/health', (_, res) => res.send('ok'));
