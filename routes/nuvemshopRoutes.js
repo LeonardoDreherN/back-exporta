@@ -4,8 +4,107 @@ const jwt = require('jsonwebtoken');
 const db = require('../models');
 const { autenticarUsuario, vincularCliente } = require('../middleware/auth');
 const { verProdutosLojaNuvemshop } = require('../controller/NuvemshopController');
+const upsRating = require('../services/ups/rating');
+const normUps = require('../utils/normalize/upsRate');
+const { quoteRates } = require('../services/fedex/ratingFedex');
 
 const router = express.Router();
+
+const API_BASE = 'https://api.nuvemshop.com.br/v1';
+const USER_AGENT = 'Intrex (contato@exportadigital.com)';
+
+const NS_ORIGIN = {
+    postal_code: '88140570',
+    province: 'SC',
+    city: 'Santo Amaro da Imperatriz',
+    country: 'BR',
+    address1: 'Rua Saint German, 87',
+    name: 'Exporta Digital BR',
+    phone: '47992104226',
+    company_name: 'Intrex Shipping',
+};
+
+const upsNameMap = {
+    '01': 'UPS Express (1-3 dias úteis)',
+    '07': 'UPS Express (2-4 dias úteis)',
+    '08': 'UPS Expedited (4-7 dias úteis)',
+    '65': 'UPS Saver (2-4 dias úteis)',
+};
+
+const fedexNameMap = {
+    FEDEX_INTERNATIONAL_CONNECT_PLUS: 'FedEx Economy (3-7 dias úteis)',
+    INTERNATIONAL_PRIORITY: 'FedEx Express (2-4 dias úteis)',
+    INTERNATIONAL_ECONOMY: 'FedEx Economy (4-7 dias úteis)',
+};
+
+const upsDaysMap = { '01': 3, '07': 4, '08': 7, '65': 4 };
+const fedexDaysMap = {
+    FEDEX_INTERNATIONAL_CONNECT_PLUS: 7,
+    INTERNATIONAL_PRIORITY: 4,
+    INTERNATIONAL_ECONOMY: 7,
+};
+
+function toKg(grams) { return Number(grams || 0) / 1000; }
+
+function normFedexState(state) {
+    if (!state) return undefined;
+    const raw = String(state).trim().toUpperCase();
+    return raw.length <= 2 ? raw : undefined;
+}
+
+function buildNsPackages(items = []) {
+    const valid = items.filter(i => !i?.free_shipping);
+    if (!valid.length) return [{ weightKg: 1, dimCm: { length: 20, width: 15, height: 10 } }];
+    return valid.map(item => ({
+        weightKg: Math.max(0.1, toKg(item.grams || 500)),
+        dimCm: {
+            length: Number(item.dimensions?.depth || 20),
+            width: Number(item.dimensions?.width || 15),
+            height: Number(item.dimensions?.height || 10),
+        },
+    }));
+}
+
+function buildNsCommodities(items = [], currency = 'USD') {
+    const valid = items.filter(i => !i?.free_shipping);
+    if (!valid.length) return [{
+        description: 'Merchandise', quantity: 1, quantityUnits: 'PCS',
+        unitPrice: { amount: 1, currency }, customsValue: { amount: 1, currency },
+        weight: { units: 'KG', value: 1 }, countryOfManufacture: 'BR',
+    }];
+    return valid.map(item => {
+        const qty = Number(item.quantity || 1) || 1;
+        const totalPrice = Number(item.price || 0) / 100 || 1;
+        return {
+            description: String(item.name || item.sku || 'Item').slice(0, 100),
+            quantity: qty,
+            quantityUnits: 'PCS',
+            unitPrice: { amount: Number((totalPrice / qty).toFixed(2)), currency },
+            customsValue: { amount: Number(totalPrice.toFixed(2)), currency },
+            weight: { units: 'KG', value: Number(Math.max(0.1, toKg(item.grams || 500)).toFixed(3)) },
+            countryOfManufacture: 'BR',
+        };
+    });
+}
+
+async function registrarCarrierNuvemshop(storeId, accessToken, appUrl) {
+    const url = `${API_BASE}/${storeId}/shipping_carriers`;
+    const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Authentication': `bearer ${accessToken}`,
+            'User-Agent': USER_AGENT,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            name: 'Intrex Shipping',
+            callback_url: `${appUrl}/nuvemshop/carrier`,
+            types: 'both',
+        }),
+    });
+    const body = await resp.json().catch(() => ({}));
+    return { status: resp.status, body };
+}
 
 const APP_ID = process.env.NUVEMSHOP_APP_ID || '';
 const CLIENT_SECRET = process.env.NUVEMSHOP_CLIENT_SECRET || '';
@@ -111,6 +210,14 @@ router.get('/callback', async (req, res) => {
             res.clearCookie('ns_bind_cliente_id', { path: '/nuvemshop' });
         }
 
+        // Registra carrier automaticamente após OAuth
+        try {
+            const { status: cs, body: cb } = await registrarCarrierNuvemshop(storeId, tokenBody.access_token, APP_URL);
+            console.log('[NS CARRIER REGISTER]', cs, cb);
+        } catch (e) {
+            console.error('[NS CARRIER REGISTER ERROR]', e.message);
+        }
+
         return res.redirect(`${FRONT_URL}/nuvemshop-conectado?store_id=${storeId}`);
     } catch (e) {
         console.error('[NS CALLBACK] erro:', e);
@@ -148,6 +255,212 @@ router.get('/conexao', autenticarUsuario, async (req, res) => {
 
 // GET /nuvemshop/produtos
 router.get('/produtos', autenticarUsuario, vincularCliente, verProdutosLojaNuvemshop);
+
+// POST /nuvemshop/carrier
+// Nuvemshop chama aqui para cotação de frete no checkout
+router.post('/carrier', async (req, res) => {
+    try {
+        console.log('[NS CARRIER] body:', JSON.stringify(req.body, null, 2));
+
+        const { destination, items = [], currency = 'BRL' } = req.body;
+
+        if (!destination) return res.status(200).json({ rates: [] });
+
+        const origin = NS_ORIGIN;
+        const packages = buildNsPackages(items);
+        const commodities = buildNsCommodities(items, 'USD');
+        const shipperNumber = process.env.UPS_ACCOUNT_NUMBER || undefined;
+
+        const upsPkgs = packages.map(p => ({
+            PackagingType: { Code: '02' },
+            PackageWeight: {
+                UnitOfMeasurement: { Code: 'KGS' },
+                Weight: String(Math.max(0.5, Number((p.weightKg || 1).toFixed(2)))),
+            },
+            Dimensions: {
+                UnitOfMeasurement: { Code: 'CM' },
+                Height: String(Math.round(p.dimCm?.height || 10)),
+                Width: String(Math.round(p.dimCm?.width || 15)),
+                Length: String(Math.round(p.dimCm?.length || 20)),
+            },
+        }));
+
+        const upsPayload = {
+            RateRequest: {
+                Request: {
+                    RequestOption: 'Rate',
+                    TransactionReference: { CustomerContext: 'nuvemshop-carrier' },
+                },
+                Shipment: {
+                    Service: { Code: '08' },
+                    Shipper: {
+                        ...(shipperNumber ? { ShipperNumber: shipperNumber } : {}),
+                        Address: {
+                            PostalCode: origin.postal_code,
+                            CountryCode: origin.country,
+                            StateProvinceCode: origin.province || undefined,
+                            City: origin.city || undefined,
+                            AddressLine: origin.address1 ? [origin.address1] : undefined,
+                        },
+                    },
+                    ShipTo: {
+                        Address: {
+                            PostalCode: destination.postal_code,
+                            CountryCode: destination.country,
+                            StateProvinceCode: destination.province || undefined,
+                            City: destination.city || undefined,
+                            AddressLine: destination.address ? [destination.address] : undefined,
+                        },
+                    },
+                    ShipmentRatingOptions: { NegotiatedRatesIndicator: 'Y' },
+                    Package: upsPkgs,
+                },
+            },
+        };
+
+        const fedexPayload = {
+            shipper: {
+                contact: {
+                    personName: origin.name,
+                    companyName: origin.company_name,
+                    phoneNumber: origin.phone,
+                },
+                address: {
+                    postalCode: origin.postal_code,
+                    countryCode: origin.country,
+                    city: origin.city,
+                    stateOrProvinceCode: normFedexState(origin.province),
+                    streetLines: [origin.address1],
+                },
+            },
+            recipient: {
+                contact: {
+                    personName: destination.name || 'Recipient',
+                    companyName: destination.name || 'Recipient',
+                    phoneNumber: destination.phone || '11999999999',
+                },
+                address: {
+                    postalCode: destination.postal_code,
+                    countryCode: destination.country,
+                    city: destination.city,
+                    stateOrProvinceCode: normFedexState(destination.province),
+                    streetLines: [destination.address || 'Address'],
+                    residential: false,
+                },
+            },
+            packages,
+            commodities,
+            currency: 'USD',
+        };
+
+        const [upsResult, fedexResult] = await Promise.allSettled([
+            upsRating.quote(upsPayload),
+            quoteRates(fedexPayload),
+        ]);
+
+        const rates = [];
+
+        if (upsResult.status === 'fulfilled') {
+            const upsQuotes = normUps({ raw: upsResult.value });
+            upsQuotes.forEach(q => {
+                if (!q?.total) return;
+                const code = String(q.serviceCode || '').trim();
+                rates.push({
+                    name: upsNameMap[code] || `UPS ${q.serviceLabel || 'International'}`,
+                    code: `UPS_${code || 'STD'}`,
+                    price: String(Math.round(Number(q.total) * 100)),
+                    currency: q.currency || 'USD',
+                    type: 'ship',
+                    min_delivery_date: null,
+                    max_delivery_date: null,
+                    phone_required: false,
+                    accepts_cod: false,
+                    availability: 'all',
+                    days: upsDaysMap[code] || 7,
+                    reference: '',
+                });
+            });
+        } else {
+            console.error('[NS CARRIER][UPS ERROR]', upsResult.reason?.message);
+        }
+
+        if (fedexResult.status === 'fulfilled') {
+            const fedexQuotes = fedexResult.value?.rows || [];
+            fedexQuotes.forEach(q => {
+                if (!q?.total) return;
+                const type = String(q.serviceType || '').trim();
+                rates.push({
+                    name: fedexNameMap[type] || 'FedEx International Shipping',
+                    code: `FEDEX_${type.replace(/\s+/g, '_') || 'STD'}`,
+                    price: String(Math.round(Number(q.total) * 100)),
+                    currency: q.currency || 'USD',
+                    type: 'ship',
+                    min_delivery_date: null,
+                    max_delivery_date: null,
+                    phone_required: false,
+                    accepts_cod: false,
+                    availability: 'all',
+                    days: fedexDaysMap[type] || 7,
+                    reference: '',
+                });
+            });
+        } else {
+            console.error('[NS CARRIER][FEDEX ERROR]', fedexResult.reason?.message);
+        }
+
+        if (!rates.length) {
+            rates.push({
+                name: 'Intrex International Shipping',
+                code: 'INTREX_FALLBACK',
+                price: '2500',
+                currency: 'USD',
+                type: 'ship',
+                min_delivery_date: null,
+                max_delivery_date: null,
+                phone_required: false,
+                accepts_cod: false,
+                availability: 'all',
+                days: 10,
+                reference: '',
+            });
+        }
+
+        console.log('[NS CARRIER] rates:', JSON.stringify(rates, null, 2));
+        return res.json({ rates });
+    } catch (err) {
+        console.error('[NS CARRIER ERROR]', err);
+        return res.status(200).json({ rates: [] });
+    }
+});
+
+// POST /nuvemshop/registrar-carrier
+// Registra manualmente o carrier service na loja Nuvemshop do cliente logado
+router.post('/registrar-carrier', autenticarUsuario, vincularCliente, async (req, res) => {
+    try {
+        const clienteId = req.clienteId ?? req.usuario?.clienteId;
+        if (!clienteId) return res.status(403).json({ erro: 'Cliente não identificado' });
+
+        const infoRow = await db.InfoNuvemshop.findOne({
+            where: { id_cliente: clienteId },
+            attributes: ['storeId'],
+            raw: true,
+        });
+        if (!infoRow) return res.status(404).json({ erro: 'Loja Nuvemshop não conectada' });
+
+        const shopRow = await db.NuvemshopShop.findOne({
+            where: { storeId: String(infoRow.storeId) },
+            attributes: ['accessToken'],
+            raw: true,
+        });
+        if (!shopRow?.accessToken) return res.status(404).json({ erro: 'Token não encontrado. Reconecte a loja.' });
+
+        const { status, body } = await registrarCarrierNuvemshop(infoRow.storeId, shopRow.accessToken, APP_URL);
+        return res.status(status < 500 ? 200 : 502).json({ status, body });
+    } catch (e) {
+        console.error('[NS REGISTRAR CARRIER]', e);
+        return res.status(500).json({ erro: 'Erro ao registrar carrier', detalhes: e.message });
+    }
+});
 
 // LGPD — obrigatório pela Nuvemshop
 router.post('/webhooks/store-redact', (req, res) => {
