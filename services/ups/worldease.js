@@ -50,7 +50,7 @@ async function closeOutShipment({ gccn, shipperAccountNumber, clientId, clientSe
 async function deleteMasterShipment({ gccn, shipperAccountNumber, clientId, clientSecret, merchantId }) {
     try {
         const token = await getUpsToken(false, { clientId, clientSecret, merchantId });
-        const url = `${cfg.worldeaseDelete}/${gccn}`;
+        const url = `${cfg.worldeaseMaster}/${gccn}`;
         const res = await axios.delete(url, {
             data: { shipperAccountNumber },
             headers: {
@@ -76,24 +76,77 @@ async function deleteMasterShipment({ gccn, shipperAccountNumber, clientId, clie
     }
 }
 
-async function createMasterShipment({ shipperAccountNumber, clientId, clientSecret, merchantId }) {
+async function createMasterShipment({ shipper, shipperAccountNumber, clientId, clientSecret, merchantId }) {
     try {
         const token = await getUpsToken(false, { clientId, clientSecret, merchantId });
-        // POST /api/ship/v1/master-shipment — cria o master e retorna WorldEaseExecutionReferenceNumber (GCCN)
-        const res = await axios.post(
-            cfg.worldeaseDelete, // mesmo base URL, método POST
-            { shipperAccountNumber },
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                    transId: uuidv4().replace(/-/g, '').slice(0, 32),
-                    transactionSrc: 'intrex-exporta',
+
+        const portOfEntry = {
+            Name: process.env.UPS_WE_PORT_NAME || 'Miami',
+            Consignee: 'UPS',
+            ClearancePortCode: process.env.UPS_WE_PORT_CODE || '1497',
+            Address: {
+                AddressLine: [process.env.UPS_WE_PORT_ADDRESS || '9800 NW 21st Street'],
+                City: process.env.UPS_WE_PORT_CITY || 'MIAMI',
+                StateProvinceCode: process.env.UPS_WE_PORT_STATE || 'FL',
+                PostalCode: process.env.UPS_WE_PORT_ZIP || '33126',
+                CountryCode: 'US',
+            },
+        };
+
+        const payload = {
+            ShipmentRequest: {
+                Request: {
+                    RequestOption: 'nonvalidate',
+                    SubVersion: '2205',
+                    TransactionReference: { CustomerContext: 'WorldEase Master' },
                 },
-                timeout: cfg.timeoutMs,
-            }
-        );
-        return res.data;
+                Shipment: {
+                    Shipper: {
+                        Name: shipper.name,
+                        ShipperNumber: shipperAccountNumber,
+                        Address: {
+                            AddressLine: [shipper.address],
+                            City: shipper.city,
+                            StateProvinceCode: shipper.state,
+                            PostalCode: shipper.zip,
+                            CountryCode: shipper.country || 'BR',
+                        },
+                    },
+                    ShipTo: {
+                        Name: 'UPS WorldEase Hub',
+                        Address: portOfEntry.Address,
+                    },
+                    PaymentInformation: {
+                        ShipmentCharge: {
+                            Type: '01',
+                            BillShipper: { AccountNumber: shipperAccountNumber },
+                        },
+                    },
+                    Service: { Code: process.env.UPS_WE_SERVICE_CODE || '65' },
+                    Package: {
+                        PackagingType: { Code: '02' },
+                        PackageWeight: { UnitOfMeasurement: { Code: 'KGS' }, Weight: '1' },
+                    },
+                    WorldEase: { PortOfEntry: portOfEntry },
+                },
+            },
+        };
+
+        const res = await axios.post(cfg.ship, payload, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                transId: uuidv4().replace(/-/g, '').slice(0, 32),
+                transactionSrc: 'intrex-exporta',
+            },
+            timeout: cfg.timeoutMs,
+        });
+
+        const sr = res.data?.ShipmentResponse?.ShipmentResults;
+        const gccn = sr?.GCCN || null;
+        const trackingNumber = sr?.PackageResults?.[0]?.TrackingNumber || sr?.ShipmentIdentificationNumber || null;
+
+        return { gccn, trackingNumber, raw: res.data };
     } catch (err) {
         const status = err?.response?.status || 500;
         console.error('[WorldEase] createMaster error =>', {

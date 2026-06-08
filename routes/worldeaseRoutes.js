@@ -7,7 +7,9 @@ const router = express.Router();
 const corsOpts = cors({
     origin: (origin, cb) => {
         if (!origin) return cb(null, true);
+        const frontendUrl = process.env.FRONTEND_URL || '';
         const ok =
+            (frontendUrl && origin === frontendUrl) ||
             /^https?:\/\/localhost(:\d+)?$/i.test(origin) ||
             /^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin) ||
             /^https?:\/\/\[::1\](:\d+)?$/i.test(origin) ||

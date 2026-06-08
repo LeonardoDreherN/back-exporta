@@ -16,19 +16,6 @@ function resolveWorldeaseCredentials(cliente) {
     return { clientId, clientSecret, merchantId, shipperAccountNumber };
 }
 
-async function salvarLabelMasterNaStorage(masterId, pdfBuffer) {
-    const timestamp = Date.now();
-    const path = `worldease/${masterId}/master-label-${timestamp}.pdf`;
-    const { error } = await supabase.storage
-        .from('labels')
-        .upload(path, pdfBuffer, { contentType: 'application/pdf', upsert: true });
-    if (error) {
-        console.error('[WorldEase] erro ao salvar label na storage:', error);
-        return null;
-    }
-    return path;
-}
-
 // POST /api/worldease/masters — cria um master shipment em aberto
 async function createMaster(req, res) {
     try {
@@ -43,13 +30,22 @@ async function createMaster(req, res) {
         const { clientId, clientSecret, merchantId, shipperAccountNumber } = resolveWorldeaseCredentials(cliente);
         const accountNumber = shipper_account_number || shipperAccountNumber;
 
-        // Tenta criar o master na UPS para obter o GCCN
+        const shipper = {
+            name: cliente?.razaoSocial || 'Exportador',
+            address: [cliente?.enderecoRua, cliente?.enderecoNumero].filter(Boolean).join(', '),
+            city: cliente?.enderecoCidade || '',
+            state: cliente?.enderecoEstado || '',
+            zip: cliente?.enderecoCEP || '',
+            country: 'BR',
+        };
+
+        // Cria o master via Ship API com WorldEase.PortOfEntry — UPS retorna o GCCN na resposta
         let gccnFromUps = null;
         let upsRaw = null;
         try {
-            const upsResponse = await createMasterShipment({ shipperAccountNumber: accountNumber, clientId, clientSecret, merchantId });
-            gccnFromUps = upsResponse?.WorldEaseExecutionReferenceNumber || null;
-            upsRaw = upsResponse;
+            const upsResponse = await createMasterShipment({ shipper, shipperAccountNumber: accountNumber, clientId, clientSecret, merchantId });
+            gccnFromUps = upsResponse?.gccn || null;
+            upsRaw = upsResponse?.raw || null;
             if (gccnFromUps) {
                 console.log('[WorldEase] GCCN obtido da UPS:', gccnFromUps);
             }
