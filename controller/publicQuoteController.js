@@ -79,9 +79,48 @@ const DEST_MAP = {
     'russia':                { code: 'RU', postalCode: '101000',  state: '',    city: 'Moscow' },
 };
 
+// ISO 3166-1 alpha-2 → chave do DEST_MAP
+const ISO_TO_KEY = {
+    US: 'estados unidos', CA: 'canada',   MX: 'mexico',    AR: 'argentina',
+    CL: 'chile',          CO: 'colombia', PY: 'paraguai',  UY: 'uruguai',
+    PE: 'peru',           EC: 'equador',  BO: 'bolivia',   VE: 'venezuela',
+    PA: 'panama',         CR: 'costa rica', CU: 'cuba',    JM: 'jamaica',
+    PT: 'portugal',       GB: 'reino unido', FR: 'franca', DE: 'alemanha',
+    ES: 'espanha',        IT: 'italia',   NL: 'paises baixos', BE: 'belgica',
+    SE: 'suecia',         NO: 'noruega', DK: 'dinamarca', FI: 'finlandia',
+    CH: 'suica',          AT: 'austria', PL: 'polonia',   CZ: 'republica tcheca',
+    HU: 'hungria',        RO: 'romenia', GR: 'grecia',    TR: 'turquia',
+    IL: 'israel',         AE: 'emirados arabes unidos', SA: 'arabia saudita',
+    EG: 'egito',          MA: 'marrocos', ZA: 'africa do sul',
+    CN: 'china',          JP: 'japao',   IN: 'india',     KR: 'coreia do sul',
+    SG: 'cingapura',      HK: 'hong kong', TW: 'taiwan',  TH: 'tailandia',
+    MY: 'malasia',        ID: 'indonesia', PH: 'filipinas', AU: 'australia',
+    NZ: 'nova zelandia',  RU: 'russia',
+};
+
+// SLA estimado por carrier (dias úteis)
+const SLA = {
+    UPS_EXPEDITED: 5,
+    UPS_EXPRESS:   3,
+    FEDEX_ICP:     7,
+};
+
 function normKey(s) {
     // eslint-disable-next-line no-misleading-character-class
     return String(s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim();
+}
+
+function resolveDestino(destino) {
+    const raw = String(destino || '').trim();
+
+    // ISO code (2 letras maiúsculas, ex: "US", "FR")
+    if (/^[A-Z]{2}$/.test(raw)) {
+        const key = ISO_TO_KEY[raw];
+        return key ? DEST_MAP[key] : null;
+    }
+
+    // nome em português (com ou sem acento)
+    return DEST_MAP[normKey(raw)] || null;
 }
 
 function pesoTaxavel(pesoKg, compCm, largCm, altCm) {
@@ -98,22 +137,23 @@ function extractUpsRates(upsRaw) {
         arr[0];
     if (!preferred) return null;
 
-    const currency   = preferred?.TotalCharges?.CurrencyCode || 'USD';
-    const published  = +Number(preferred?.TotalCharges?.MonetaryValue || 0).toFixed(2);
-    const negotiated = +Number(
+    const serviceCode = preferred?.Service?.Code || '08';
+    const currency    = preferred?.TotalCharges?.CurrencyCode || 'USD';
+    const published   = +Number(preferred?.TotalCharges?.MonetaryValue || 0).toFixed(2);
+    const negotiated  = +Number(
         preferred?.NegotiatedRateCharges?.TotalCharge?.MonetaryValue ||
         preferred?.TotalCharges?.MonetaryValue || 0
     ).toFixed(2);
-
-    const baseRaw = +Number(
+    const baseRaw     = +Number(
         preferred?.NegotiatedRateCharges?.BaseServiceCharge?.MonetaryValue ||
-        preferred?.TransportationCharges?.MonetaryValue ||
-        0
+        preferred?.TransportationCharges?.MonetaryValue || 0
     ).toFixed(2);
-    const base       = baseRaw > 0 ? baseRaw : negotiated;
-    const surcharges = +Math.max(0, negotiated - base).toFixed(2);
+    const base        = baseRaw > 0 ? baseRaw : negotiated;
+    const surcharges  = +Math.max(0, negotiated - base).toFixed(2);
+    const slaDays     = serviceCode === '07' ? SLA.UPS_EXPRESS : SLA.UPS_EXPEDITED;
+    const service     = serviceCode === '07' ? 'Worldwide Express' : 'Worldwide Expedited';
 
-    return { negotiated, published, currency, base, surcharges };
+    return { negotiated, published, currency, base, surcharges, slaDays, service };
 }
 
 function extractFedexRates(fedexResp) {
@@ -131,7 +171,6 @@ function extractFedexRates(fedexResp) {
     const base       = baseRaw > 0 ? baseRaw : negotiated;
     const surcharges = +Math.max(0, negotiated - base).toFixed(2);
 
-    // Extract LIST (public) rate from raw response
     let published = negotiated;
     const details = raw?.output?.rateReplyDetails || [];
     const svc = details.find(d => d?.serviceType === 'FEDEX_INTERNATIONAL_CONNECT_PLUS') || details[0];
@@ -154,7 +193,28 @@ function extractFedexRates(fedexResp) {
         }
     }
 
-    return { negotiated, published, currency, base, surcharges };
+    return {
+        negotiated, published, currency, base, surcharges,
+        slaDays: SLA.FEDEX_ICP,
+        service: 'International Connect Plus',
+    };
+}
+
+function buildOption(carrier, rates) {
+    const total = rates.negotiated;
+    return {
+        carrier,
+        service: rates.service,
+        price: total,
+        currency: rates.currency,
+        sla_days: rates.slaDays,
+        // campos auxiliares para debug/transparência
+        base: rates.base,
+        surcharges: rates.surcharges,
+        // labels prontos para renderizar no checkout
+        label: `${carrier} - ${rates.currency} ${total.toFixed(2)}`,
+        sla_label: `${rates.slaDays} dias úteis`,
+    };
 }
 
 async function publicQuote(req, res) {
@@ -169,7 +229,7 @@ async function publicQuote(req, res) {
         return res.status(400).json({ ok: false, error: 'peso inválido' });
     }
 
-    const destInfo = DEST_MAP[normKey(destino)];
+    const destInfo = resolveDestino(destino);
     if (!destInfo) {
         return res.status(400).json({ ok: false, error: `Destino não reconhecido: ${destino}` });
     }
@@ -181,14 +241,14 @@ async function publicQuote(req, res) {
 
     const shipToAddr = {
         CountryCode: destInfo.code,
-        ...(destInfo.city        ? { City:                destInfo.city  } : {}),
-        ...(destInfo.state       ? { StateProvinceCode:   destInfo.state } : {}),
-        ...(destInfo.postalCode  ? { PostalCode:          destInfo.postalCode } : {}),
+        ...(destInfo.city       ? { City:              destInfo.city        } : {}),
+        ...(destInfo.state      ? { StateProvinceCode: destInfo.state       } : {}),
+        ...(destInfo.postalCode ? { PostalCode:        destInfo.postalCode  } : {}),
     };
 
     const upsPayload = {
         RateRequest: {
-            Request: { TransactionReference: { CustomerContext: 'intrex-simulador-publico' } },
+            Request: { TransactionReference: { CustomerContext: 'intrex-checkout-quote' } },
             Shipment: {
                 Shipper: {
                     Name: SHIPPER.name,
@@ -270,34 +330,37 @@ async function publicQuote(req, res) {
         }),
     ]);
 
-    const result = { ok: true };
+    const options = [];
+    const errors  = {};
 
     if (upsResult.status === 'fulfilled') {
         const rates = extractUpsRates(upsResult.value);
-        if (rates) result.ups = rates;
+        if (rates) options.push(buildOption('UPS', rates));
     } else {
         console.error('[PUBLIC QUOTE][UPS]', upsResult.reason?.message);
-        result.ups_error = upsResult.reason?.message || 'UPS indisponível';
+        errors.ups = upsResult.reason?.message || 'UPS indisponível';
     }
 
     if (fedexResult.status === 'fulfilled') {
         const rates = extractFedexRates(fedexResult.value);
-        if (rates) result.fedex = rates;
+        if (rates) options.push(buildOption('FedEx', rates));
     } else {
         console.error('[PUBLIC QUOTE][FEDEX]', fedexResult.reason?.message);
-        result.fedex_error = fedexResult.reason?.message || 'FedEx indisponível';
+        errors.fedex = fedexResult.reason?.message || 'FedEx indisponível';
     }
 
-    if (!result.ups && !result.fedex) {
+    if (options.length === 0) {
         return res.status(502).json({
             ok: false,
             error: 'Não foi possível obter cotação no momento. Tente novamente em instantes.',
-            ups_error:   result.ups_error,
-            fedex_error: result.fedex_error,
+            errors,
         });
     }
 
-    return res.json(result);
+    // ordena do mais barato ao mais caro
+    options.sort((a, b) => a.price - b.price);
+
+    return res.json({ ok: true, options, ...(Object.keys(errors).length ? { errors } : {}) });
 }
 
 module.exports = { publicQuote };
