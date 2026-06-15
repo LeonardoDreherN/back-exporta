@@ -76,22 +76,9 @@ async function deleteMasterShipment({ gccn, shipperAccountNumber, clientId, clie
     }
 }
 
-async function createMasterShipment({ shipper, shipperAccountNumber, clientId, clientSecret, merchantId }) {
+async function createMasterShipment({ shipper, shipperAccountNumber, clientId, clientSecret, merchantId, destinationCountryCode = 'US', chargeType = 'PRE' }) {
     try {
         const token = await getUpsToken(false, { clientId, clientSecret, merchantId });
-
-        const portOfEntry = {
-            Name: process.env.UPS_WE_PORT_NAME || 'Miami',
-            Consignee: 'UPS',
-            ClearancePortCode: process.env.UPS_WE_PORT_CODE || '1497',
-            Address: {
-                AddressLine: [process.env.UPS_WE_PORT_ADDRESS || '9800 NW 21st Street'],
-                City: process.env.UPS_WE_PORT_CITY || 'MIAMI',
-                StateProvinceCode: process.env.UPS_WE_PORT_STATE || 'FL',
-                PostalCode: process.env.UPS_WE_PORT_ZIP || '33126',
-                CountryCode: 'US',
-            },
-        };
 
         const payload = {
             ShipmentRequest: {
@@ -114,7 +101,13 @@ async function createMasterShipment({ shipper, shipperAccountNumber, clientId, c
                     },
                     ShipTo: {
                         Name: 'UPS WorldEase Hub',
-                        Address: portOfEntry.Address,
+                        Address: {
+                            AddressLine: [process.env.UPS_WE_HUB_ADDRESS || '9800 NW 21st Street'],
+                            City: process.env.UPS_WE_HUB_CITY || 'MIAMI',
+                            StateProvinceCode: process.env.UPS_WE_HUB_STATE || 'FL',
+                            PostalCode: process.env.UPS_WE_HUB_ZIP || '33126',
+                            CountryCode: destinationCountryCode,
+                        },
                     },
                     PaymentInformation: {
                         ShipmentCharge: {
@@ -127,7 +120,11 @@ async function createMasterShipment({ shipper, shipperAccountNumber, clientId, c
                         PackagingType: { Code: '02' },
                         PackageWeight: { UnitOfMeasurement: { Code: 'KGS' }, Weight: '1' },
                     },
-                    WorldEase: { PortOfEntry: portOfEntry },
+                    WorldEase: {
+                        DestinationCountryCode: destinationCountryCode,
+                        MasterHasDocBox: '0',
+                        MasterShipmentChgType: chargeType,
+                    },
                 },
             },
         };

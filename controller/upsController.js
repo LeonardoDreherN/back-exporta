@@ -999,6 +999,7 @@ console.log('[UPS SHIP] billing account payload:', upsReq?.ShipmentRequest?.Ship
                     GCCN: String(worldeaseGccn),
                     DestinationCountryCode: shipTo.CountryCode || req.body?.pais_dest || 'US',
                     DestinationPostalCode: shipTo.PostalCode || req.body?.cep_dest || '',
+                    MasterShipmentChgType: req.body?.worldease_charge_type || 'PRE',
                 };
             }
 
