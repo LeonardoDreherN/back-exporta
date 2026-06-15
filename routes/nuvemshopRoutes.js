@@ -433,6 +433,40 @@ router.post('/carrier', async (req, res) => {
     }
 });
 
+// GET /nuvemshop/listar-carriers
+router.get('/listar-carriers', autenticarUsuario, vincularCliente, async (req, res) => {
+    try {
+        const clienteId = req.clienteId ?? req.usuario?.clienteId;
+        const infoRow = await db.InfoNuvemshop.findOne({ where: { id_cliente: clienteId }, attributes: ['storeId'], raw: true });
+        if (!infoRow) return res.status(404).json({ erro: 'Loja não conectada' });
+        const shopRow = await db.NuvemshopShop.findOne({ where: { storeId: String(infoRow.storeId) }, attributes: ['accessToken'], raw: true });
+        if (!shopRow?.accessToken) return res.status(404).json({ erro: 'Token não encontrado' });
+        const resp = await fetch(`${API_BASE}/${infoRow.storeId}/shipping_carriers`, {
+            headers: { 'Authentication': `bearer ${shopRow.accessToken}`, 'User-Agent': USER_AGENT },
+        });
+        const body = await resp.json().catch(() => ({}));
+        return res.json({ status: resp.status, carriers: body });
+    } catch (e) {
+        return res.status(500).json({ erro: e.message });
+    }
+});
+
+// DELETE /nuvemshop/deletar-carrier/:id
+router.delete('/deletar-carrier/:id', autenticarUsuario, vincularCliente, async (req, res) => {
+    try {
+        const clienteId = req.clienteId ?? req.usuario?.clienteId;
+        const infoRow = await db.InfoNuvemshop.findOne({ where: { id_cliente: clienteId }, attributes: ['storeId'], raw: true });
+        const shopRow = await db.NuvemshopShop.findOne({ where: { storeId: String(infoRow.storeId) }, attributes: ['accessToken'], raw: true });
+        const resp = await fetch(`${API_BASE}/${infoRow.storeId}/shipping_carriers/${req.params.id}`, {
+            method: 'DELETE',
+            headers: { 'Authentication': `bearer ${shopRow.accessToken}`, 'User-Agent': USER_AGENT },
+        });
+        return res.json({ status: resp.status });
+    } catch (e) {
+        return res.status(500).json({ erro: e.message });
+    }
+});
+
 // POST /nuvemshop/registrar-carrier
 // Registra manualmente o carrier service na loja Nuvemshop do cliente logado
 router.post('/registrar-carrier', autenticarUsuario, vincularCliente, async (req, res) => {
