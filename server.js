@@ -99,11 +99,11 @@ if (typeof fetch === 'undefined') {
 }
 
 
-// headers globais para app embedded Shopify
+// headers globais para app embedded Shopify + Nuvemshop
 app.use((req, res, next) => {
   res.setHeader(
     'Content-Security-Policy',
-    'frame-ancestors https://admin.shopify.com https://*.myshopify.com https://*.shopify.com;'
+    'frame-ancestors https://admin.shopify.com https://*.myshopify.com https://*.shopify.com https://*.nuvemshop.com.br https://*.tiendanube.com;'
   );
   res.removeHeader('X-Frame-Options');
   next();
