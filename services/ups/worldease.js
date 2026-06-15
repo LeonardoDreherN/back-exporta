@@ -152,6 +152,8 @@ async function createMasterShipment({ shipper, soldTo, shipperAccountNumber, cli
             },
         };
 
+        console.log('[WorldEase] createMaster SoldTo:', JSON.stringify(payload.ShipmentRequest.Shipment.SoldTo, null, 2));
+
         const res = await axios.post(cfg.ship, payload, {
             headers: {
                 Authorization: `Bearer ${token}`,
