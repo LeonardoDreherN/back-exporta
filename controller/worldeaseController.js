@@ -39,11 +39,21 @@ async function createMaster(req, res) {
             country: 'BR',
         };
 
+        // SoldTo = IOR (importador nos EUA) — exigido pela UPS para WorldEase
+        const soldTo = {
+            name: cliente?.nomeIOR || '',
+            address: [cliente?.enderecoIOR, cliente?.numeroIOR].filter(Boolean).join(', '),
+            city: cliente?.cidadeIOR || '',
+            state: cliente?.estadoIOR || '',
+            zip: cliente?.cod_postalIOR || '',
+            country: cliente?.paisIOR || 'US',
+        };
+
         // Cria o master via Ship API com WorldEase.PortOfEntry — UPS retorna o GCCN na resposta
         let gccnFromUps = null;
         let upsRaw = null;
         try {
-            const upsResponse = await createMasterShipment({ shipper, shipperAccountNumber: accountNumber, clientId, clientSecret, merchantId });
+            const upsResponse = await createMasterShipment({ shipper, soldTo, shipperAccountNumber: accountNumber, clientId, clientSecret, merchantId });
             gccnFromUps = upsResponse?.gccn || null;
             upsRaw = upsResponse?.raw || null;
             if (gccnFromUps) {

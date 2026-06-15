@@ -76,7 +76,7 @@ async function deleteMasterShipment({ gccn, shipperAccountNumber, clientId, clie
     }
 }
 
-async function createMasterShipment({ shipper, shipperAccountNumber, clientId, clientSecret, merchantId, destinationCountryCode = 'US', chargeType = 'PRE' }) {
+async function createMasterShipment({ shipper, soldTo, shipperAccountNumber, clientId, clientSecret, merchantId, destinationCountryCode = 'US', chargeType = 'PRE' }) {
     try {
         const token = await getUpsToken(false, { clientId, clientSecret, merchantId });
 
@@ -110,14 +110,14 @@ async function createMasterShipment({ shipper, shipperAccountNumber, clientId, c
                         },
                     },
                     SoldTo: {
-                        Name: shipper.name,
+                        Name: soldTo.name,
                         AccountNumber: shipperAccountNumber,
                         Address: {
-                            AddressLine: [shipper.address],
-                            City: shipper.city,
-                            StateProvinceCode: shipper.state,
-                            PostalCode: shipper.zip,
-                            CountryCode: shipper.country || 'BR',
+                            AddressLine: [soldTo.address],
+                            City: soldTo.city,
+                            StateProvinceCode: soldTo.state,
+                            PostalCode: soldTo.zip,
+                            CountryCode: soldTo.country || 'US',
                         },
                     },
                     PaymentInformation: {
