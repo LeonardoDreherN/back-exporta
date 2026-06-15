@@ -109,6 +109,17 @@ async function createMasterShipment({ shipper, shipperAccountNumber, clientId, c
                             CountryCode: destinationCountryCode,
                         },
                     },
+                    SoldTo: {
+                        Name: shipper.name,
+                        AccountNumber: shipperAccountNumber,
+                        Address: {
+                            AddressLine: [shipper.address],
+                            City: shipper.city,
+                            StateProvinceCode: shipper.state,
+                            PostalCode: shipper.zip,
+                            CountryCode: shipper.country || 'BR',
+                        },
+                    },
                     PaymentInformation: {
                         ShipmentCharge: {
                             Type: '01',
