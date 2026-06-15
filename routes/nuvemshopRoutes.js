@@ -99,7 +99,7 @@ async function registrarCarrierNuvemshop(storeId, accessToken, appUrl) {
         body: JSON.stringify({
             name: 'Intrex Shipping',
             callback_url: `${appUrl}/nuvemshop/carrier`,
-            types: 'both',
+            types: 'ship',
         }),
     });
     const body = await resp.json().catch(() => ({}));
