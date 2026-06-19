@@ -167,6 +167,8 @@ async function createMasterShipment({ shipper, soldTo, shipperAccountNumber, cli
         return { gccn, trackingNumber, raw: res.data };
     } catch (err) {
         const status = err?.response?.status || 500;
+        const allErrors = err?.response?.data?.response?.errors || [];
+        console.error('[WorldEase] createMaster TODOS OS ERROS =>', JSON.stringify(allErrors, null, 2));
         console.error('[WorldEase] createMaster error =>', {
             status,
             data: err?.response?.data,
