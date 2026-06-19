@@ -124,24 +124,12 @@ async function createMasterShipment({ shipper, soldTo, shipperAccountNumber, cli
                         DestinationCountryCode: destinationCountryCode,
                         MasterHasDocBox: '0',
                         MasterShipmentChgType: chargeType,
-                        PortOfEntry: {
-                            Name: process.env.UPS_WE_PORT_NAME || 'Miami',
-                            Consignee: 'UPS',
-                            ClearancePortCode: process.env.UPS_WE_PORT_CODE || '1497',
-                            Address: {
-                                AddressLine: [process.env.UPS_WE_HUB_ADDRESS || '9800 NW 21st Street'],
-                                City: process.env.UPS_WE_HUB_CITY || 'MIAMI',
-                                StateProvinceCode: process.env.UPS_WE_HUB_STATE || 'FL',
-                                PostalCode: process.env.UPS_WE_HUB_ZIP || '33126',
-                                CountryCode: destinationCountryCode,
-                            },
-                        },
                     },
                 },
             },
         };
 
-        console.log('[WorldEase] createMaster SoldTo:', JSON.stringify(payload.ShipmentRequest.Shipment.SoldTo, null, 2));
+        console.log('[WorldEase] payload completo =>', JSON.stringify(payload, null, 2));
 
         const res = await axios.post(cfg.ship, payload, {
             headers: {
