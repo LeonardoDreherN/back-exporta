@@ -121,6 +121,8 @@ async function createMasterShipment({ shipper, soldTo, shipperAccountNumber, cli
                         PackageWeight: { UnitOfMeasurement: { Code: 'KGS' }, Weight: '1' },
                     },
                     WorldEase: {
+                        MasterHasDocBox: '0',
+                        MasterShipmentChgType: chargeType,
                         PortOfEntry: {
                             Name: process.env.UPS_WE_PORT_NAME || 'Miami',
                             Consignee: 'UPS',
