@@ -109,13 +109,6 @@ async function createMasterShipment({ shipper, soldTo, shipperAccountNumber, cli
                             CountryCode: destinationCountryCode,
                         },
                     },
-                    SoldTo: {
-                        Name: soldTo.name || shipper.name,
-                        AccountNumber: shipperAccountNumber,
-                        Address: {
-                            CountryCode: soldTo.country || 'US',
-                        },
-                    },
                     PaymentInformation: {
                         ShipmentCharge: {
                             Type: '01',
