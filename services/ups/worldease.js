@@ -110,13 +110,9 @@ async function createMasterShipment({ shipper, soldTo, shipperAccountNumber, cli
                         },
                     },
                     SoldTo: {
-                        Name: soldTo.name,
+                        Name: soldTo.name || shipper.name,
                         AccountNumber: shipperAccountNumber,
                         Address: {
-                            AddressLine: [soldTo.address],
-                            City: soldTo.city,
-                            StateProvinceCode: soldTo.state,
-                            PostalCode: soldTo.zip,
                             CountryCode: soldTo.country || 'US',
                         },
                     },
