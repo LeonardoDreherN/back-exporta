@@ -500,7 +500,7 @@ router.post('/registrar-carrier', autenticarUsuario, vincularCliente, async (req
         });
         if (!shopRow?.accessToken) return res.status(404).json({ erro: 'Token não encontrado. Reconecte a loja.' });
 
-        const { status, body } = await registrarCarrierNuvemshop(infoRow.storeId, shopRow.accessToken, APP_URL, '/frete');
+        const { status, body } = await registrarCarrierNuvemshop(infoRow.storeId, shopRow.accessToken, APP_URL, '/nuvemshop/frete');
         return res.status(status < 500 ? 200 : 502).json({ status, body });
     } catch (e) {
         console.error('[NS REGISTRAR CARRIER]', e);
