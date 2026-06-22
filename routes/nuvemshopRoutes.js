@@ -87,7 +87,7 @@ function buildNsCommodities(items = [], currency = 'USD') {
     });
 }
 
-async function registrarCarrierNuvemshop(storeId, accessToken, appUrl) {
+async function registrarCarrierNuvemshop(storeId, accessToken, appUrl, path = '/nuvemshop/carrier') {
     const url = `${API_BASE}/${storeId}/shipping_carriers`;
     const resp = await fetch(url, {
         method: 'POST',
@@ -98,7 +98,7 @@ async function registrarCarrierNuvemshop(storeId, accessToken, appUrl) {
         },
         body: JSON.stringify({
             name: 'Intrex Shipping',
-            callback_url: `${appUrl}/nuvemshop/carrier`,
+            callback_url: `${appUrl}${path}`,
             types: 'ship',
         }),
     });
@@ -210,9 +210,9 @@ router.get('/callback', async (req, res) => {
             res.clearCookie('ns_bind_cliente_id', { path: '/nuvemshop' });
         }
 
-        // Registra carrier automaticamente após OAuth
+        // Registra carrier automaticamente após OAuth (usa /frete para evitar circuit breaker)
         try {
-            const { status: cs, body: cb } = await registrarCarrierNuvemshop(storeId, tokenBody.access_token, APP_URL);
+            const { status: cs, body: cb } = await registrarCarrierNuvemshop(storeId, tokenBody.access_token, APP_URL, '/nuvemshop/frete');
             console.log('[NS CARRIER REGISTER]', cs, cb);
         } catch (e) {
             console.error('[NS CARRIER REGISTER ERROR]', e.message);
@@ -466,7 +466,9 @@ router.delete('/deletar-carrier/:id', autenticarUsuario, vincularCliente, async 
     try {
         const clienteId = req.clienteId ?? req.usuario?.clienteId;
         const infoRow = await db.InfoNuvemshop.findOne({ where: { id_cliente: clienteId }, attributes: ['storeId'], raw: true });
+        if (!infoRow) return res.status(404).json({ erro: 'Loja não conectada' });
         const shopRow = await db.NuvemshopShop.findOne({ where: { storeId: String(infoRow.storeId) }, attributes: ['accessToken'], raw: true });
+        if (!shopRow) return res.status(404).json({ erro: 'Token não encontrado' });
         const resp = await fetch(`${API_BASE}/${infoRow.storeId}/shipping_carriers/${req.params.id}`, {
             method: 'DELETE',
             headers: { 'Authentication': `bearer ${shopRow.accessToken}`, 'User-Agent': USER_AGENT },
@@ -498,7 +500,7 @@ router.post('/registrar-carrier', autenticarUsuario, vincularCliente, async (req
         });
         if (!shopRow?.accessToken) return res.status(404).json({ erro: 'Token não encontrado. Reconecte a loja.' });
 
-        const { status, body } = await registrarCarrierNuvemshop(infoRow.storeId, shopRow.accessToken, APP_URL);
+        const { status, body } = await registrarCarrierNuvemshop(infoRow.storeId, shopRow.accessToken, APP_URL, '/frete');
         return res.status(status < 500 ? 200 : 502).json({ status, body });
     } catch (e) {
         console.error('[NS REGISTRAR CARRIER]', e);
