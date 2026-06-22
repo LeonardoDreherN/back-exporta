@@ -262,7 +262,14 @@ router.post('/carrier', async (req, res) => {
     try {
         console.log('[NS CARRIER] body:', JSON.stringify(req.body, null, 2));
 
-        const { destination, items = [], currency = 'BRL' } = req.body;
+        const { destination: destRaw, items = [], currency = 'BRL' } = req.body;
+        // Nuvemshop envia zipcode (não postal_code) e street (não address)
+        const destination = destRaw ? {
+            ...destRaw,
+            postal_code: destRaw.zipcode || destRaw.postal_code,
+            address: destRaw.street || destRaw.address,
+            province: destRaw.province || destRaw.state,
+        } : null;
 
         if (!destination) return res.status(200).json({ rates: [] });
 
