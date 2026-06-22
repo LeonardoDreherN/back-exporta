@@ -256,9 +256,9 @@ router.get('/conexao', autenticarUsuario, async (req, res) => {
 // GET /nuvemshop/produtos
 router.get('/produtos', autenticarUsuario, vincularCliente, verProdutosLojaNuvemshop);
 
-// POST /nuvemshop/carrier
+// POST /nuvemshop/carrier e /nuvemshop/frete (alias para resetar circuit breaker)
 // Nuvemshop chama aqui para cotação de frete no checkout
-router.post('/carrier', async (req, res) => {
+async function handleCarrier(req, res) {
     try {
         console.log('[NS CARRIER] body:', JSON.stringify(req.body, null, 2));
 
@@ -438,7 +438,10 @@ router.post('/carrier', async (req, res) => {
         console.error('[NS CARRIER ERROR]', err);
         return res.status(200).json({ rates: [] });
     }
-});
+}
+
+router.post('/carrier', handleCarrier);
+router.post('/frete', handleCarrier);
 
 // GET /nuvemshop/listar-carriers
 router.get('/listar-carriers', autenticarUsuario, vincularCliente, async (req, res) => {
