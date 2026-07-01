@@ -587,6 +587,24 @@ router.post('/registrar-carrier', autenticarUsuario, vincularCliente, async (req
     }
 });
 
+// POST /nuvemshop/registrar-options
+// Registra options em um carrier já existente
+router.post('/registrar-options', autenticarUsuario, vincularCliente, async (req, res) => {
+    try {
+        const { carrierId } = req.body;
+        if (!carrierId) return res.status(400).json({ erro: 'carrierId obrigatório' });
+        const clienteId = req.clienteId ?? req.usuario?.clienteId;
+        const infoRow = await db.InfoNuvemshop.findOne({ where: { id_cliente: clienteId }, attributes: ['storeId'], raw: true });
+        if (!infoRow) return res.status(404).json({ erro: 'Loja não conectada' });
+        const shopRow = await db.NuvemshopShop.findOne({ where: { storeId: String(infoRow.storeId) }, attributes: ['accessToken'], raw: true });
+        if (!shopRow?.accessToken) return res.status(404).json({ erro: 'Token não encontrado' });
+        const results = await registrarCarrierOptions(infoRow.storeId, shopRow.accessToken, carrierId);
+        return res.json({ results });
+    } catch (e) {
+        return res.status(500).json({ erro: e.message });
+    }
+});
+
 // LGPD — obrigatório pela Nuvemshop
 router.post('/webhooks/store-redact', (req, res) => {
     console.log('[NS LGPD] store-redact:', req.body);
