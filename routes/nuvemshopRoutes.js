@@ -498,20 +498,16 @@ router.post('/frete', handleCarrier);
 
 // Rota de diagnóstico — resposta hardcoded, sem chamadas externas
 router.post('/frete-teste', (req, res) => {
-    console.log('[NS FRETE-TESTE] chamado, currency:', req.body?.currency);
+    const currency = req.body?.currency || 'USD';
+    const opts = (req.body?.carrier?.options || []).map(o => o.code);
+    console.log('[NS FRETE-TESTE] chamado, currency:', currency, 'options:', opts);
     res.json({
         rates: [
             {
                 name: 'UPS Expedited (4-7 dias úteis)',
                 code: 'UPS_08',
                 price: 24.25,
-                currency: req.body?.currency || 'USD',
-                min_delivery_date: null,
-                max_delivery_date: null,
-                phone_required: false,
-                accepts_cod: false,
-                days: 7,
-                reference: '',
+                currency,
             },
         ],
     });
