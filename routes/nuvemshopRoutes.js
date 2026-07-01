@@ -87,6 +87,34 @@ function buildNsCommodities(items = [], currency = 'USD') {
     });
 }
 
+async function registrarCarrierOptions(storeId, accessToken, carrierId) {
+    const options = [
+        { code: 'UPS_01', name: 'UPS Express (1-3 dias úteis)' },
+        { code: 'UPS_07', name: 'UPS Express (2-4 dias úteis)' },
+        { code: 'UPS_08', name: 'UPS Expedited (4-7 dias úteis)' },
+        { code: 'UPS_65', name: 'UPS Saver (2-4 dias úteis)' },
+        { code: 'FEDEX_INTERNATIONAL_PRIORITY', name: 'FedEx Express (2-4 dias úteis)' },
+        { code: 'FEDEX_INTERNATIONAL_ECONOMY', name: 'FedEx Economy (4-7 dias úteis)' },
+        { code: 'FEDEX_FEDEX_INTERNATIONAL_CONNECT_PLUS', name: 'FedEx Connect+ (3-7 dias úteis)' },
+    ];
+    const results = [];
+    for (const opt of options) {
+        const url = `${API_BASE}/${storeId}/shipping_carriers/${carrierId}/options`;
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authentication': `bearer ${accessToken}`,
+                'User-Agent': USER_AGENT,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ...opt, additional_days: 0, additional_cost: 0, allow_free_shipping: false }),
+        });
+        const body = await resp.json().catch(() => ({}));
+        results.push({ code: opt.code, status: resp.status, body });
+    }
+    return results;
+}
+
 async function registrarCarrierNuvemshop(storeId, accessToken, appUrl, path = '/nuvemshop/carrier') {
     const url = `${API_BASE}/${storeId}/shipping_carriers`;
     const resp = await fetch(url, {
@@ -210,10 +238,14 @@ router.get('/callback', async (req, res) => {
             res.clearCookie('ns_bind_cliente_id', { path: '/nuvemshop' });
         }
 
-        // Registra carrier automaticamente após OAuth (usa /frete para evitar circuit breaker)
+        // Registra carrier + options automaticamente após OAuth
         try {
             const { status: cs, body: cb } = await registrarCarrierNuvemshop(storeId, tokenBody.access_token, APP_URL, '/nuvemshop/frete');
             console.log('[NS CARRIER REGISTER]', cs, cb);
+            if (cs === 201 && cb?.id) {
+                const optResults = await registrarCarrierOptions(storeId, tokenBody.access_token, cb.id);
+                console.log('[NS CARRIER OPTIONS]', optResults);
+            }
         } catch (e) {
             console.error('[NS CARRIER REGISTER ERROR]', e.message);
         }
@@ -501,7 +533,12 @@ router.post('/registrar-carrier', autenticarUsuario, vincularCliente, async (req
         if (!shopRow?.accessToken) return res.status(404).json({ erro: 'Token não encontrado. Reconecte a loja.' });
 
         const { status, body } = await registrarCarrierNuvemshop(infoRow.storeId, shopRow.accessToken, APP_URL, '/nuvemshop/frete');
-        return res.status(status < 500 ? 200 : 502).json({ status, body });
+        let options = [];
+        if (status === 201 && body?.id) {
+            options = await registrarCarrierOptions(infoRow.storeId, shopRow.accessToken, body.id);
+            console.log('[NS CARRIER OPTIONS]', options);
+        }
+        return res.status(status < 500 ? 200 : 502).json({ status, body, options });
     } catch (e) {
         console.error('[NS REGISTRAR CARRIER]', e);
         return res.status(500).json({ erro: 'Erro ao registrar carrier', detalhes: e.message });
