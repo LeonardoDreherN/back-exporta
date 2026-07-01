@@ -46,6 +46,12 @@ const fedexDaysMap = {
 
 function toKg(grams) { return Number(grams || 0) / 1000; }
 
+function isoDateAfterDays(days) {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return d.toISOString().split('T')[0];
+}
+
 const US_STATE_ABBR = {
     'alabama':'AL','alaska':'AK','arizona':'AZ','arkansas':'AR','california':'CA',
     'colorado':'CO','connecticut':'CT','delaware':'DE','florida':'FL','georgia':'GA',
@@ -419,18 +425,19 @@ async function handleCarrier(req, res) {
             upsQuotes.forEach(q => {
                 if (!q?.total) return;
                 const code = String(q.serviceCode || '').trim();
+                const days = upsDaysMap[code] || 7;
                 rates.push({
                     name: upsNameMap[code] || `UPS ${q.serviceLabel || 'International'}`,
                     code: `UPS_${code || 'STD'}`,
-                    price: String(Math.round(Number(q.total) * 100)),
+                    price: Number(Number(q.total).toFixed(2)),
                     currency: q.currency || 'USD',
                     type: 'ship',
-                    min_delivery_date: null,
-                    max_delivery_date: null,
+                    min_delivery_date: isoDateAfterDays(days),
+                    max_delivery_date: isoDateAfterDays(days + 3),
                     phone_required: false,
                     accepts_cod: false,
                     availability: 'all',
-                    days: upsDaysMap[code] || 7,
+                    days,
                     reference: '',
                 });
             });
@@ -443,18 +450,19 @@ async function handleCarrier(req, res) {
             fedexQuotes.forEach(q => {
                 if (!q?.total) return;
                 const type = String(q.serviceType || '').trim();
+                const days = fedexDaysMap[type] || 7;
                 rates.push({
                     name: fedexNameMap[type] || 'FedEx International Shipping',
                     code: `FEDEX_${type.replace(/\s+/g, '_') || 'STD'}`,
-                    price: String(Math.round(Number(q.total) * 100)),
+                    price: Number(Number(q.total).toFixed(2)),
                     currency: q.currency || 'USD',
                     type: 'ship',
-                    min_delivery_date: null,
-                    max_delivery_date: null,
+                    min_delivery_date: isoDateAfterDays(days),
+                    max_delivery_date: isoDateAfterDays(days + 3),
                     phone_required: false,
                     accepts_cod: false,
                     availability: 'all',
-                    days: fedexDaysMap[type] || 7,
+                    days,
                     reference: '',
                 });
             });
@@ -466,11 +474,11 @@ async function handleCarrier(req, res) {
             rates.push({
                 name: 'Intrex International Shipping',
                 code: 'INTREX_FALLBACK',
-                price: '2500',
+                price: 25.00,
                 currency: 'USD',
                 type: 'ship',
-                min_delivery_date: null,
-                max_delivery_date: null,
+                min_delivery_date: isoDateAfterDays(10),
+                max_delivery_date: isoDateAfterDays(15),
                 phone_required: false,
                 accepts_cod: false,
                 availability: 'all',
