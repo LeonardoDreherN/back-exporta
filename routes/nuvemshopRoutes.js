@@ -573,7 +573,7 @@ router.post('/registrar-carrier', autenticarUsuario, vincularCliente, async (req
         });
         if (!shopRow?.accessToken) return res.status(404).json({ erro: 'Token não encontrado. Reconecte a loja.' });
 
-        const { status, body } = await registrarCarrierNuvemshop(infoRow.storeId, shopRow.accessToken, APP_URL, '/nuvemshop/frete-teste');
+        const { status, body } = await registrarCarrierNuvemshop(infoRow.storeId, shopRow.accessToken, APP_URL, '/nuvemshop/frete');
         let options = [];
         if (status === 201 && body?.id) {
             options = await registrarCarrierOptions(infoRow.storeId, shopRow.accessToken, body.id);
