@@ -496,6 +496,27 @@ async function handleCarrier(req, res) {
 router.post('/carrier', handleCarrier);
 router.post('/frete', handleCarrier);
 
+// Rota de diagnóstico — resposta hardcoded, sem chamadas externas
+router.post('/frete-teste', (req, res) => {
+    console.log('[NS FRETE-TESTE] chamado, currency:', req.body?.currency);
+    res.json({
+        rates: [
+            {
+                name: 'UPS Expedited (4-7 dias úteis)',
+                code: 'UPS_08',
+                price: 24.25,
+                currency: req.body?.currency || 'USD',
+                min_delivery_date: null,
+                max_delivery_date: null,
+                phone_required: false,
+                accepts_cod: false,
+                days: 7,
+                reference: '',
+            },
+        ],
+    });
+});
+
 // GET /nuvemshop/listar-carriers
 router.get('/listar-carriers', autenticarUsuario, vincularCliente, async (req, res) => {
     try {
