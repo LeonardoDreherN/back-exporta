@@ -312,6 +312,7 @@ router.get('/produtos', autenticarUsuario, vincularCliente, verProdutosLojaNuvem
 // POST /nuvemshop/carrier e /nuvemshop/frete (alias para resetar circuit breaker)
 // Nuvemshop chama aqui para cotação de frete no checkout
 async function handleCarrier(req, res) {
+    const t0 = Date.now();
     try {
         console.log('[NS CARRIER] body:', JSON.stringify(req.body, null, 2));
 
@@ -488,6 +489,7 @@ async function handleCarrier(req, res) {
         }
 
         console.log('[NS CARRIER] rates:', JSON.stringify(rates, null, 2));
+        console.log(`[NS CARRIER] tempo total: ${Date.now() - t0}ms`);
         return res.json({ rates });
     } catch (err) {
         console.error('[NS CARRIER ERROR]', err);
