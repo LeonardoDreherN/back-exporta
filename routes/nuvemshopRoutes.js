@@ -46,10 +46,25 @@ const fedexDaysMap = {
 
 function toKg(grams) { return Number(grams || 0) / 1000; }
 
-function normFedexState(state) {
+const US_STATE_ABBR = {
+    'alabama':'AL','alaska':'AK','arizona':'AZ','arkansas':'AR','california':'CA',
+    'colorado':'CO','connecticut':'CT','delaware':'DE','florida':'FL','georgia':'GA',
+    'hawaii':'HI','idaho':'ID','illinois':'IL','indiana':'IN','iowa':'IA','kansas':'KS',
+    'kentucky':'KY','louisiana':'LA','maine':'ME','maryland':'MD','massachusetts':'MA',
+    'michigan':'MI','minnesota':'MN','mississippi':'MS','missouri':'MO','montana':'MT',
+    'nebraska':'NE','nevada':'NV','new hampshire':'NH','new jersey':'NJ','new mexico':'NM',
+    'new york':'NY','north carolina':'NC','north dakota':'ND','ohio':'OH','oklahoma':'OK',
+    'oregon':'OR','pennsylvania':'PA','rhode island':'RI','south carolina':'SC',
+    'south dakota':'SD','tennessee':'TN','texas':'TX','utah':'UT','vermont':'VT',
+    'virginia':'VA','washington':'WA','west virginia':'WV','wisconsin':'WI','wyoming':'WY',
+    'district of columbia':'DC',
+};
+
+function normState(state) {
     if (!state) return undefined;
-    const raw = String(state).trim().toUpperCase();
-    return raw.length <= 2 ? raw : undefined;
+    const raw = String(state).trim();
+    if (raw.length <= 2) return raw.toUpperCase();
+    return US_STATE_ABBR[raw.toLowerCase()] || undefined;
 }
 
 function buildNsPackages(items = []) {
@@ -346,7 +361,7 @@ async function handleCarrier(req, res) {
                         Address: {
                             PostalCode: destination.postal_code,
                             CountryCode: destination.country,
-                            StateProvinceCode: destination.province || undefined,
+                            StateProvinceCode: normState(destination.province),
                             City: destination.city || undefined,
                             AddressLine: destination.address ? [destination.address] : undefined,
                         },
@@ -368,7 +383,7 @@ async function handleCarrier(req, res) {
                     postalCode: origin.postal_code,
                     countryCode: origin.country,
                     city: origin.city,
-                    stateOrProvinceCode: normFedexState(origin.province),
+                    stateOrProvinceCode: normState(origin.province),
                     streetLines: [origin.address1],
                 },
             },
@@ -382,7 +397,7 @@ async function handleCarrier(req, res) {
                     postalCode: destination.postal_code,
                     countryCode: destination.country,
                     city: destination.city,
-                    stateOrProvinceCode: normFedexState(destination.province),
+                    stateOrProvinceCode: normState(destination.province),
                     streetLines: [destination.address || 'Address'],
                     residential: false,
                 },
