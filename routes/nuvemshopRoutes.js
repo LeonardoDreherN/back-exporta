@@ -432,6 +432,7 @@ async function handleCarrier(req, res) {
                     code: `UPS_${code || 'STD'}`,
                     price: Number(Number(q.total).toFixed(2)),
                     currency: q.currency || 'USD',
+                    type: 'ship',
                     min_delivery_date: isoDateAfterDays(days),
                     max_delivery_date: isoDateAfterDays(days + 3),
                     phone_required: false,
@@ -455,6 +456,7 @@ async function handleCarrier(req, res) {
                     code: `FEDEX_${type.replace(/\s+/g, '_') || 'STD'}`,
                     price: Number(Number(q.total).toFixed(2)),
                     currency: q.currency || 'USD',
+                    type: 'ship',
                     min_delivery_date: isoDateAfterDays(days),
                     max_delivery_date: isoDateAfterDays(days + 3),
                     phone_required: false,
@@ -508,6 +510,7 @@ router.post('/frete-teste', (req, res) => {
                 code: 'UPS_08',
                 price: 24.25,
                 currency,
+                type: 'ship',
             },
         ],
     });
