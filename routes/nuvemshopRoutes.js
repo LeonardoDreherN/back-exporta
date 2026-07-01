@@ -49,7 +49,8 @@ function toKg(grams) { return Number(grams || 0) / 1000; }
 function isoDateAfterDays(days) {
     const d = new Date();
     d.setDate(d.getDate() + days);
-    return d.toISOString().split('T')[0];
+    d.setUTCHours(0, 0, 0, 0);
+    return d.toISOString().replace('.000Z', 'Z');
 }
 
 const US_STATE_ABBR = {
@@ -437,8 +438,7 @@ async function handleCarrier(req, res) {
                     max_delivery_date: isoDateAfterDays(days + 3),
                     phone_required: false,
                     accepts_cod: false,
-                    days,
-                    reference: '',
+                    reference: `UPS_${code || 'STD'}`,
                 });
             });
         } else {
@@ -461,8 +461,7 @@ async function handleCarrier(req, res) {
                     max_delivery_date: isoDateAfterDays(days + 3),
                     phone_required: false,
                     accepts_cod: false,
-                    days,
-                    reference: '',
+                    reference: `FEDEX_${type.replace(/\s+/g, '_') || 'STD'}`,
                 });
             });
         } else {
