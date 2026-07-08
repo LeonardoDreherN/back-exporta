@@ -203,29 +203,56 @@ const cookieBase = {
 const loginCliente = async (req, res) => {
     const { emailPrincipal, senha } = req.body;
 
+    // TEMP-DEBUG-LOGIN: qual banco esta instância está usando (host/db, sem credenciais)
+    try {
+        const rawUrl = process.env.SUPABASE_DB_URL || '';
+        const masked = rawUrl.replace(/\/\/([^:]+):([^@]+)@/, '//$1:***@');
+        console.log('[TEMP-DEBUG-LOGIN] DB alvo:', masked, '| NODE_ENV:', process.env.NODE_ENV);
+    } catch (e) {
+        console.log('[TEMP-DEBUG-LOGIN] falha ao logar DB alvo:', e.message);
+    }
+
+    console.log('[TEMP-DEBUG-LOGIN] email recebido:', emailPrincipal);
+
     try {
         // Busca case-insensitive (Postgres iLike). Em MySQL/MariaDB normalmente já é case-insensitive pelo collation.
         const cliente = await db.Cliente.findOne({
             where: { emailPrincipal: { [Op.iLike]: emailPrincipal } }
         });
 
-        // DEBUG temporário (remova depois):
+        // TEMP-DEBUG-LOGIN:
+        console.log('[TEMP-DEBUG-LOGIN] usuário encontrado?', !!cliente, cliente ? `(id=${cliente.id})` : '');
 
-        if (!cliente) return res.status(401).json({ erro: 'Credenciais inválidas' });
+        if (!cliente) {
+            console.log('[TEMP-DEBUG-LOGIN] motivo 401: usuário não encontrado no banco atual para este e-mail');
+            return res.status(401).json({ erro: 'Credenciais inválidas' });
+        }
+
+        // TEMP-DEBUG-LOGIN: formato do hash armazenado (prefixo/tamanho, não expõe o hash completo)
+        console.log(
+            '[TEMP-DEBUG-LOGIN] senha armazenada -> tamanho:', cliente.senha?.length,
+            '| prefixo:', cliente.senha?.slice(0, 4),
+            '| formato bcrypt?', cliente.senha?.startsWith('$2')
+        );
 
         // Suporte a legado: se senha no BD não é bcrypt, aceita 1x e migra
         let ok = false;
         if (cliente.senha?.startsWith('$2')) {
             ok = await bcrypt.compare(senha, cliente.senha);
+            console.log('[TEMP-DEBUG-LOGIN] bcrypt.compare resultado:', ok);
         } else {
             ok = (senha === cliente.senha);
+            console.log('[TEMP-DEBUG-LOGIN] comparação texto puro (senha legada) resultado:', ok);
             if (ok) {
                 const novoHash = await bcrypt.hash(senha, 10);
                 await cliente.update({ senha: novoHash });
             }
         }
 
-        if (!ok) return res.status(401).json({ erro: 'Credenciais inválidas' });
+        if (!ok) {
+            console.log('[TEMP-DEBUG-LOGIN] motivo 401: senha incorreta (hash não bateu)');
+            return res.status(401).json({ erro: 'Credenciais inválidas' });
+        }
 
         const baseRoles = Array.isArray(cliente.roles) && cliente.roles.length
             ? cliente.roles
