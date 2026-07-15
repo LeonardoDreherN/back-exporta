@@ -26,6 +26,7 @@ function applySecurity(app) {
                 "Authorization",
                 "authorization",
                 "x-csrf-token",
+                "x-api-key",
             ],
             exposedHeaders: ["Authorization"],
             credentials: true,
