@@ -206,6 +206,7 @@ function buildOption(carrier, rates) {
         carrier,
         service: rates.service,
         price: total,
+        published: rates.published,
         currency: rates.currency,
         sla_days: rates.slaDays,
         // campos auxiliares para debug/transparência
