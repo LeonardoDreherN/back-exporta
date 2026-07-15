@@ -143,6 +143,7 @@ app.use('/shopify', shopifyModule);
 app.use('/shopify', shopifyCarrierRoutes);
 app.use('/shopify/webhooks', shopifyWebhookRoutes);
 app.use('/api/public-quote', require('./routes/publicQuoteRoute.js'));
+app.use('/api/simulate-quote', require('./routes/simulateQuoteRoute.js'));
 app.use('/api/ups', autenticarUsuario, vincularCliente, upsRoutes);
 app.use('/api/worldease', autenticarUsuario, vincularCliente, worldeaseRoutes);
 app.use('/api/fedex', fedexRoutes);
