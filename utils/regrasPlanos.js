@@ -1,12 +1,15 @@
 // utils/regrasPlano.js
+// Comissão zerada temporariamente para todos os planos (sem markup) até
+// definirmos um mecanismo real de cobrança — clientes hoje pagam o boleto
+// da transportadora direto, então a comissão embutida aqui não é recebida.
 const regrasPorPlano = {
-    avulsos: (p) => Number((p * 1.5).toFixed(2)),
-    basico: (p) => Number((p * 1.3).toFixed(2)),
-    vinte: (p) => Number((p * 1.2).toFixed(2)),
-    gold: (p) => Number((p * 1.15).toFixed(2)),
-    premium: (p) => Number((p * 1).toFixed(2)),
-    minimo: (p) => Number((p * 1.1).toFixed(2)),
-    parceiro: (p) => Number((p + 1).toFixed(2))
+    avulsos: (p) => Number(p.toFixed(2)),
+    basico: (p) => Number(p.toFixed(2)),
+    vinte: (p) => Number(p.toFixed(2)),
+    gold: (p) => Number(p.toFixed(2)),
+    premium: (p) => Number(p.toFixed(2)),
+    minimo: (p) => Number(p.toFixed(2)),
+    parceiro: (p) => Number(p.toFixed(2))
 };
 
 function aplicarPlano(precoBase, plano = 'basico') {
