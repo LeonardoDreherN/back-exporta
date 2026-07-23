@@ -190,7 +190,9 @@ const pedidosImportados = async (req, res) => {
     const start = new Date(`${inicioSP}T00:00:00-03:00`);
     const end = new Date(`${hojeSP}T23:59:59.999-03:00`);
 
-    const dayExpr = literal(`date_trunc('day', ("createdAt" AT TIME ZONE '${tz}'))`);
+    // PedidoImport usa underscored:true (tableName 'pedidos_importados'), a coluna
+    // física é created_at, não createdAt — diferente de Cliente, que não é underscored.
+    const dayExpr = literal(`date_trunc('day', (created_at AT TIME ZONE '${tz}'))`);
 
     const rows = await db.PedidoImport.findAll({
       where: { createdAt: { [Op.between]: [start, end] } },
