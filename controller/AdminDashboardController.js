@@ -47,23 +47,20 @@ function resolveRangeSP(query, defaultDays) {
   };
 }
 
+// Cards de estado atual (não variam com o filtro de data do dashboard):
+// contagens "ao vivo" de clientes/lojas/integrações, e "envios hoje" como
+// referência fixa de calendário.
 const summary = async (req, res) => {
   try {
     const hojeStr = ymdSP(new Date());
     const startHoje = new Date(`${hojeStr}T00:00:00-03:00`);
     const endHoje = new Date(`${hojeStr}T23:59:59.999-03:00`);
 
-    const inicioMes = new Date();
-    inicioMes.setDate(1);
-    inicioMes.setHours(0, 0, 0, 0);
-
     const [
       clientesAtivos,
       lojasShopify,
       lojasNuvemshop,
       enviosHoje,
-      enviosMes,
-      etiquetasEmitidas,
       integracoesComErro,
       integrationStatuses,
       ultimasSincronizacoes,
@@ -72,8 +69,6 @@ const summary = async (req, res) => {
       db.InfoShopify.count(),
       db.InfoNuvemshop.count(),
       db.Cotacao.count({ where: { created_at: { [Op.between]: [startHoje, endHoje] } } }),
-      db.Cotacao.count({ where: { created_at: { [Op.gte]: inicioMes } } }),
-      db.Cotacao.count({ where: { etiqueta_path: { [Op.ne]: null } } }),
       db.IntegrationStatus.count({ where: { state: { [Op.ne]: 'operational' } } }),
       db.IntegrationStatus.findAll({ attributes: ['key', 'label', 'state'], raw: true }),
       db.SyncLog.findAll({
@@ -93,8 +88,6 @@ const summary = async (req, res) => {
         lojasShopify,
         lojasNuvemshop,
         enviosHoje,
-        enviosMes,
-        etiquetasEmitidas,
         apisOnline,
         totalIntegracoes: integrationStatuses.length,
         integracoesComErro,
@@ -104,6 +97,30 @@ const summary = async (req, res) => {
   } catch (err) {
     console.error('[AdminDashboard] summary erro:', err);
     return res.status(500).json({ ok: false, error: 'Erro ao carregar resumo do dashboard' });
+  }
+};
+
+// Cards que seguem o filtro de data do dashboard (envios no período,
+// etiquetas emitidas no período) — mesma janela usada pelos gráficos.
+const periodSummary = async (req, res) => {
+  try {
+    const { date_from, date_to } = req.query || {};
+    const where = {};
+    if (date_from || date_to) {
+      where.created_at = {};
+      if (date_from) where.created_at[Op.gte] = new Date(`${date_from}T00:00:00-03:00`);
+      if (date_to) where.created_at[Op.lte] = new Date(`${date_to}T23:59:59.999-03:00`);
+    }
+
+    const [enviosNoPeriodo, etiquetasEmitidas] = await Promise.all([
+      db.Cotacao.count({ where }),
+      db.Cotacao.count({ where: { ...where, etiqueta_path: { [Op.ne]: null } } }),
+    ]);
+
+    return res.json({ ok: true, data: { enviosNoPeriodo, etiquetasEmitidas } });
+  } catch (err) {
+    console.error('[AdminDashboard] periodSummary erro:', err);
+    return res.status(500).json({ ok: false, error: 'Erro ao carregar resumo do período' });
   }
 };
 
@@ -285,6 +302,7 @@ const valorPorCliente = async (req, res) => {
 
 module.exports = {
   summary,
+  periodSummary,
   enviosPorDia,
   crescimentoMensal,
   distribuicaoTransportadora,

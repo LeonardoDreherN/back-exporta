@@ -3,6 +3,7 @@ const router = express.Router();
 const ctrl = require('../controller/AdminDashboardController');
 
 router.get('/summary', ctrl.summary);
+router.get('/period-summary', ctrl.periodSummary);
 router.get('/charts/envios-por-dia', ctrl.enviosPorDia);
 router.get('/charts/crescimento-mensal', ctrl.crescimentoMensal);
 router.get('/charts/distribuicao-transportadora', ctrl.distribuicaoTransportadora);
