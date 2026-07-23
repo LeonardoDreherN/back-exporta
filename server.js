@@ -33,7 +33,6 @@ const {
 
 const {
   registrarCliente,
-  verClientes,
   loginCliente,
   verClienteAtual,
   atualizarDestinoFixo,
@@ -154,6 +153,25 @@ app.use('/api/cotacoes', autenticarUsuario, vincularCliente, require('./routes/c
 app.use('/api/relatorio', autenticarUsuario, vincularCliente, require('./routes/relatorioPagamentos.js'));
 app.use('/api/rate', require('./routes/rateMulti.js'));
 app.use('/__fedex', autenticarUsuario, require('./routes/debugFedex.js'));
+
+// Admin (staff interno da Intrex) — autenticação e API própria
+const { autenticarAdmin } = require('./middleware/adminAuth.js');
+app.use('/api/admin', require('./routes/adminAuthRoutes.js'));
+app.use('/api/admin/dashboard', autenticarAdmin, require('./routes/adminDashboardRoutes.js'));
+app.use('/api/admin/clientes', autenticarAdmin, require('./routes/adminClientesRoutes.js'));
+app.use('/api/admin/envios', autenticarAdmin, require('./routes/adminEnviosRoutes.js'));
+app.use('/api/admin/integracoes', autenticarAdmin, require('./routes/adminIntegracoesRoutes.js'));
+app.use('/api/admin/comunicados', autenticarAdmin, require('./routes/adminComunicacaoRoutes.js'));
+app.use('/api/admin/changelog', autenticarAdmin, require('./routes/adminChangelogRoutes.js'));
+app.use('/api/admin/roadmap', autenticarAdmin, require('./routes/adminRoadmapRoutes.js'));
+app.use('/api/admin/equipe', autenticarAdmin, require('./routes/adminEquipeRoutes.js'));
+app.use('/api/admin/logs', autenticarAdmin, require('./routes/adminLogsRoutes.js'));
+app.use('/api/admin/relatorios', autenticarAdmin, require('./routes/adminRelatoriosRoutes.js'));
+
+// Público — página de status e banner interno da plataforma
+app.use('/api/status', require('./routes/publicStatusRoutes.js'));
+app.use('/api/comunicados', autenticarUsuario, vincularCliente, require('./routes/comunicadosClienteRoutes.js'));
+app.use('/api/changelog', require('./routes/publicChangelogRoutes.js'));
 
 // saúde
 app.get('/health', (_, res) => res.send('ok'));
@@ -300,7 +318,6 @@ app.get('/_debug/whoami', autenticarUsuario, vincularCliente, (req, res) => {
 // clientes
 app.post('/registrarClientes', registrarCliente);
 app.post('/login', loginCliente);
-app.get('/verClientes', verClientes);
 app.get('/verClienteAtual', autenticarUsuario, verClienteAtual);
 app.put('/atualizarDestinoFixo', autenticarUsuario, vincularCliente, csrfRequired, atualizarDestinoFixo);
 app.put('/atualizarRemetenteFixo', autenticarUsuario, vincularCliente, csrfRequired, atualizarRemetenteFixo);

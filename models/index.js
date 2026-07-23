@@ -11,6 +11,14 @@ const AsaasBoletosModel = require('./AsaasBoletos.js');
 const WorldeaseMasterModel = require('./WorldeaseMaster.js');
 const InfoNuvemshopModel = require('./InfoNuvemshop.js');
 const NuvemshopShopModel = require('./NuvemshopShop.js');
+const AdminUserModel = require('./AdminUser.js');
+const AdminAuditLogModel = require('./AdminAuditLog.js');
+const SyncLogModel = require('./SyncLog.js');
+const IntegrationStatusModel = require('./IntegrationStatus.js');
+const StatusIncidentModel = require('./StatusIncident.js');
+const AnnouncementModel = require('./Announcement.js');
+const ChangelogEntryModel = require('./ChangelogEntry.js');
+const RoadmapCardModel = require('./RoadmapCard.js');
 
 require('dotenv/config');
 
@@ -45,6 +53,35 @@ const db = {
   WorldeaseMaster: WorldeaseMasterModel(sequelize),
   InfoNuvemshop: InfoNuvemshopModel(sequelize),
   NuvemshopShop: NuvemshopShopModel(sequelize),
+  AdminUser: AdminUserModel(sequelize),
+  AdminAuditLog: AdminAuditLogModel(sequelize),
+  SyncLog: SyncLogModel(sequelize),
+  IntegrationStatus: IntegrationStatusModel(sequelize),
+  StatusIncident: StatusIncidentModel(sequelize),
+  Announcement: AnnouncementModel(sequelize),
+  ChangelogEntry: ChangelogEntryModel(sequelize),
+  RoadmapCard: RoadmapCardModel(sequelize),
 };
+
+// Ativa apenas as associações necessárias para o admin (Cotacao já definia a sua,
+// mas nunca era chamada). Não fazemos um loop global porque alguns models legados
+// (ex.: Produto/Caixa) têm associações duplicadas entre si que colidem se ambas
+// forem ativadas ao mesmo tempo — preferimos não mexer nesse comportamento existente.
+const modelsWithAssociate = [
+  'Cotacao',
+  'AdminAuditLog',
+  'SyncLog',
+  'IntegrationStatus',
+  'StatusIncident',
+  'Announcement',
+  'ChangelogEntry',
+  'RoadmapCard',
+];
+
+modelsWithAssociate.forEach((name) => {
+  if (db[name] && typeof db[name].associate === 'function') {
+    db[name].associate(db);
+  }
+});
 
 module.exports = db;

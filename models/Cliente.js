@@ -51,6 +51,13 @@ module.exports = (sequelize) => {
     ups_client_secret: { type: DataTypes.STRING, allowNull: true },
     customerAsaas: { type: DataTypes.STRING, allowNull: true }, // id do customer no Asaas
 
+    status: {
+      type: DataTypes.ENUM('ativo', 'inativo', 'suspenso'),
+      allowNull: false,
+      defaultValue: 'ativo',
+    },
+    lastLoginAt: { type: DataTypes.DATE, allowNull: true },
+
     // Se true (padrão), o endereço da empresa (enderecoPais/Rua/etc.) é usado
     // para pré-preencher o remetente nas cotações e coletas. Clientes que
     // coletam em endereços variados podem desativar para digitar manualmente

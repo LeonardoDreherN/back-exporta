@@ -3,8 +3,10 @@ const router = express.Router();
 
 const { importPedidosInternal } = require('../controller/PedidoImportController');
 const db = require('../models');
+const { logSync } = require('../services/syncLog');
 
 router.post('/orders-create', async (req, res) => {
+    const start = Date.now();
     try {
         const order = req.body || {};
 
@@ -128,9 +130,23 @@ router.post('/orders-create', async (req, res) => {
             pedido_ref: numeroPedido,
         });
 
+        await logSync({
+            integration: 'shopify',
+            clienteId: info.id_cliente,
+            status: 'ok',
+            message: `Pedido ${numeroPedido} importado via webhook`,
+            durationMs: Date.now() - start,
+        });
+
         return res.status(200).send('ok');
     } catch (e) {
         console.error('[SHOPIFY WEBHOOK ERROR]', e);
+        await logSync({
+            integration: 'shopify',
+            status: 'error',
+            message: e?.message || String(e),
+            durationMs: Date.now() - start,
+        });
         return res.status(500).send('error');
     }
 });

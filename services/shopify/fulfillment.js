@@ -1,4 +1,5 @@
 const db = require('../../models');
+const { logSync } = require('../syncLog');
 
 const TRACKING_URLS = {
     UPS: (n) => `https://www.ups.com/track?tracknum=${n}`,
@@ -79,6 +80,7 @@ async function createFulfillment(shopDomain, accessToken, fulfillmentOrderIds, t
 async function autoFulfillShopifyOrder({ clienteId, pedidoRef, trackingNumber, carrier }) {
     if (!trackingNumber || !pedidoRef || !clienteId) return;
 
+    const start = Date.now();
     try {
         const pedido = await db.PedidoImport.findOne({
             where: { cliente_id: clienteId, pedido_ref: String(pedidoRef) },
@@ -135,8 +137,23 @@ async function autoFulfillShopifyOrder({ clienteId, pedidoRef, trackingNumber, c
         );
 
         console.log(`[AUTO-FULFILL] Pedido ${pedidoRef} fulfillado na Shopify:`, fulfillment?.id);
+
+        await logSync({
+            integration: 'shopify',
+            clienteId,
+            status: 'ok',
+            message: `Fulfillment automático criado para pedido ${pedidoRef}`,
+            durationMs: Date.now() - start,
+        });
     } catch (err) {
         console.error(`[AUTO-FULFILL] Falha ao fulfillr pedido ${pedidoRef}:`, err.message);
+        await logSync({
+            integration: 'shopify',
+            clienteId,
+            status: 'error',
+            message: `Falha no fulfillment automático do pedido ${pedidoRef}: ${err.message}`,
+            durationMs: Date.now() - start,
+        });
     }
 }
 

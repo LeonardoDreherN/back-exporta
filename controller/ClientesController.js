@@ -192,21 +192,6 @@ const registrarCliente = async (req, res) => {
     }
 };
 
-const verClientes = async (req, res) => {
-    try {
-        const clientes = await db.Cliente.findAll({
-            attributes: ["id", "cnpj", "emailPrincipal", "enderecoRua"] // 🚫 não retorna senha
-        });
-
-        res.json(clientes);
-    } catch (err) {
-        res.status(500).json({
-            erro: "Erro ao ver clientes",
-            detalhes: err.message,
-        });
-    }
-};
-
 const ACCESS_TOKEN = 60 * 60 * 24
 const REFRESH_TOKEN = 7 * 24 * 60 * 60
 
@@ -303,6 +288,10 @@ const loginCliente = async (req, res) => {
 
         const access = signAccess(payload);
         const refresh = signRefresh(payload);
+
+        cliente.update({ lastLoginAt: new Date() }).catch((e) => {
+            console.error('[loginCliente] falha ao atualizar lastLoginAt:', e.message);
+        });
 
         res.cookie('access_token', access, { ...cookieBase, maxAge: ACCESS_TOKEN * 1000 });
         res.cookie('refresh_token', refresh, { ...cookieBase, maxAge: REFRESH_TOKEN * 1000 });
@@ -487,7 +476,6 @@ const atualizarRemetenteFixo = async (req, res) => {
 
 module.exports = {
     registrarCliente,
-    verClientes,
     loginCliente,
     verClienteAtual,
     atualizarDestinoFixo,

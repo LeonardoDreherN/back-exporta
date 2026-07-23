@@ -2,13 +2,18 @@
 const { Cotacao, Sequelize } = require('../models');
 const { normalize } = require('../services/ups/tracking');
 const tracking = require('../services/ups/tracking'); // implemente getLatestEvent
+const { logSync } = require('../services/syncLog');
 
 async function pool() {
+    const start = Date.now();
     const { Op } = Sequelize;
     const pendentes = await Cotacao.findAll({
         where: { status_norm: { [Op.in]: ['CRIADO', 'EM_TRANSITO'] }, tracking_number: { [Op.ne]: null } },
         limit: 200,
     });
+
+    let atualizados = 0;
+    let erros = 0;
 
     for (const c of pendentes) {
         try {
@@ -26,11 +31,20 @@ async function pool() {
                     last_tracking_at: eventTime,
                     tracking_raw: evt,
                 });
+                atualizados += 1;
             }
         } catch (err) {
+            erros += 1;
             console.error('pool tracking error', c.id, err?.message || err);
         }
     }
+
+    await logSync({
+        integration: 'ups',
+        status: erros > 0 ? 'error' : 'ok',
+        message: `pollTracking: ${pendentes.length} verificadas, ${atualizados} atualizadas, ${erros} erros`,
+        durationMs: Date.now() - start,
+    });
 }
 
 module.exports = { pool };
