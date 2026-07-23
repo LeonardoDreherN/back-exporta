@@ -18,7 +18,12 @@ module.exports = (sequelize) => {
     enderecoComplemento: { type: DataTypes.STRING }, // opcional
     enderecoCidade: { type: DataTypes.STRING, allowNull: false },
     enderecoEstado: { type: DataTypes.STRING, allowNull: false },
-    cnpj: { type: DataTypes.STRING, allowNull: false, unique: true }, // único
+    cnpj: { type: DataTypes.STRING, allowNull: false, unique: true }, // único (CNPJ, CPF ou nº de registro estrangeiro, conforme tipoDocumento)
+    tipoDocumento: {
+      type: DataTypes.ENUM('cnpj', 'cpf', 'estrangeiro'),
+      allowNull: false,
+      defaultValue: 'cnpj',
+    },
     cnaePrincipal: { type: DataTypes.STRING, allowNull: true },
     telefoneCelular: { type: DataTypes.STRING, allowNull: false },
     plano: {
@@ -45,5 +50,22 @@ module.exports = (sequelize) => {
     ups_client_id: { type: DataTypes.STRING, allowNull: true },
     ups_client_secret: { type: DataTypes.STRING, allowNull: true },
     customerAsaas: { type: DataTypes.STRING, allowNull: true }, // id do customer no Asaas
+
+    // Se true (padrão), o endereço da empresa (enderecoPais/Rua/etc.) é usado
+    // para pré-preencher o remetente nas cotações e coletas. Clientes que
+    // coletam em endereços variados podem desativar para digitar manualmente
+    // a cada solicitação.
+    remetenteFixoAtivo: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+
+    // ===== ENDEREÇO FIXO DE DESTINATÁRIO =====
+    // Preenche automaticamente o destinatário nas cotações (editável), para
+    // clientes que sempre enviam para o mesmo destino no exterior.
+    destinoFixoNome: { type: DataTypes.STRING, allowNull: true },
+    destinoFixoPais: { type: DataTypes.STRING, allowNull: true },
+    destinoFixoEstado: { type: DataTypes.STRING, allowNull: true },
+    destinoFixoCidade: { type: DataTypes.STRING, allowNull: true },
+    destinoFixoRua: { type: DataTypes.STRING, allowNull: true },
+    destinoFixoCEP: { type: DataTypes.STRING, allowNull: true },
+    destinoFixoTelefone: { type: DataTypes.STRING, allowNull: true },
   });
 }

@@ -36,6 +36,8 @@ const {
   verClientes,
   loginCliente,
   verClienteAtual,
+  atualizarDestinoFixo,
+  atualizarRemetenteFixo,
 } = require('./controller/ClientesController.js');
 
 const {
@@ -300,6 +302,8 @@ app.post('/registrarClientes', registrarCliente);
 app.post('/login', loginCliente);
 app.get('/verClientes', verClientes);
 app.get('/verClienteAtual', autenticarUsuario, verClienteAtual);
+app.put('/atualizarDestinoFixo', autenticarUsuario, vincularCliente, csrfRequired, atualizarDestinoFixo);
+app.put('/atualizarRemetenteFixo', autenticarUsuario, vincularCliente, csrfRequired, atualizarRemetenteFixo);
 
 app.get('/me', autenticarUsuario, async (req, res) => {
   const u = req.usuario || req.user;

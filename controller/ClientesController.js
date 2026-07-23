@@ -4,6 +4,7 @@ const db = require("../models/index.js");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { validateCNPJ, onlyDigits } = require("../utils/cnpj.js");
+const { validateCPF } = require("../utils/cpf.js");
 const { UniqueConstraintError, ValidationError, Op } = require("sequelize");
 const { validateCNAE } = require("../utils/cnae.js");
 const { validateEmailFormat } = require("../utils/email.js");
@@ -51,29 +52,43 @@ const registrarCliente = async (req, res) => {
             return res.status(400).json({ erro: "tipoConta inválido. Use 'empresa' ou 'parceiro'." });
         }
 
-        const cleanCnpj = onlyDigits(b.cnpj);
-        const cnpjRes = await validateCNPJ(cleanCnpj, { online: undefined }); // <<< sem internet
-        if (!cnpjRes.valid) {
-            await t.rollback();
-            return res.status(400).json({ erro: "CNPJ inválido (dígitos verificadores)." });
-        }
+        const tipoDocumento = ["cnpj", "cpf", "estrangeiro"].includes(b.tipoDocumento)
+            ? b.tipoDocumento
+            : "cnpj";
 
-        let cleanCnae = null;
-        if (b.cnaePrincipal) {
-            cleanCnae = String(b.cnaePrincipal).replace(/\D/g, "");
-            if (!(cleanCnae.length === 5 || cleanCnae.length === 7)) {
+        // cnpj: empresa brasileira, valida dígito verificador + CNAE opcional.
+        // cpf: pessoa física brasileira, valida dígito verificador do CPF (sem CNAE).
+        // estrangeiro: empresa sem CNPJ; guarda o nº de registro do país de origem sem checagem.
+        if (tipoDocumento === "cnpj") {
+            const cleanCnpj = onlyDigits(b.cnpj);
+            const cnpjRes = await validateCNPJ(cleanCnpj, { online: undefined }); // <<< sem internet
+            if (!cnpjRes.valid) {
                 await t.rollback();
-                return res.status(400).json({ erro: "CNAE deve ter 5 (classe) ou 7 dígitos (subclasse)." });
+                return res.status(400).json({ erro: "CNPJ inválido (dígitos verificadores)." });
             }
 
-            const cnaeRes = await validateCNAE(cleanCnae);
-            if (!cnaeRes.valid) {
-                await t.rollback();
-                return res.status(400).json({ erro: "CNAE inválido." });
+            if (b.cnaePrincipal) {
+                const cleanCnae = String(b.cnaePrincipal).replace(/\D/g, "");
+                if (!(cleanCnae.length === 5 || cleanCnae.length === 7)) {
+                    await t.rollback();
+                    return res.status(400).json({ erro: "CNAE deve ter 5 (classe) ou 7 dígitos (subclasse)." });
+                }
+
+                const cnaeRes = await validateCNAE(cleanCnae);
+                if (!cnaeRes.valid) {
+                    await t.rollback();
+                    return res.status(400).json({ erro: "CNAE inválido." });
+                }
+                if (cnaeRes.exists === false) {
+                    await t.rollback();
+                    return res.status(400).json({ erro: "CNAE não encontrado no IBGE." });
+                }
             }
-            if (cnaeRes.exists === false) {
+        } else if (tipoDocumento === "cpf") {
+            const cpfRes = validateCPF(b.cnpj);
+            if (!cpfRes.valid) {
                 await t.rollback();
-                return res.status(400).json({ erro: "CNAE não encontrado no IBGE." });
+                return res.status(400).json({ erro: "CPF inválido (dígitos verificadores)." });
             }
         }
 
@@ -84,8 +99,13 @@ const registrarCliente = async (req, res) => {
             b.codigo ? db.Cliente.findOne({ where: { codigo: b.codigo }, transaction: t }) : Promise.resolve(null),
         ]);
 
+        const MSG_DOC_DUPLICADO = { cnpj: "CNPJ já cadastrado.", cpf: "CPF já cadastrado.", estrangeiro: "Documento já cadastrado." };
+
         if (emailJa) { await t.rollback(); return res.status(409).json({ erro: "E-mail já cadastrado." }); }
-        if (cnpjJa) { await t.rollback(); return res.status(409).json({ erro: "CNPJ já cadastrado." }); }
+        if (cnpjJa) {
+            await t.rollback();
+            return res.status(409).json({ erro: MSG_DOC_DUPLICADO[tipoDocumento] });
+        }
 
         // 3) Gera/valida 'codigo' no backend para evitar colisões
         let codigoFinal = b.codigo;
@@ -112,6 +132,7 @@ const registrarCliente = async (req, res) => {
             enderecoCidade: b.enderecoCidade,
             enderecoEstado: b.enderecoEstado,
             cnpj: b.cnpj,
+            tipoDocumento,
             cnaePrincipal: b.cnaePrincipal || null,
             telefoneCelular: b.telefoneCelular,
             plano: b.plano,
@@ -128,7 +149,16 @@ const registrarCliente = async (req, res) => {
             enderecoIOR: b.enderecoIOR || null,
             numeroIOR: b.numeroIOR || null,
             telefoneIOR: b.telefoneIOR || null,
-            state_tax_idIOR: b.state_tax_idIOR || null
+            state_tax_idIOR: b.state_tax_idIOR || null,
+
+            // ===== ENDEREÇO FIXO DE DESTINATÁRIO (opcional na criação) =====
+            destinoFixoNome: b.destinoFixoNome || null,
+            destinoFixoPais: b.destinoFixoPais || null,
+            destinoFixoEstado: b.destinoFixoEstado || null,
+            destinoFixoCidade: b.destinoFixoCidade || null,
+            destinoFixoRua: b.destinoFixoRua || null,
+            destinoFixoCEP: b.destinoFixoCEP || null,
+            destinoFixoTelefone: b.destinoFixoTelefone || null
         };
 
 
@@ -322,6 +352,7 @@ const verClienteAtual = async (req, res) => {
                 "emailPrincipal",
                 "telefoneCelular",
                 "cnpj",
+                "tipoDocumento",
                 "enderecoPais",
                 "enderecoCEP",
                 "enderecoRua",
@@ -341,7 +372,15 @@ const verClienteAtual = async (req, res) => {
                 "enderecoIOR",
                 "numeroIOR",
                 "telefoneIOR",
-                "state_tax_idIOR"
+                "state_tax_idIOR",
+                "remetenteFixoAtivo",
+                "destinoFixoNome",
+                "destinoFixoPais",
+                "destinoFixoEstado",
+                "destinoFixoCidade",
+                "destinoFixoRua",
+                "destinoFixoCEP",
+                "destinoFixoTelefone"
             ]
         });
 
@@ -351,6 +390,51 @@ const verClienteAtual = async (req, res) => {
     } catch (err) {
         console.error("Erro ao ver cliente atual:", err);
         res.status(500).json({ erro: "Erro interno do servidor", detalhes: err.message });
+    }
+};
+
+const atualizarDestinoFixo = async (req, res) => {
+    try {
+        if (!req.clienteId) return res.status(401).json({ erro: "Não autenticado" });
+
+        const cliente = await db.Cliente.findByPk(req.clienteId);
+        if (!cliente) return res.status(404).json({ erro: "Cliente não encontrado" });
+
+        const b = req.body || {};
+        const CAMPOS = [
+            "destinoFixoNome",
+            "destinoFixoPais",
+            "destinoFixoEstado",
+            "destinoFixoCidade",
+            "destinoFixoRua",
+            "destinoFixoCEP",
+            "destinoFixoTelefone",
+        ];
+
+        const updateData = {};
+        for (const campo of CAMPOS) {
+            if (typeof b[campo] === "string") {
+                updateData[campo] = b[campo].trim() || null;
+            }
+        }
+
+        await cliente.update(updateData);
+
+        return res.json({
+            mensagem: "Endereço fixo de destinatário atualizado com sucesso",
+            cliente: {
+                destinoFixoNome: cliente.destinoFixoNome,
+                destinoFixoPais: cliente.destinoFixoPais,
+                destinoFixoEstado: cliente.destinoFixoEstado,
+                destinoFixoCidade: cliente.destinoFixoCidade,
+                destinoFixoRua: cliente.destinoFixoRua,
+                destinoFixoCEP: cliente.destinoFixoCEP,
+                destinoFixoTelefone: cliente.destinoFixoTelefone,
+            },
+        });
+    } catch (err) {
+        console.error("❌ atualizarDestinoFixo:", err);
+        return res.status(500).json({ erro: "Erro ao atualizar endereço fixo de destinatário", detalhes: err.message });
     }
 };
 
@@ -378,10 +462,35 @@ async function getClienteAtual(req) {
     return cliente;
 }
 
+const atualizarRemetenteFixo = async (req, res) => {
+    try {
+        if (!req.clienteId) return res.status(401).json({ erro: "Não autenticado" });
+
+        if (typeof req.body?.remetenteFixoAtivo !== "boolean") {
+            return res.status(400).json({ erro: "Campo 'remetenteFixoAtivo' deve ser booleano." });
+        }
+
+        const cliente = await db.Cliente.findByPk(req.clienteId);
+        if (!cliente) return res.status(404).json({ erro: "Cliente não encontrado" });
+
+        await cliente.update({ remetenteFixoAtivo: req.body.remetenteFixoAtivo });
+
+        return res.json({
+            mensagem: "Preferência de remetente fixo atualizada com sucesso",
+            cliente: { remetenteFixoAtivo: cliente.remetenteFixoAtivo },
+        });
+    } catch (err) {
+        console.error("❌ atualizarRemetenteFixo:", err);
+        return res.status(500).json({ erro: "Erro ao atualizar preferência de remetente fixo", detalhes: err.message });
+    }
+};
+
 module.exports = {
     registrarCliente,
     verClientes,
     loginCliente,
     verClienteAtual,
+    atualizarDestinoFixo,
+    atualizarRemetenteFixo,
     getClienteAtual
 };
