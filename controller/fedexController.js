@@ -936,7 +936,9 @@ module.exports = {
             const recipientOverride = req.body?.recipient || req.body?.destinatario || null;
             const shipper = mapEnderecoToFedexParty(shipperOverride, mapClienteToFedexShipper(cliente));
             const recipient = mapEnderecoToFedexParty(recipientOverride, mapPedidoToFedexRecipient(pedido));
-            const soldTo = mapClienteToFedexShipperIOR(cliente);
+            const soldTo = (cliente.nomeIOR || cliente.enderecoIOR)
+                ? mapClienteToFedexShipperIOR(cliente)
+                : shipper;
             const termsOfSale =
                 req.body?.triangulacao ||
                 req.body?.termsOfSale ||
