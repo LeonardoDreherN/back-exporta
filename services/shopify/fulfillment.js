@@ -1,5 +1,6 @@
 const db = require('../../models');
 const { logSync } = require('../syncLog');
+const { getValidAccessToken } = require('./oauth');
 
 const TRACKING_URLS = {
     UPS: (n) => `https://www.ups.com/track?tracknum=${n}`,
@@ -104,22 +105,18 @@ async function autoFulfillShopifyOrder({ clienteId, pedidoRef, trackingNumber, c
             return;
         }
 
-        const shop = await db.Shop.findOne({
-            where: { shop: infoShopify.shopDomain },
-            attributes: ['accessToken'],
-            raw: true,
-        });
+        const accessToken = await getValidAccessToken(infoShopify.shopDomain);
 
-        if (!shop?.accessToken) {
+        if (!accessToken) {
             console.warn(`[AUTO-FULFILL] Loja ${infoShopify.shopDomain} sem accessToken.`);
             return;
         }
 
-        console.log(`[AUTO-FULFILL] usando shop=${infoShopify.shopDomain} token=${shop.accessToken ? shop.accessToken.slice(0,8)+'...' : 'null'}`);
+        console.log(`[AUTO-FULFILL] usando shop=${infoShopify.shopDomain} token=${accessToken.slice(0,8)}...`);
 
         const fulfillmentOrderIds = await getFulfillmentOrderIds(
             infoShopify.shopDomain,
-            shop.accessToken,
+            accessToken,
             pedido.shopify_order_id
         );
 
@@ -130,7 +127,7 @@ async function autoFulfillShopifyOrder({ clienteId, pedidoRef, trackingNumber, c
 
         const fulfillment = await createFulfillment(
             infoShopify.shopDomain,
-            shop.accessToken,
+            accessToken,
             fulfillmentOrderIds,
             trackingNumber,
             String(carrier).toUpperCase()

@@ -46,6 +46,7 @@ const express = require('express');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const db = require('../models');
+const { getValidAccessToken } = require('../services/shopify/oauth');
 const { autenticarUsuario, vincularCliente } = require('../middleware/auth');
 const { uploadOrdersMinimal } = require('../controller/pedidosMinimalController');
 const { uploadOrder } = require('../middleware/shopifyAuth');
@@ -384,13 +385,9 @@ router.post('/register-carrier', autenticarUsuario, vincularCliente, async (req,
             return res.status(400).json({ ok: false, error: 'shop é obrigatório' });
         }
 
-        const row = await db.Shop.findOne({
-            where: { shop },
-            attributes: ['shop', 'accessToken'],
-            raw: true,
-        });
+        const accessToken = await getValidAccessToken(shop);
 
-        if (!row?.accessToken) {
+        if (!accessToken) {
             return res.status(404).json({ ok: false, error: 'Loja sem token salvo' });
         }
 
@@ -425,7 +422,7 @@ router.post('/register-carrier', autenticarUsuario, vincularCliente, async (req,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Shopify-Access-Token': row.accessToken,
+                'X-Shopify-Access-Token': accessToken,
             },
             body: JSON.stringify({ query, variables }),
         });
@@ -460,13 +457,9 @@ router.post('/register-orders-webhook', autenticarUsuario, vincularCliente, asyn
             return res.status(400).json({ ok: false, error: 'shop é obrigatório' });
         }
 
-        const row = await db.Shop.findOne({
-            where: { shop },
-            attributes: ['shop', 'accessToken'],
-            raw: true,
-        });
+        const accessToken = await getValidAccessToken(shop);
 
-        if (!row?.accessToken) {
+        if (!accessToken) {
             return res.status(404).json({ ok: false, error: 'Loja sem token salvo' });
         }
 
@@ -502,7 +495,7 @@ router.post('/register-orders-webhook', autenticarUsuario, vincularCliente, asyn
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Shopify-Access-Token': row.accessToken,
+                'X-Shopify-Access-Token': accessToken,
             },
             body: JSON.stringify({ query, variables }),
         });
@@ -646,11 +639,7 @@ router.get('/app-status', autenticarUsuario, async (req, res) => {
             });
         }
 
-        const shopRow = await db.Shop.findOne({
-            where: { shop },
-            attributes: ['shop', 'accessToken'],
-            raw: true,
-        });
+        const accessToken = await getValidAccessToken(shop);
 
         const infoRow = await db.InfoShopify.findOne({
             where: { shopDomain: shop },
@@ -661,7 +650,7 @@ router.get('/app-status', autenticarUsuario, async (req, res) => {
         let hasCarrier = false;
         let hasOrdersWebhook = false;
 
-        if (shopRow?.accessToken) {
+        if (accessToken) {
             const query = `
               query AppStatusCheck {
                 deliveryCarrierServices(first: 20) {
@@ -686,7 +675,7 @@ router.get('/app-status', autenticarUsuario, async (req, res) => {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Shopify-Access-Token': shopRow.accessToken,
+                    'X-Shopify-Access-Token': accessToken,
                 },
                 body: JSON.stringify({ query }),
             });
@@ -708,7 +697,7 @@ router.get('/app-status', autenticarUsuario, async (req, res) => {
         return res.json({
             ok: true,
             shop,
-            hasToken: !!shopRow?.accessToken,
+            hasToken: !!accessToken,
             hasInfoShopify: !!infoRow?.id_cliente,
             hasCarrier,
             hasOrdersWebhook,
