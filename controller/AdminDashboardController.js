@@ -248,6 +248,121 @@ const pedidosImportados = async (req, res) => {
   }
 };
 
+// Envios por país de destino — alimenta o mapa mundial do dashboard.
+const enviosPorPais = async (req, res) => {
+  try {
+    const { date_from, date_to } = req.query || {};
+    const where = {};
+    if (date_from || date_to) {
+      where.created_at = {};
+      if (date_from) where.created_at[Op.gte] = new Date(`${date_from}T00:00:00-03:00`);
+      if (date_to) where.created_at[Op.lte] = new Date(`${date_to}T23:59:59.999-03:00`);
+    }
+
+    const rows = await db.Cotacao.findAll({
+      where,
+      attributes: ['pais_dest', [fn('COUNT', col('id')), 'total']],
+      group: ['pais_dest'],
+      raw: true,
+    });
+
+    const data = rows
+      .filter((r) => r.pais_dest)
+      .map((r) => ({ pais: String(r.pais_dest).toUpperCase(), total: Number(r.total) || 0 }));
+
+    return res.json({ ok: true, data });
+  } catch (err) {
+    console.error('[AdminDashboard] enviosPorPais erro:', err);
+    return res.status(500).json({ ok: false, error: 'Erro ao carregar envios por país' });
+  }
+};
+
+// Funil: pedidos importados -> cotações criadas -> etiquetas emitidas -> entregues.
+// É uma contagem de atividade por etapa dentro do período (cada etapa filtrada
+// pela sua própria data relevante — criação para as 3 primeiras, entrega para
+// a última), não um funil de coorte rastreando o mesmo pedido em todas as
+// etapas.
+const funilConversao = async (req, res) => {
+  try {
+    const { date_from, date_to } = req.query || {};
+
+    const wherePedido = {};
+    const whereCotacao = {};
+    const whereEntregue = { status_norm: 'ENTREGUE', delivered_at: { [Op.ne]: null } };
+
+    if (date_from || date_to) {
+      wherePedido.createdAt = {};
+      whereCotacao.created_at = {};
+      whereEntregue.delivered_at = { [Op.ne]: null };
+
+      if (date_from) {
+        const from = new Date(`${date_from}T00:00:00-03:00`);
+        wherePedido.createdAt[Op.gte] = from;
+        whereCotacao.created_at[Op.gte] = from;
+        whereEntregue.delivered_at[Op.gte] = from;
+      }
+      if (date_to) {
+        const to = new Date(`${date_to}T23:59:59.999-03:00`);
+        wherePedido.createdAt[Op.lte] = to;
+        whereCotacao.created_at[Op.lte] = to;
+        whereEntregue.delivered_at[Op.lte] = to;
+      }
+    }
+
+    const [pedidosImportados, cotacoes, etiquetas, entregues] = await Promise.all([
+      db.PedidoImport.count({ where: wherePedido }),
+      db.Cotacao.count({ where: whereCotacao }),
+      db.Cotacao.count({ where: { ...whereCotacao, etiqueta_path: { [Op.ne]: null } } }),
+      db.Cotacao.count({ where: whereEntregue }),
+    ]);
+
+    const data = [
+      { label: 'Pedidos importados', value: pedidosImportados },
+      { label: 'Cotações criadas', value: cotacoes },
+      { label: 'Etiquetas emitidas', value: etiquetas },
+      { label: 'Entregues', value: entregues },
+    ];
+
+    return res.json({ ok: true, data });
+  } catch (err) {
+    console.error('[AdminDashboard] funilConversao erro:', err);
+    return res.status(500).json({ ok: false, error: 'Erro ao carregar funil de conversão' });
+  }
+};
+
+// SLA (tempo médio de entrega, em dias) por transportadora — só cotações já
+// entregues com delivered_at preenchido.
+const slaTransportadora = async (req, res) => {
+  try {
+    const { date_from, date_to } = req.query || {};
+    const deliveredAtWhere = { [Op.ne]: null };
+    if (date_from) deliveredAtWhere[Op.gte] = new Date(`${date_from}T00:00:00-03:00`);
+    if (date_to) deliveredAtWhere[Op.lte] = new Date(`${date_to}T23:59:59.999-03:00`);
+
+    const rows = await db.Cotacao.findAll({
+      where: { status_norm: 'ENTREGUE', delivered_at: deliveredAtWhere },
+      attributes: [
+        'carrier',
+        [literal(`AVG(EXTRACT(EPOCH FROM (delivered_at - created_at)) / 86400)`), 'avgDias'],
+        [fn('COUNT', col('id')), 'total'],
+      ],
+      group: ['carrier'],
+      raw: true,
+    });
+
+    const data = rows.map((r) => ({
+      label: r.carrier || 'Não informado',
+      value: r.avgDias != null ? Math.round(Number(r.avgDias) * 10) / 10 : 0,
+      total: Number(r.total) || 0,
+    }));
+
+    return res.json({ ok: true, data });
+  } catch (err) {
+    console.error('[AdminDashboard] slaTransportadora erro:', err);
+    return res.status(500).json({ ok: false, error: 'Erro ao carregar SLA por transportadora' });
+  }
+};
+
 // Top clientes por valor enviado. preco_final é salvo em USD (mesma convenção
 // de routes/relatorioPagamentos.js) — convertemos para BRL com a cotação do
 // dólar (utils/dolar.js, cache de 1h) só para exibição; o valor "de verdade"
@@ -309,4 +424,7 @@ module.exports = {
   novosClientes,
   pedidosImportados,
   valorPorCliente,
+  enviosPorPais,
+  funilConversao,
+  slaTransportadora,
 };

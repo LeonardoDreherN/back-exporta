@@ -53,6 +53,7 @@ const {
 
 const { uploadOrder } = require('./middleware/shopifyAuth.js');
 const { pool } = require('./jobs/poolTracking.js');
+const { run: runIntegrationsHealthCheck } = require('./jobs/integrationsHealthCheck.js');
 const { valorConversao } = require('./utils/dolar.js');
 
 const nuvemshopRoutes = require('./routes/nuvemshopRoutes.js');
@@ -92,6 +93,7 @@ console.log('[FEDEX CFG][BOOT]', {
 
 // cron
 cron.schedule('*/60 * * * *', pool);
+cron.schedule('*/10 * * * *', runIntegrationsHealthCheck);
 
 // polyfill fetch (Node < 18)
 if (typeof fetch === 'undefined') {

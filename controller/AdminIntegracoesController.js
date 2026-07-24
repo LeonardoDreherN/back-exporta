@@ -24,15 +24,11 @@ const getStatus = async (req, res) => {
 
     const statuses = await db.IntegrationStatus.findAll({ order: [['key', 'ASC']] });
 
-    const dbStart = Date.now();
-    let dbOk = true;
-    try {
-      await db.sequelize.query('SELECT 1');
-    } catch {
-      dbOk = false;
-    }
-    const dbResponseMs = Date.now() - dbStart;
-
+    // O estado (operational/instability/maintenance) já é mantido em dia pelo
+    // cron jobs/integrationsHealthCheck.js (roda a cada 10min, checagem real
+    // via UPS/FedEx OAuth, ping no banco, taxa de erro recente do Shopify/
+    // Nuvemshop) — aqui só agregamos os SyncLogs para tempo de resposta e
+    // contagem de erro exibidos na tela.
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const logs = await db.SyncLog.findAll({
       where: { createdAt: { [Op.gte]: since } },
@@ -51,16 +47,14 @@ const getStatus = async (req, res) => {
 
     const data = statuses.map((s) => {
       const agg = byIntegration[s.key] || { errors: 0, total: 0, durations: [], lastSync: null };
-      const responseTimeMs = s.key === 'database'
-        ? dbResponseMs
-        : agg.durations.length
-          ? Math.round(agg.durations.reduce((a, b) => a + b, 0) / agg.durations.length)
-          : null;
+      const responseTimeMs = agg.durations.length
+        ? Math.round(agg.durations.reduce((a, b) => a + b, 0) / agg.durations.length)
+        : null;
 
       return {
         key: s.key,
         label: s.label,
-        state: s.key === 'database' && !dbOk ? 'instability' : s.state,
+        state: s.state,
         message: s.message,
         responseTimeMs,
         lastSync: agg.lastSync,

@@ -10,5 +10,8 @@ router.get('/charts/distribuicao-transportadora', ctrl.distribuicaoTransportador
 router.get('/charts/novos-clientes', ctrl.novosClientes);
 router.get('/charts/pedidos-importados', ctrl.pedidosImportados);
 router.get('/charts/valor-por-cliente', ctrl.valorPorCliente);
+router.get('/charts/envios-por-pais', ctrl.enviosPorPais);
+router.get('/charts/funil-conversao', ctrl.funilConversao);
+router.get('/charts/sla-transportadora', ctrl.slaTransportadora);
 
 module.exports = router;
