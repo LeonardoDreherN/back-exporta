@@ -13,5 +13,7 @@ router.get('/charts/valor-por-cliente', ctrl.valorPorCliente);
 router.get('/charts/envios-por-pais', ctrl.enviosPorPais);
 router.get('/charts/funil-conversao', ctrl.funilConversao);
 router.get('/charts/sla-transportadora', ctrl.slaTransportadora);
+router.get('/primeira-atividade', ctrl.primeiraAtividade);
+router.get('/eventos-recentes', ctrl.eventosRecentes);
 
 module.exports = router;

@@ -415,6 +415,108 @@ const valorPorCliente = async (req, res) => {
   }
 };
 
+// Data da primeira atividade real (cotação ou pedido importado) — usado pela
+// Máquina do Tempo pra saber a partir de onde começar a linha do tempo.
+const primeiraAtividade = async (req, res) => {
+  try {
+    const [primeiraCotacao, primeiroPedido] = await Promise.all([
+      db.Cotacao.min('created_at'),
+      db.PedidoImport.min('createdAt'),
+    ]);
+
+    const datas = [primeiraCotacao, primeiroPedido].filter(Boolean).map((d) => new Date(d));
+    const primeira = datas.length
+      ? new Date(Math.min(...datas.map((d) => d.getTime())))
+      : new Date();
+
+    return res.json({ ok: true, data: { primeiraAtividade: primeira.toISOString() } });
+  } catch (err) {
+    console.error('[AdminDashboard] primeiraAtividade erro:', err);
+    return res.status(500).json({ ok: false, error: 'Erro ao carregar primeira atividade' });
+  }
+};
+
+// Feed de eventos recentes (pedidos importados, etiquetas emitidas, falhas de
+// sincronização) desde ?since=<ISO>. Alimenta o ticker ao vivo da Sala de Operações.
+const eventosRecentes = async (req, res) => {
+  try {
+    const since = req.query.since ? new Date(req.query.since) : new Date(Date.now() - 10 * 60 * 1000);
+
+    const [pedidos, cotacoes, syncErros] = await Promise.all([
+      db.PedidoImport.findAll({
+        where: { createdAt: { [Op.gt]: since } },
+        attributes: ['id', 'cliente_id', 'pais', 'createdAt'],
+        order: [['createdAt', 'DESC']],
+        limit: 20,
+        raw: true,
+      }),
+      db.Cotacao.findAll({
+        where: { created_at: { [Op.gt]: since }, etiqueta_path: { [Op.ne]: null } },
+        attributes: ['id', 'cliente_id', 'pais_dest', 'preco_final', 'carrier', 'created_at'],
+        order: [['created_at', 'DESC']],
+        limit: 20,
+        raw: true,
+      }),
+      db.SyncLog.findAll({
+        where: { createdAt: { [Op.gt]: since }, status: 'error' },
+        attributes: ['id', 'integration', 'message', 'createdAt'],
+        order: [['createdAt', 'DESC']],
+        limit: 10,
+        raw: true,
+      }),
+    ]);
+
+    const clienteIds = [...new Set([...pedidos.map((p) => p.cliente_id), ...cotacoes.map((c) => c.cliente_id)])];
+    const clientes = clienteIds.length
+      ? await db.Cliente.findAll({ where: { id: clienteIds }, attributes: ['id', 'razaoSocial'], raw: true })
+      : [];
+    const clienteMap = Object.fromEntries(clientes.map((c) => [c.id, c.razaoSocial]));
+
+    let dolar = null;
+    if (cotacoes.length) {
+      try {
+        dolar = await valorConversao();
+      } catch (e) {
+        console.warn('[AdminDashboard] eventosRecentes: falha ao obter cotação do dólar:', e.message);
+      }
+    }
+
+    const eventos = [
+      ...pedidos.map((p) => ({
+        id: `pedido-${p.id}`,
+        type: 'pedido_importado',
+        titulo: 'Novo pedido importado',
+        detalhe: `${clienteMap[p.cliente_id] || 'Cliente'} · ${p.pais || 'país não informado'}`,
+        createdAt: p.createdAt,
+      })),
+      ...cotacoes.map((c) => {
+        const totalUsd = c.preco_final != null ? Number(c.preco_final) : null;
+        return {
+          id: `etiqueta-${c.id}`,
+          type: 'etiqueta_emitida',
+          titulo: 'Etiqueta emitida',
+          detalhe: `${clienteMap[c.cliente_id] || 'Cliente'} · ${c.pais_dest || '—'} · ${c.carrier || ''}`,
+          valorUsd: totalUsd,
+          valorBrl: dolar && totalUsd != null ? Math.round(totalUsd * dolar * 100) / 100 : null,
+          createdAt: c.created_at,
+        };
+      }),
+      ...syncErros.map((s) => ({
+        id: `sync-${s.id}`,
+        type: 'sync_error',
+        titulo: `Falha em ${s.integration}`,
+        detalhe: s.message || '',
+        createdAt: s.createdAt,
+      })),
+    ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return res.json({ ok: true, data: eventos, serverTime: new Date().toISOString() });
+  } catch (err) {
+    console.error('[AdminDashboard] eventosRecentes erro:', err);
+    return res.status(500).json({ ok: false, error: 'Erro ao carregar eventos recentes' });
+  }
+};
+
 module.exports = {
   summary,
   periodSummary,
@@ -427,4 +529,6 @@ module.exports = {
   enviosPorPais,
   funilConversao,
   slaTransportadora,
+  primeiraAtividade,
+  eventosRecentes,
 };
