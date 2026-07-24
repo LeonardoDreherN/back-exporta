@@ -195,7 +195,11 @@ function mapEnderecoToFedexParty(raw, fallback) {
     const baseStreetLines = Array.isArray(address.streetLines) ? address.streetLines : [];
     const fallbackLine1 = baseStreetLines[0] || '';
     const fallbackLine2 = baseStreetLines[1] || '';
-    const streetLines = buildFedexStreetLines(line1 || fallbackLine1, line2 || fallbackLine2);
+    // Se veio uma rua digitada no formulário, ela vale sozinha (não completa com
+    // o complemento antigo cadastrado no cliente, que não tem campo equivalente no form).
+    const streetLines = rua
+        ? buildFedexStreetLines(line1, line2)
+        : buildFedexStreetLines(fallbackLine1, fallbackLine2);
     if (streetLines.length) address.streetLines = streetLines;
 
     const city = firstNonEmpty(raw.cidade, raw.city);
