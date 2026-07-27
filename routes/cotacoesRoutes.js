@@ -4,10 +4,11 @@ const router = express.Router();
 
 const db = require('../models');
 const { sequelize } = db;
-const { Cliente, PlanoLogs } = db;
+const { Cliente, PlanoLogs, Cotacao } = db;
 
 const ctrl = require('../controller/CotacaoController'); // ← caminho atual
 const { agendarPickupCotacao } = require('../services/ups/cotacaoUps');
+const { agendarPickupCotacaoFedex } = require('../services/fedex/cotacaoFedex');
 
 function requireAuth(req, res, next) {
     const cid = req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId;
@@ -38,7 +39,20 @@ router.get('/:id/etiqueta', requireAuth, ctrl.downloadEtiqueta);
 router.get('/:id/invoice', requireAuth, ctrl.downloadInvoice);
 router.get('/:id/remetente', requireAuth, ctrl.getCotacaoRemetente);
 
-router.post('/:id/pickup', requireAuth, agendarPickupCotacao)
+async function agendarPickupCotacaoDispatch(req, res) {
+    const cotacaoId = Number(req.params.id || req.body.cotacaoId);
+    if (!cotacaoId) return res.status(400).json({ ok: false, error: 'cotacaoId inválido.' });
+
+    const cotacao = await Cotacao.findByPk(cotacaoId, { attributes: ['id', 'carrier'] });
+    if (!cotacao) return res.status(404).json({ ok: false, error: 'Cotação não encontrada.' });
+
+    if (cotacao.carrier === 'FEDEX') return agendarPickupCotacaoFedex(req, res);
+    if (cotacao.carrier === 'UPS') return agendarPickupCotacao(req, res);
+
+    return res.status(400).json({ ok: false, error: 'Transportadora não suportada para agendamento de coleta.' });
+}
+
+router.post('/:id/pickup', requireAuth, agendarPickupCotacaoDispatch)
 
 router.delete('/:id', requireAuth, ctrl.deleteCotacao)
 router.delete('/:id/deletar', requireAuth, ctrl.deleteCotacao)

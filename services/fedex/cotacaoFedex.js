@@ -225,7 +225,183 @@ async function prepararCotacaoFedex({ req, rate_payload, preco_base, freightValu
 
 }
 
-module.exports = { prepararCotacaoFedex, extractFedexBreakdown };
+// ===== Agendamento de coleta FedEx vinculado a uma cotação específica =====
+const { Cotacao, Cliente, sequelize } = require('../../models');
+const { iso2Country, normalizeTimeToHHMM } = require('../cotacoesHelpers');
+const { createPickup } = require('./pickupFedex');
+const fedexCfg = require('../../config/fedex');
+
+function getItensTotalKgFromCotacao(cotacao) {
+    const pedido = cotacao?.pedido || {};
+    const manual = Number(pedido?.peso_total_kg);
+    if (manual > 0) return manual;
+
+    const itens = Array.isArray(pedido?.itens) ? pedido.itens : [];
+    return itens.reduce((acc, it) => {
+        const candidates = [
+            it.peso_kg,
+            it.weightKg,
+            it.grams != null ? Number(it.grams) / 1000 : undefined,
+            it.peso,
+            it.pesoBruto,
+        ];
+        const unitKg =
+            (candidates.map((v) => Number(v || 0)).find((v) => v > 0)) || 0;
+        const qty = Number(it.qty || it.quantidade || 1) || 1;
+        return acc + qty * unitKg;
+    }, 0);
+}
+
+function toHHMMWithColon(hhmm) {
+    return `${hhmm.slice(0, 2)}:${hhmm.slice(2, 4)}`;
+}
+
+async function agendarPickupCotacaoFedex(req, res) {
+    const t = await sequelize.transaction();
+    try {
+        const cotacaoId = Number(req.params.id || req.body.cotacaoId);
+        if (!cotacaoId) {
+            await t.rollback();
+            return res.status(400).json({ ok: false, error: "cotacaoId inválido." });
+        }
+
+        const { pickupDate, readyTime, closeTime, readyDateTimestamp } = req.body || {};
+
+        if (!pickupDate) {
+            await t.rollback();
+            return res.status(400).json({ ok: false, error: "pickupDate é obrigatório." });
+        }
+        if (!readyDateTimestamp) {
+            await t.rollback();
+            return res.status(400).json({ ok: false, error: "readyDateTimestamp é obrigatório." });
+        }
+
+        const cotacao = await Cotacao.findByPk(cotacaoId, { transaction: t });
+        if (!cotacao) {
+            await t.rollback();
+            return res.status(404).json({ ok: false, error: "Cotação não encontrada." });
+        }
+
+        if (cotacao.carrier !== "FEDEX") {
+            await t.rollback();
+            return res.status(400).json({
+                ok: false,
+                error: "Agendamento de coleta disponível apenas para FedEx neste fluxo.",
+            });
+        }
+
+        const cliente = await Cliente.findByPk(cotacao.cliente_id, { transaction: t });
+        if (!cliente) {
+            await t.rollback();
+            return res.status(404).json({ ok: false, error: "Cliente da cotação não encontrado." });
+        }
+
+        const remetente = {
+            nome: cliente.razaoSocial || cliente.nomeFantasia || "Remetente",
+            telefone: cliente.telefoneCelular || cliente.telefone || "",
+            rua: cliente.enderecoRua || "",
+            numero: cliente.enderecoNumero || "",
+            cidade: cliente.enderecoCidade || "",
+            estado: cliente.enderecoEstado || "",
+            cep: cliente.enderecoCEP || "",
+            pais: iso2Country(cliente.enderecoPais || "BR"),
+        };
+
+        const okRemetente =
+            remetente.nome && remetente.rua && remetente.cidade &&
+            remetente.estado && remetente.cep && remetente.pais;
+
+        if (!okRemetente) {
+            await t.rollback();
+            return res.status(400).json({
+                ok: false,
+                error: "Cadastro do remetente incompleto para agendar coleta.",
+            });
+        }
+
+        const ready = normalizeTimeToHHMM(readyTime);
+        const close = normalizeTimeToHHMM(closeTime);
+
+        if (ready >= close) {
+            await t.rollback();
+            return res.status(400).json({
+                ok: false,
+                error: "O horário inicial deve ser menor que o horário final.",
+            });
+        }
+
+        const totalKg = getItensTotalKgFromCotacao(cotacao);
+        if (!totalKg || totalKg <= 0) {
+            await t.rollback();
+            return res.status(400).json({
+                ok: false,
+                error: "Peso total dos itens não encontrado para o pickup.",
+            });
+        }
+
+        const streetLine = [remetente.rua, remetente.numero].filter(Boolean).join(", ");
+        const closeHHMM = toHHMMWithColon(close);
+        const readyHHMM = toHHMMWithColon(ready);
+
+        const payload = {
+            associatedAccountNumber: { value: fedexCfg.accountNumber || "" },
+            originDetail: {
+                pickupLocation: {
+                    contact: {
+                        personName: remetente.nome,
+                        phoneNumber: remetente.telefone,
+                    },
+                    address: {
+                        streetLines: [streetLine],
+                        city: remetente.cidade,
+                        stateOrProvinceCode: remetente.estado,
+                        postalCode: remetente.cep,
+                        countryCode: remetente.pais,
+                    },
+                },
+                packageLocation: "FRONT",
+                readyDateTimestamp,
+                customerCloseTime: closeHHMM,
+                pickupDateType: closeHHMM > readyHHMM ? "SAME_DAY" : "FUTURE_DAY",
+            },
+            totalPackageCount: 1,
+            totalWeight: { units: "KG", value: totalKg },
+            carrierCode: "FDXE",
+        };
+
+        const data = await createPickup(payload, {
+            idempotencyKey: req.headers["x-idempotency-key"] || null,
+        });
+
+        await cotacao.update(
+            {
+                data_coleta: String(pickupDate).replace(/-/g, ""),
+                ready_hora: ready,
+                close_hora: close,
+            },
+            { transaction: t }
+        );
+
+        await t.commit();
+        return res.json({ ok: true, cotacao_id: cotacao.id, pickup: data });
+    } catch (err) {
+        try {
+            await t.rollback();
+        } catch (e2) {
+            console.error("[COTACAO][PICKUP][FEDEX][ROLLBACK_ERROR]", e2?.message);
+        }
+
+        console.error("[COTACAO][PICKUP][FEDEX][ERROR]", err?.message);
+
+        return res.status(err.status || 500).json({
+            ok: false,
+            error: err.message || "Falha ao agendar pickup na FedEx.",
+            raw: err.upstream || null,
+        });
+    }
+}
+
+module.exports = { prepararCotacaoFedex, extractFedexBreakdown, agendarPickupCotacaoFedex };
 
 
 
