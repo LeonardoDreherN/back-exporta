@@ -152,6 +152,7 @@ app.use('/api/fedex', fedexRoutes);
 app.use('/api/shipments', shipmentsRoutes);
 app.use('/dashboard', autenticarUsuario, vincularCliente, dashboardModule);
 app.use('/api/cotacoes', autenticarUsuario, vincularCliente, require('./routes/cotacoesRoutes.js'));
+app.use('/api/coletas', autenticarUsuario, vincularCliente, require('./routes/coletasRoutes.js'));
 app.use('/api/relatorio', autenticarUsuario, vincularCliente, require('./routes/relatorioPagamentos.js'));
 app.use('/api/rate', require('./routes/rateMulti.js'));
 app.use('/__fedex', autenticarUsuario, require('./routes/debugFedex.js'));

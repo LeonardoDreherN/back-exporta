@@ -1074,6 +1074,33 @@ module.exports = {
                 idempotencyKey: req.headers['x-idempotency-key'] || null
             });
 
+            try {
+                const cliente = await getClienteAtual(req);
+                const origin = payload?.originDetail || {};
+                const location = origin?.pickupLocation || {};
+                const address = location?.address || {};
+                const readyDateTimestamp = String(origin?.readyDateTimestamp || '');
+
+                await db.ColetaAgendada.create({
+                    cliente_id: cliente.id,
+                    carrier: 'FEDEX',
+                    pickup_date: readyDateTimestamp ? readyDateTimestamp.slice(0, 10) : null,
+                    ready_time: readyDateTimestamp ? readyDateTimestamp.slice(11, 16) : null,
+                    close_time: origin?.customerCloseTime || null,
+                    rua: Array.isArray(address?.streetLines) ? address.streetLines.join(', ') : null,
+                    cidade: address?.city || null,
+                    estado: address?.stateOrProvinceCode || null,
+                    cep: address?.postalCode || null,
+                    pais: address?.countryCode || null,
+                    contact_name: location?.contact?.personName || null,
+                    phone: location?.contact?.phoneNumber || null,
+                    confirmation_number: data?.output?.pickupConfirmationCode || data?.pickupConfirmationCode || null,
+                    raw_response: data || null,
+                });
+            } catch (errSave) {
+                console.error('[FEDEX/PICKUP] Falha ao salvar coleta agendada', errSave?.message);
+            }
+
             return res.json({ ok: true, raw: data });
         } catch (err) {
             return res.status(err.status || 500).json({

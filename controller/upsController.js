@@ -1158,6 +1158,33 @@ console.log('[UPS SHIP] billing account payload:', upsReq?.ShipmentRequest?.Ship
 
         const result = await createPickup(payload);
 
+        try {
+            const body = req.body || {};
+            const cliente = await getClienteFromRequest(req);
+            if (cliente) {
+                await db.ColetaAgendada.create({
+                    cliente_id: cliente.id,
+                    carrier: 'UPS',
+                    pickup_date: body.pickupDate || null,
+                    ready_time: body.readyTime || null,
+                    close_time: body.closeTime || null,
+                    rua: body.addressLine1 || null,
+                    cidade: body.city || null,
+                    estado: body.stateCode || null,
+                    cep: body.postalCode || null,
+                    pais: body.countryCode || null,
+                    contact_name: body.contactName || null,
+                    phone: body.phone || null,
+                    confirmation_number: result?.PickupCreationResponse?.PickupNumber || null,
+                    raw_response: result || null,
+                });
+            } else {
+                console.warn('[UPS/PICKUP] Cliente não identificado; coleta não foi salva no histórico.');
+            }
+        } catch (errSave) {
+            console.error('[UPS/PICKUP] Falha ao salvar coleta agendada', errSave?.message);
+        }
+
         return res.status(200).json({
             ok: true,
             message: 'Coleta UPS agendada com sucesso',

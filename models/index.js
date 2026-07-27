@@ -19,6 +19,7 @@ const StatusIncidentModel = require('./StatusIncident.js');
 const AnnouncementModel = require('./Announcement.js');
 const ChangelogEntryModel = require('./ChangelogEntry.js');
 const RoadmapCardModel = require('./RoadmapCard.js');
+const ColetaAgendadaModel = require('./ColetaAgendada.js');
 
 require('dotenv/config');
 
@@ -61,6 +62,7 @@ const db = {
   Announcement: AnnouncementModel(sequelize),
   ChangelogEntry: ChangelogEntryModel(sequelize),
   RoadmapCard: RoadmapCardModel(sequelize),
+  ColetaAgendada: ColetaAgendadaModel(sequelize),
 };
 
 // Ativa apenas as associações necessárias para o admin (Cotacao já definia a sua,
@@ -76,6 +78,7 @@ const modelsWithAssociate = [
   'Announcement',
   'ChangelogEntry',
   'RoadmapCard',
+  'ColetaAgendada',
 ];
 
 modelsWithAssociate.forEach((name) => {
