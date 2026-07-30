@@ -32,20 +32,32 @@ function toInt(v) {
 function normRef(v) {
     return String(v || '').trim();
 }
+function sanitizeForStorageKey(value) {
+    return String(value ?? '')
+        .normalize('NFD').replace(/[̀-ͯ]/g, '') // remove acentos
+        .replace(/[^a-zA-Z0-9._-]+/g, '_') // qualquer coisa fora do permitido pelo Supabase Storage vira _
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '');
+}
+
 function guessLabelFilename(mime = '', pedido_ref, nomeCliente) {
-    if (mime === 'image/png') return `${pedido_ref}-ET-${nomeCliente}.png`;
-    if (mime === 'image/gif') return `${pedido_ref}-ET-${nomeCliente}.gif`;
-    if (mime === 'text/plain') return `${pedido_ref}-ET-${nomeCliente}.zpl`;
-    if (mime === 'application/pdf') return `${pedido_ref}-ET-${nomeCliente}.pdf`;
-    return `${pedido_ref}-ET-${nomeCliente}.bin`;
+    const ref = sanitizeForStorageKey(pedido_ref) || 'pedido';
+    const nome = sanitizeForStorageKey(nomeCliente) || 'cliente';
+    if (mime === 'image/png') return `${ref}-ET-${nome}.png`;
+    if (mime === 'image/gif') return `${ref}-ET-${nome}.gif`;
+    if (mime === 'text/plain') return `${ref}-ET-${nome}.zpl`;
+    if (mime === 'application/pdf') return `${ref}-ET-${nome}.pdf`;
+    return `${ref}-ET-${nome}.bin`;
 }
 
 function guessInvoiceFilename(mime = '', pedido_ref, nomeCliente) {
-    if (mime === 'image/png') return `${pedido_ref}-IN-${nomeCliente}.png`;
-    if (mime === 'image/gif') return `${pedido_ref}-IN-${nomeCliente}.gif`;
-    if (mime === 'text/plain') return `${pedido_ref}-IN-${nomeCliente}.zpl`;
-    if (mime === 'application/pdf') return `${pedido_ref}-IN-${nomeCliente}.pdf`;
-    return `${pedido_ref}-IN-${nomeCliente}.bin`;
+    const ref = sanitizeForStorageKey(pedido_ref) || 'pedido';
+    const nome = sanitizeForStorageKey(nomeCliente) || 'cliente';
+    if (mime === 'image/png') return `${ref}-IN-${nome}.png`;
+    if (mime === 'image/gif') return `${ref}-IN-${nome}.gif`;
+    if (mime === 'text/plain') return `${ref}-IN-${nome}.zpl`;
+    if (mime === 'application/pdf') return `${ref}-IN-${nome}.pdf`;
+    return `${ref}-IN-${nome}.bin`;
 }
 
 async function downloadFromBucket(bucket, path) {
@@ -120,8 +132,16 @@ async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'image/png') {
 
 async function salvarInvoiceNaStorage(cotacaoId, base64, mime = 'application/pdf') {
     try {
+        const cotacao = await db.Cotacao.findOne({
+            where: { id: cotacaoId },
+        })
+        const nomeCliente = await db.Cliente.findOne({
+            where: { id: cotacao?.cliente_id },
+            attributes: ['razaoSocial'],
+        })
+        const razaoSocial = nomeCliente?.razaoSocial || 'cliente';
         const buf = Buffer.from(base64, 'base64');
-        const ext = guessLabelFilename(mime)
+        const ext = guessInvoiceFilename(mime, cotacao?.pedido_ref, razaoSocial)
         const path = `cotacoes/${cotacaoId}/invoice-${Date.now()}.${ext}`;
 
         const { error } = await supabase

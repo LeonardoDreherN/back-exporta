@@ -726,11 +726,11 @@ function extractFedexShipmentDocs(data = {}) {
             const docs = p.packageDocuments || p.packageDocument || [];
             const arrDocs = Array.isArray(docs) ? docs : [docs];
             for (const d of arrDocs) {
-                const t = (d.type || d.docType || '').toUpperCase();
+                const t = (d.contentType || d.type || d.docType || '').toUpperCase();
                 if (t.includes('LABEL')) {
                     if (d.url) {
                         labelUrl = d.url;
-                        labelType = d.imageType || d.imageFormat || 'PDF';
+                        labelType = d.imageType || d.imageFormat || d.docType || 'PDF';
                         break;
                     }
                 }
@@ -1010,12 +1010,14 @@ module.exports = {
                             await row.update(patch);
                         }
 
-                        // label e invoice via URL (FedEx retorna URL, não base64)
+                        // label e invoice via URL (FedEx retorna URL, não base64) -> baixa antes de salvar
                         if (labelUrl) {
-                            await salvarEtiquetaNaStorage(row.id, labelUrl, 'application/pdf');
+                            const labelB64 = await fetchUrlAsBase64(labelUrl);
+                            if (labelB64) await salvarEtiquetaNaStorage(row.id, labelB64, 'application/pdf');
                         }
                         if (invoiceUrl) {
-                            await salvarInvoiceNaStorage(row.id, invoiceUrl, 'application/pdf');
+                            const invoiceB64 = await fetchUrlAsBase64(invoiceUrl);
+                            if (invoiceB64) await salvarInvoiceNaStorage(row.id, invoiceB64, 'application/pdf');
                         }
 
                         // ===== AUTO-FULFILL SHOPIFY =====
