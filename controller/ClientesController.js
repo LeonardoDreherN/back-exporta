@@ -427,6 +427,58 @@ const atualizarDestinoFixo = async (req, res) => {
     }
 };
 
+const atualizarEnderecoEmpresa = async (req, res) => {
+    try {
+        if (!req.clienteId) return res.status(401).json({ erro: "Não autenticado" });
+
+        const cliente = await db.Cliente.findByPk(req.clienteId);
+        if (!cliente) return res.status(404).json({ erro: "Cliente não encontrado" });
+
+        const b = req.body || {};
+        const CAMPOS_OBRIGATORIOS = [
+            "enderecoPais",
+            "enderecoCEP",
+            "enderecoRua",
+            "enderecoNumero",
+            "enderecoCidade",
+            "enderecoEstado",
+            "telefoneCelular",
+        ];
+
+        const missing = CAMPOS_OBRIGATORIOS.filter((campo) => !String(b[campo] ?? "").trim());
+        if (missing.length) {
+            return res.status(400).json({ erro: `Campos obrigatórios ausentes: ${missing.join(", ")}` });
+        }
+
+        const updateData = {};
+        for (const campo of CAMPOS_OBRIGATORIOS) {
+            updateData[campo] = String(b[campo]).trim();
+        }
+        if (typeof b.enderecoComplemento === "string") {
+            updateData.enderecoComplemento = b.enderecoComplemento.trim() || null;
+        }
+
+        await cliente.update(updateData);
+
+        return res.json({
+            mensagem: "Endereço e telefone da empresa atualizados com sucesso",
+            cliente: {
+                enderecoPais: cliente.enderecoPais,
+                enderecoCEP: cliente.enderecoCEP,
+                enderecoRua: cliente.enderecoRua,
+                enderecoNumero: cliente.enderecoNumero,
+                enderecoComplemento: cliente.enderecoComplemento,
+                enderecoCidade: cliente.enderecoCidade,
+                enderecoEstado: cliente.enderecoEstado,
+                telefoneCelular: cliente.telefoneCelular,
+            },
+        });
+    } catch (err) {
+        console.error("❌ atualizarEnderecoEmpresa:", err);
+        return res.status(500).json({ erro: "Erro ao atualizar endereço/telefone da empresa", detalhes: err.message });
+    }
+};
+
 async function getClienteAtual(req) {
     const clienteId =
         req?.user?.clienteId ||
@@ -480,5 +532,6 @@ module.exports = {
     verClienteAtual,
     atualizarDestinoFixo,
     atualizarRemetenteFixo,
+    atualizarEnderecoEmpresa,
     getClienteAtual
 };
