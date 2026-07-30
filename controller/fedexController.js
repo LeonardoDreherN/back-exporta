@@ -166,6 +166,14 @@ function cleanPostal(countryCode, value) {
     return raw.replace(/\s+/g, '');
 }
 
+function sanitizePhoneForFedex(value) {
+    let digits = String(value || '').replace(/\D/g, '');
+    if (digits.length > 11 && digits.startsWith('55')) {
+        digits = digits.slice(2); // remove código do país (BR) que o FedEx não espera
+    }
+    return digits;
+}
+
 function mapEnderecoToFedexParty(raw, fallback) {
     if (!raw || typeof raw !== 'object') return fallback;
     if (raw.contact && raw.address) return raw;
@@ -184,7 +192,7 @@ function mapEnderecoToFedexParty(raw, fallback) {
         if (!company) contact.companyName = name;
     }
     if (company) contact.companyName = company;
-    if (phone) contact.phoneNumber = phone;
+    if (phone) contact.phoneNumber = sanitizePhoneForFedex(phone);
     if (email) contact.emailAddress = email;
 
     const rua = firstNonEmpty(raw.rua, raw.street, raw.address1);
@@ -361,7 +369,7 @@ function mapClienteToFedexShipper(cliente) {
         contact: {
             personName: cliente.razaoSocial || cliente.nomeFantasia || 'Shipper',
             companyName: cliente.razaoSocial || cliente.nomeFantasia || 'Shipper Company',
-            phoneNumber: String(cliente.telefoneCelular || cliente.telefone || '11999999999'),
+            phoneNumber: sanitizePhoneForFedex(cliente.telefoneCelular || cliente.telefone || '11999999999'),
             emailAddress: cliente.emailPrincipal || cliente.email || ''
         },
         address: {
@@ -390,7 +398,7 @@ function mapClienteToFedexShipperIOR(cliente) {
         contact: {
             personName: cliente.nomeIOR || 'Shipper',
             companyName: cliente.nomeIOR || 'Shipper Company',
-            phoneNumber: String(cliente.telefoneIOR || '11999999999'),
+            phoneNumber: sanitizePhoneForFedex(cliente.telefoneIOR || '11999999999'),
             emailAddress: cliente.emailIOR || ''
         },
         address: {
@@ -431,7 +439,7 @@ function mapPedidoToFedexRecipient(pedido) {
         contact: {
             personName: dest.nome || dest.name || pedido.nomeComprador || 'Recipient',
             companyName: dest.empresa || dest.company || 'Recipient Company',
-            phoneNumber: String(dest.telefone || dest.phone || pedido.telefoneComprador || '17865994231'),
+            phoneNumber: sanitizePhoneForFedex(dest.telefone || dest.phone || pedido.telefoneComprador || '17865994231'),
             emailAddress: dest.email || pedido.emailComprador || undefined,
         },
         address: {
