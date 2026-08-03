@@ -23,13 +23,19 @@ const ColetaAgendadaModel = require('./ColetaAgendada.js');
 
 require('dotenv/config');
 
+// Força o pooler do Supabase em transaction mode (porta 6543): em session
+// mode (5432) cada instância prende uma conexão real do Postgres, e o
+// projeto tem só 15 vagas — com várias instâncias Node rodando ao mesmo
+// tempo isso estourava (EMAXCONNSESSION). Transaction mode multiplexa.
+const dbUrl = new URL(process.env.SUPABASE_DB_URL);
+dbUrl.port = process.env.DB_PORT || '6543';
+
 const sequelize = new Sequelize(
-  process.env.SUPABASE_DB_URL,
+  dbUrl.toString(),
   {
     dialect: 'postgres',
     logging: false,
     pool: { min: 0, max: 5, idle: 10000, acquire: 30000 },
-    port: Number(process.env.DB_PORT) || 5432,
     dialectOptions: {
       ssl: {
         require: true,
