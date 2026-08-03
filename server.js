@@ -429,22 +429,30 @@ app.use((_req, res) => res.status(404).json({ error: 'Not Found' }));
 app.use(errorHandler);
 
 // start
-db.sequelize.sync()
-  .then(async () => {
-    await db.sequelize.query(
-      'ALTER TABLE pedidos_importados ADD COLUMN IF NOT EXISTS shopify_order_id BIGINT'
-    );
-    console.log('Banco sincronizado:', PORT);
-    app.listen(PORT, () => {
-      console.log(`Servidor rodando na porta ${PORT}`);
-    });
-  })
-  .catch((err) => {
+async function start() {
+  try {
+    await db.sequelize.sync();
+  } catch (err) {
     if (err.parent?.code === '42P07') {
+      // índice/relação já existe (comum quando outra instância venceu a
+      // corrida do sync contra o mesmo banco) — seguro para continuar.
       console.warn('Índice caixas_cliente_cod_uq já existia, seguindo mesmo assim.');
     } else {
-      console.error('Erro ao sincronizar com o banco:', err);
+      console.error('Erro ao sincronizar com o banco, encerrando processo:', err);
+      process.exit(1);
     }
+  }
+
+  await db.sequelize.query(
+    'ALTER TABLE pedidos_importados ADD COLUMN IF NOT EXISTS shopify_order_id BIGINT'
+  );
+
+  console.log('Banco sincronizado:', PORT);
+  app.listen(PORT, () => {
+    console.log(`Servidor rodando na porta ${PORT}`);
   });
+}
+
+start();
 
 module.exports = { app };

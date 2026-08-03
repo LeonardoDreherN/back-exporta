@@ -17,6 +17,11 @@ jobs:
             "https://back-exporta-3.onrender.com/healthz"
             "https://back-exporta-4.onrender.com/healthz"
             "https://back-exporta-5.onrender.com/healthz"
+            "https://back-exporta-6.onrender.com/healthz"
+            "https://back-exporta-7.onrender.com/healthz"
+            "https://back-exporta-8.onrender.com/healthz"
+            "https://back-exporta-9.onrender.com/healthz"
+            "https://back-exporta-10.onrender.com/healthz"
           )
 
           for url in "${urls[@]}"; do
