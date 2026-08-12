@@ -104,4 +104,125 @@ const verProdutosLojaNuvemshop = async (req, res) => {
     }
 };
 
-module.exports = { verProdutosLojaNuvemshop, resolveLojaEToken };
+const CARRIER_NAME = 'Intrex Shipping';
+const CARRIER_CALLBACK_HINT = '/nuvemshop/frete';
+
+async function fetchJsonComTimeout(url, token, timeoutMs = 10000) {
+    const ac = new AbortController();
+    const to = setTimeout(() => ac.abort(), timeoutMs);
+    try {
+        const resp = await fetch(url, {
+            headers: {
+                'Authentication': `bearer ${token}`,
+                'User-Agent': USER_AGENT,
+                'Content-Type': 'application/json',
+            },
+            signal: ac.signal,
+        });
+        const body = await resp.json().catch(() => null);
+        return { ok: resp.ok, status: resp.status, body };
+    } catch (e) {
+        return { ok: false, status: 0, body: null, aborted: String(e?.name || '').toLowerCase().includes('abort') };
+    } finally {
+        clearTimeout(to);
+    }
+}
+
+function parseNomeLoja(nameField) {
+    if (!nameField) return null;
+    if (typeof nameField === 'string') return nameField;
+    return nameField.pt || nameField.es || nameField.en || Object.values(nameField)[0] || null;
+}
+
+function contarOptionsPorPrefixo(options, prefixo) {
+    if (!Array.isArray(options)) return null;
+    return options.filter(o => String(o?.code || '').startsWith(prefixo)).length;
+}
+
+// GET /nuvemshop/resumo
+// Retorna dados agregados (loja + status do carrier) para a tela de pós-instalação
+const getResumoNuvemshop = async (req, res) => {
+    let storeId, token;
+    try {
+        ({ storeId, token } = await resolveLojaEToken(req));
+    } catch (err) {
+        if (err?.http === 404) return res.status(200).json({ connected: false });
+        if (err?.http === 401) {
+            // InfoNuvemshop existe mas o token sumiu (linha corrompida/reinstalação parcial)
+            return res.status(200).json({
+                connected: true,
+                storeId: null,
+                store: null,
+                carrier: null,
+                warnings: ['token_missing'],
+            });
+        }
+        console.error('❌ getResumoNuvemshop (resolveLojaEToken):', err);
+        return res.status(500).json({ erro: 'Erro ao carregar resumo da loja' });
+    }
+
+    const warnings = [];
+
+    const [storeResult, carriersResult] = await Promise.allSettled([
+        fetchJsonComTimeout(`${API_BASE}/${storeId}`, token),
+        fetchJsonComTimeout(`${API_BASE}/${storeId}/shipping_carriers`, token),
+    ]);
+
+    let store = null;
+    if (storeResult.status === 'fulfilled' && storeResult.value.ok && storeResult.value.body) {
+        const b = storeResult.value.body;
+        store = {
+            name: parseNomeLoja(b.name),
+            email: b.email || null,
+            url: b.url || null,
+        };
+    } else {
+        warnings.push('store_unavailable');
+    }
+
+    let carrier = null;
+    if (carriersResult.status === 'fulfilled' && carriersResult.value.ok && Array.isArray(carriersResult.value.body)) {
+        const lista = carriersResult.value.body;
+        const encontrado = lista.find(c =>
+            c?.name === CARRIER_NAME ||
+            String(c?.callback_url || '').includes(CARRIER_CALLBACK_HINT)
+        );
+
+        if (encontrado) {
+            let options = Array.isArray(encontrado.options) ? encontrado.options : null;
+
+            if (!options) {
+                const optResult = await fetchJsonComTimeout(
+                    `${API_BASE}/${storeId}/shipping_carriers/${encontrado.id}/options`,
+                    token
+                );
+                if (optResult.ok && Array.isArray(optResult.body)) {
+                    options = optResult.body;
+                } else {
+                    warnings.push('carrier_options_unavailable');
+                }
+            }
+
+            carrier = {
+                registered: true,
+                active: typeof encontrado.active === 'boolean' ? encontrado.active : null,
+                upsOptions: contarOptionsPorPrefixo(options, 'UPS_'),
+                fedexOptions: contarOptionsPorPrefixo(options, 'FEDEX_'),
+            };
+        } else {
+            carrier = { registered: false, active: null, upsOptions: null, fedexOptions: null };
+        }
+    } else {
+        warnings.push('carrier_unavailable');
+    }
+
+    return res.status(200).json({
+        connected: true,
+        storeId: String(storeId),
+        store,
+        carrier,
+        warnings,
+    });
+};
+
+module.exports = { verProdutosLojaNuvemshop, resolveLojaEToken, getResumoNuvemshop };

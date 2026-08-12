@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const db = require('../models');
 const { autenticarUsuario, vincularCliente } = require('../middleware/auth');
-const { verProdutosLojaNuvemshop } = require('../controller/NuvemshopController');
+const { verProdutosLojaNuvemshop, getResumoNuvemshop } = require('../controller/NuvemshopController');
 const upsRating = require('../services/ups/rating');
 const normUps = require('../utils/normalize/upsRate');
 const { quoteRates } = require('../services/fedex/ratingFedex');
@@ -309,6 +309,10 @@ router.get('/conexao', autenticarUsuario, async (req, res) => {
 
 // GET /nuvemshop/produtos
 router.get('/produtos', autenticarUsuario, vincularCliente, verProdutosLojaNuvemshop);
+
+// GET /nuvemshop/resumo
+// Dados agregados (loja + status do carrier) para a tela de pós-instalação
+router.get('/resumo', autenticarUsuario, vincularCliente, getResumoNuvemshop);
 
 // POST /nuvemshop/carrier e /nuvemshop/frete (alias para resetar circuit breaker)
 // Nuvemshop chama aqui para cotação de frete no checkout
