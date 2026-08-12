@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const db = require('../models');
 const { autenticarUsuario, vincularCliente } = require('../middleware/auth');
-const { verProdutosLojaNuvemshop, getResumoNuvemshop } = require('../controller/NuvemshopController');
+const { verProdutosLojaNuvemshop, getResumoNuvemshop, getResumoEmbedNuvemshop } = require('../controller/NuvemshopController');
 const upsRating = require('../services/ups/rating');
 const normUps = require('../utils/normalize/upsRate');
 const { quoteRates } = require('../services/fedex/ratingFedex');
@@ -313,6 +313,11 @@ router.get('/produtos', autenticarUsuario, vincularCliente, verProdutosLojaNuvem
 // GET /nuvemshop/resumo
 // Dados agregados (loja + status do carrier) para a tela de pós-instalação
 router.get('/resumo', autenticarUsuario, vincularCliente, getResumoNuvemshop);
+
+// GET /nuvemshop/resumo-embed?store_id=...
+// Igual, mas resolve pela store_id (usado pela tela embutida no admin da Nuvemshop,
+// que não tem sessão de cliente — a autenticidade vem do handshake Nexo no frontend)
+router.get('/resumo-embed', getResumoEmbedNuvemshop);
 
 // POST /nuvemshop/carrier e /nuvemshop/frete (alias para resetar circuit breaker)
 // Nuvemshop chama aqui para cotação de frete no checkout

@@ -1,3 +1,4 @@
+const { Op } = require('sequelize');
 const db = require('../models');
 const { getAccessTokenForStore } = require('../middleware/nuvemshopAuth');
 
@@ -233,9 +234,61 @@ const getResumoNuvemshop = async (req, res) => {
     return res.status(200).json(resumo);
 };
 
+const ENTREGUE_STATUSES = ['ENTREGUE'];
+const EM_ANDAMENTO_STATUSES = ['EM_TRANSITO', 'SAIU_PARA_ENTREGA', 'COLETADO'];
+
+// Números de uso da Intrex (cotações/entregas) pra um cliente já resolvido
+async function buildStatsPorCliente(clienteId) {
+    const [totalCotacoes, entregues, emAndamento] = await Promise.all([
+        db.Cotacao.count({ where: { cliente_id: clienteId } }),
+        db.Cotacao.count({ where: { cliente_id: clienteId, status_norm: { [Op.in]: ENTREGUE_STATUSES } } }),
+        db.Cotacao.count({ where: { cliente_id: clienteId, status_norm: { [Op.in]: EM_ANDAMENTO_STATUSES } } }),
+    ]);
+    return { totalCotacoes, entregues, emAndamento };
+}
+
+// GET /nuvemshop/resumo-embed?store_id=...
+// Igual ao /nuvemshop/resumo, mas resolve a loja pelo store_id da query em vez de
+// sessão de cliente — é o que a tela embutida no admin da Nuvemshop chama (ali não
+// existe sessão da Intrex, só o handshake do Nexo, que já garante que quem está
+// perguntando é o próprio admin da loja em questão).
+const getResumoEmbedNuvemshop = async (req, res) => {
+    const storeId = String(req.query.store_id || '').trim();
+    if (!storeId) return res.status(400).json({ erro: 'store_id obrigatório' });
+
+    try {
+        const shopRow = await db.NuvemshopShop.findOne({
+            where: { storeId },
+            attributes: ['accessToken'],
+            raw: true,
+        });
+
+        if (!shopRow?.accessToken) {
+            return res.status(200).json({ connected: false });
+        }
+
+        const infoRow = await db.InfoNuvemshop.findOne({
+            where: { storeId },
+            attributes: ['id_cliente'],
+            raw: true,
+        });
+
+        const [resumo, stats] = await Promise.all([
+            buildResumoPorStoreId(storeId, shopRow.accessToken),
+            infoRow?.id_cliente ? buildStatsPorCliente(infoRow.id_cliente) : Promise.resolve(null),
+        ]);
+
+        return res.status(200).json({ ...resumo, stats });
+    } catch (e) {
+        console.error('❌ getResumoEmbedNuvemshop:', e);
+        return res.status(500).json({ erro: 'Erro ao carregar resumo da loja' });
+    }
+};
+
 module.exports = {
     verProdutosLojaNuvemshop,
     resolveLojaEToken,
     getResumoNuvemshop,
+    getResumoEmbedNuvemshop,
     buildResumoPorStoreId,
 };
