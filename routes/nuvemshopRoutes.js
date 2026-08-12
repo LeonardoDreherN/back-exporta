@@ -3,10 +3,19 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const db = require('../models');
 const { autenticarUsuario, vincularCliente } = require('../middleware/auth');
-const { verProdutosLojaNuvemshop, getResumoNuvemshop, getResumoEmbedNuvemshop } = require('../controller/NuvemshopController');
+const {
+    verProdutosLojaNuvemshop,
+    getResumoNuvemshop,
+    getResumoEmbedNuvemshop,
+    listarRegrasFrete,
+    criarRegraFrete,
+    atualizarRegraFrete,
+    excluirRegraFrete,
+} = require('../controller/NuvemshopController');
 const upsRating = require('../services/ups/rating');
 const normUps = require('../utils/normalize/upsRate');
 const { quoteRates } = require('../services/fedex/ratingFedex');
+const { aplicarRegrasFrete } = require('../utils/regrasFrete');
 
 const router = express.Router();
 
@@ -319,6 +328,13 @@ router.get('/resumo', autenticarUsuario, vincularCliente, getResumoNuvemshop);
 // que não tem sessão de cliente — a autenticidade vem do handshake Nexo no frontend)
 router.get('/resumo-embed', getResumoEmbedNuvemshop);
 
+// Regras de frete (grátis / % / valor fixo por transportadora) — CRUD por store_id,
+// usado pelo painel embutido no admin da Nuvemshop (sem sessão de cliente)
+router.get('/regras-frete', listarRegrasFrete);
+router.post('/regras-frete', criarRegraFrete);
+router.put('/regras-frete/:id', atualizarRegraFrete);
+router.delete('/regras-frete/:id', excluirRegraFrete);
+
 // POST /nuvemshop/carrier e /nuvemshop/frete (alias para resetar circuit breaker)
 // Nuvemshop chama aqui para cotação de frete no checkout
 async function handleCarrier(req, res) {
@@ -326,7 +342,7 @@ async function handleCarrier(req, res) {
     try {
         console.log('[NS CARRIER] body:', JSON.stringify(req.body, null, 2));
 
-        const { destination: destRaw, items = [], currency = 'BRL' } = req.body;
+        const { destination: destRaw, items = [], currency = 'BRL', store_id, total_price } = req.body;
         // Nuvemshop envia zipcode (não postal_code) e street (não address)
         const destination = destRaw ? {
             ...destRaw,
@@ -429,7 +445,7 @@ async function handleCarrier(req, res) {
             quoteRates(fedexPayload),
         ]);
 
-        const rates = [];
+        let rates = [];
 
         if (upsResult.status === 'fulfilled') {
             const upsQuotes = normUps({ raw: upsResult.value });
@@ -492,6 +508,26 @@ async function handleCarrier(req, res) {
                 days: 10,
                 reference: '',
             });
+        }
+
+        if (store_id) {
+            try {
+                const infoRow = await db.InfoNuvemshop.findOne({
+                    where: { storeId: String(store_id) },
+                    attributes: ['id_cliente'],
+                    raw: true,
+                });
+                if (infoRow?.id_cliente) {
+                    const regras = await db.RegraFrete.findAll({
+                        where: { id_cliente: infoRow.id_cliente },
+                        raw: true,
+                    });
+                    rates = aplicarRegrasFrete(rates, { totalPrice: Number(total_price), regras });
+                }
+            } catch (e) {
+                console.error('[NS CARRIER] erro ao aplicar regras de frete:', e.message);
+                // segue com os rates sem desconto — checkout não pode quebrar por causa disso
+            }
         }
 
         console.log('[NS CARRIER] rates:', JSON.stringify(rates, null, 2));

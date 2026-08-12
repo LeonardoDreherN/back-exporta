@@ -285,10 +285,139 @@ const getResumoEmbedNuvemshop = async (req, res) => {
     }
 };
 
+// ===== Regras de frete (grátis / % / valor fixo por transportadora) =====
+// CRUD identificado por store_id (não por sessão de cliente): quem chama é o
+// painel embutido no admin da Nuvemshop, que só tem o handshake do Nexo.
+
+const TIPOS_DESCONTO_VALIDOS = ['gratis', 'percentual', 'fixo'];
+const TRANSPORTADORAS_VALIDAS = ['UPS', 'FEDEX'];
+
+async function resolveClienteIdPorStoreId(storeId) {
+    const infoRow = await db.InfoNuvemshop.findOne({
+        where: { storeId: String(storeId || '') },
+        attributes: ['id_cliente'],
+        raw: true,
+    });
+    return infoRow?.id_cliente || null;
+}
+
+function validarPayloadRegra(body) {
+    const erros = [];
+    if (!body.nome || !String(body.nome).trim()) erros.push('nome é obrigatório');
+    if (!Number.isFinite(Number(body.valorMinimo)) || Number(body.valorMinimo) < 0) {
+        erros.push('valorMinimo inválido');
+    }
+    if (!TIPOS_DESCONTO_VALIDOS.includes(body.tipoDesconto)) erros.push('tipoDesconto inválido');
+    if (body.tipoDesconto && body.tipoDesconto !== 'gratis' && !Number.isFinite(Number(body.valorDesconto))) {
+        erros.push('valorDesconto é obrigatório para esse tipo de desconto');
+    }
+    if (
+        !Array.isArray(body.transportadoras) ||
+        !body.transportadoras.length ||
+        !body.transportadoras.every(t => TRANSPORTADORAS_VALIDAS.includes(t))
+    ) {
+        erros.push('transportadoras inválidas');
+    }
+    return erros;
+}
+
+// GET /nuvemshop/regras-frete?store_id=...
+const listarRegrasFrete = async (req, res) => {
+    try {
+        const clienteId = await resolveClienteIdPorStoreId(req.query.store_id);
+        if (!clienteId) return res.status(404).json({ erro: 'Loja não conectada' });
+        const regras = await db.RegraFrete.findAll({
+            where: { id_cliente: clienteId },
+            order: [['prioridade', 'ASC'], ['createdAt', 'ASC']],
+        });
+        return res.json(regras);
+    } catch (e) {
+        console.error('❌ listarRegrasFrete:', e);
+        return res.status(500).json({ erro: 'Erro ao listar regras de frete' });
+    }
+};
+
+// POST /nuvemshop/regras-frete
+const criarRegraFrete = async (req, res) => {
+    try {
+        const clienteId = await resolveClienteIdPorStoreId(req.body.store_id);
+        if (!clienteId) return res.status(404).json({ erro: 'Loja não conectada' });
+
+        const erros = validarPayloadRegra(req.body);
+        if (erros.length) return res.status(400).json({ erro: erros.join(', ') });
+
+        const regra = await db.RegraFrete.create({
+            id_cliente: clienteId,
+            nome: req.body.nome,
+            ativa: req.body.ativa ?? true,
+            valorMinimo: req.body.valorMinimo,
+            transportadoras: req.body.transportadoras,
+            tipoDesconto: req.body.tipoDesconto,
+            valorDesconto: req.body.tipoDesconto === 'gratis' ? null : req.body.valorDesconto,
+            prioridade: Number.isFinite(Number(req.body.prioridade)) ? Number(req.body.prioridade) : 0,
+        });
+        return res.status(201).json(regra);
+    } catch (e) {
+        console.error('❌ criarRegraFrete:', e);
+        return res.status(500).json({ erro: 'Erro ao criar regra de frete' });
+    }
+};
+
+// PUT /nuvemshop/regras-frete/:id
+const atualizarRegraFrete = async (req, res) => {
+    try {
+        const clienteId = await resolveClienteIdPorStoreId(req.body.store_id);
+        if (!clienteId) return res.status(404).json({ erro: 'Loja não conectada' });
+
+        const erros = validarPayloadRegra(req.body);
+        if (erros.length) return res.status(400).json({ erro: erros.join(', ') });
+
+        const regra = await db.RegraFrete.findOne({
+            where: { id: req.params.id, id_cliente: clienteId },
+        });
+        if (!regra) return res.status(404).json({ erro: 'Regra não encontrada' });
+
+        await regra.update({
+            nome: req.body.nome,
+            ativa: req.body.ativa ?? regra.ativa,
+            valorMinimo: req.body.valorMinimo,
+            transportadoras: req.body.transportadoras,
+            tipoDesconto: req.body.tipoDesconto,
+            valorDesconto: req.body.tipoDesconto === 'gratis' ? null : req.body.valorDesconto,
+            prioridade: Number.isFinite(Number(req.body.prioridade)) ? Number(req.body.prioridade) : regra.prioridade,
+        });
+        return res.json(regra);
+    } catch (e) {
+        console.error('❌ atualizarRegraFrete:', e);
+        return res.status(500).json({ erro: 'Erro ao atualizar regra de frete' });
+    }
+};
+
+// DELETE /nuvemshop/regras-frete/:id?store_id=...
+const excluirRegraFrete = async (req, res) => {
+    try {
+        const clienteId = await resolveClienteIdPorStoreId(req.query.store_id);
+        if (!clienteId) return res.status(404).json({ erro: 'Loja não conectada' });
+
+        const apagou = await db.RegraFrete.destroy({
+            where: { id: req.params.id, id_cliente: clienteId },
+        });
+        if (!apagou) return res.status(404).json({ erro: 'Regra não encontrada' });
+        return res.json({ ok: true });
+    } catch (e) {
+        console.error('❌ excluirRegraFrete:', e);
+        return res.status(500).json({ erro: 'Erro ao excluir regra de frete' });
+    }
+};
+
 module.exports = {
     verProdutosLojaNuvemshop,
     resolveLojaEToken,
     getResumoNuvemshop,
     getResumoEmbedNuvemshop,
     buildResumoPorStoreId,
+    listarRegrasFrete,
+    criarRegraFrete,
+    atualizarRegraFrete,
+    excluirRegraFrete,
 };
