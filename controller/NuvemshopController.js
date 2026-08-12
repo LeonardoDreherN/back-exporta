@@ -139,28 +139,10 @@ function contarOptionsPorPrefixo(options, prefixo) {
     return options.filter(o => String(o?.code || '').startsWith(prefixo)).length;
 }
 
-// GET /nuvemshop/resumo
-// Retorna dados agregados (loja + status do carrier) para a tela de pós-instalação
-const getResumoNuvemshop = async (req, res) => {
-    let storeId, token;
-    try {
-        ({ storeId, token } = await resolveLojaEToken(req));
-    } catch (err) {
-        if (err?.http === 404) return res.status(200).json({ connected: false });
-        if (err?.http === 401) {
-            // InfoNuvemshop existe mas o token sumiu (linha corrompida/reinstalação parcial)
-            return res.status(200).json({
-                connected: true,
-                storeId: null,
-                store: null,
-                carrier: null,
-                warnings: ['token_missing'],
-            });
-        }
-        console.error('❌ getResumoNuvemshop (resolveLojaEToken):', err);
-        return res.status(500).json({ erro: 'Erro ao carregar resumo da loja' });
-    }
-
+// Monta {connected, storeId, store, carrier, warnings} pra uma loja já resolvida
+// (usado tanto pelo endpoint autenticado quanto pela landing embedded, que resolve
+// a loja direto pelo store_id da query string em vez de sessão de cliente)
+async function buildResumoPorStoreId(storeId, token) {
     const warnings = [];
 
     const [storeResult, carriersResult] = await Promise.allSettled([
@@ -216,13 +198,44 @@ const getResumoNuvemshop = async (req, res) => {
         warnings.push('carrier_unavailable');
     }
 
-    return res.status(200).json({
+    return {
         connected: true,
         storeId: String(storeId),
         store,
         carrier,
         warnings,
-    });
+    };
+}
+
+// GET /nuvemshop/resumo
+// Retorna dados agregados (loja + status do carrier) para a tela de pós-instalação
+const getResumoNuvemshop = async (req, res) => {
+    let storeId, token;
+    try {
+        ({ storeId, token } = await resolveLojaEToken(req));
+    } catch (err) {
+        if (err?.http === 404) return res.status(200).json({ connected: false });
+        if (err?.http === 401) {
+            // InfoNuvemshop existe mas o token sumiu (linha corrompida/reinstalação parcial)
+            return res.status(200).json({
+                connected: true,
+                storeId: null,
+                store: null,
+                carrier: null,
+                warnings: ['token_missing'],
+            });
+        }
+        console.error('❌ getResumoNuvemshop (resolveLojaEToken):', err);
+        return res.status(500).json({ erro: 'Erro ao carregar resumo da loja' });
+    }
+
+    const resumo = await buildResumoPorStoreId(storeId, token);
+    return res.status(200).json(resumo);
 };
 
-module.exports = { verProdutosLojaNuvemshop, resolveLojaEToken, getResumoNuvemshop };
+module.exports = {
+    verProdutosLojaNuvemshop,
+    resolveLojaEToken,
+    getResumoNuvemshop,
+    buildResumoPorStoreId,
+};

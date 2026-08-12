@@ -58,6 +58,7 @@ const { run: runIntegrationsHealthCheck } = require('./jobs/integrationsHealthCh
 const { valorConversao } = require('./utils/dolar.js');
 
 const nuvemshopRoutes = require('./routes/nuvemshopRoutes.js');
+const { buildResumoPorStoreId } = require('./controller/NuvemshopController.js');
 const shopifyModule = require('./routes/shopifyRoutes.js');
 const shopifyCarrierRoutes = require('./routes/shopifyCarrier.js');
 const shopifyWebhookRoutes = require('./routes/shopifyWebhookRoutes.js');
@@ -84,6 +85,7 @@ const { applyLogging, errorHandler } = require('./bootstrap/loggin.js');
 
 const PORT = process.env.PORT || 3001;
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY || '';
+const FRONT_URL = (process.env.FRONT_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
 
 console.log('[FEDEX CFG][BOOT]', {
   AMBIENTE: process.env.NODE_ENV,
@@ -181,8 +183,88 @@ app.use('/api/changelog', require('./routes/publicChangelogRoutes.js'));
 app.get('/health', (_, res) => res.send('ok'));
 app.get('/healthz', (_, res) => res.json({ ok: true, ts: Date.now() }));
 
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+function renderCardHtml({ title, body }) {
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Intrex Shipping</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; padding: 24px; margin: 0; background: #f6f6f7; }
+    .card { background: #fff; padding: 24px; border-radius: 12px; max-width: 700px; margin: 32px auto; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    .muted { color: #666; }
+    .btn { display: inline-block; margin-top: 12px; padding: 10px 18px; background: #2563EB; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${escapeHtml(title)}</h1>
+    ${body}
+  </div>
+</body>
+</html>`;
+}
+
+// landing root do app embedded na Nuvemshop (carregado no iframe do painel "Aplicativos")
+async function renderNuvemshopEmbed(req, res, storeId) {
+  try {
+    const shopRow = await db.NuvemshopShop.findOne({
+      where: { storeId },
+      attributes: ['accessToken'],
+      raw: true,
+    });
+
+    if (!shopRow?.accessToken) {
+      return res.type('html').send(renderCardHtml({
+        title: 'Loja não conectada',
+        body: '<p class="muted">Não encontramos uma conexão ativa da Intrex para esta loja. Reinstale o aplicativo pela Nuvemshop.</p>',
+      }));
+    }
+
+    const resumo = await buildResumoPorStoreId(storeId, shopRow.accessToken);
+    const nome = resumo.store?.name || `Loja #${storeId}`;
+    const carrierLabel = !resumo.carrier
+      ? 'Não foi possível verificar agora'
+      : !resumo.carrier.registered
+        ? 'Ainda não registrado'
+        : resumo.carrier.active === false
+          ? 'Registrado, mas inativo'
+          : 'Ativo';
+
+    return res.type('html').send(renderCardHtml({
+      title: 'Intrex conectado ✅',
+      body: `
+        <p><strong>Loja:</strong> ${escapeHtml(nome)}</p>
+        <p><strong>Frete internacional:</strong> ${escapeHtml(carrierLabel)}</p>
+        <p class="muted">Gerencie envios, cotações e produtos no painel completo da Intrex.</p>
+        <a class="btn" href="${escapeHtml(FRONT_URL)}/login" target="_top">Abrir painel Intrex</a>
+      `,
+    }));
+  } catch (e) {
+    console.error('[NS EMBED]', e);
+    return res.type('html').send(renderCardHtml({
+      title: 'Não foi possível carregar agora',
+      body: '<p class="muted">Tente novamente em instantes.</p>',
+    }));
+  }
+}
+
 // landing root do app embedded
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
+  const shopifyHost = req.query.host || '';
+  const nuvemshopStoreId = req.query.store_id || '';
+
+  if (!shopifyHost && nuvemshopStoreId) {
+    return renderNuvemshopEmbed(req, res, String(nuvemshopStoreId));
+  }
+
   res.type('html').send(`<!doctype html>
 <html>
 <head>

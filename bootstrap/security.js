@@ -46,9 +46,9 @@ function applySecurity(app) {
     app.use((_req, res, next) => {
         res.setHeader(
             "Content-Security-Policy",
-            "frame-ancestors https://admin.shopify.com https://*.myshopify.com https://*.shopify.com;"
+            "frame-ancestors https://admin.shopify.com https://*.myshopify.com https://*.shopify.com https://*.nuvemshop.com.br https://*.tiendanube.com https://*.lojavirtualnuvem.com.br https://*.mitiendanube.com;"
         );
-        res.removeHeader("X-Framae-Options");
+        res.removeHeader("X-Frame-Options");
         next();
     });
 
