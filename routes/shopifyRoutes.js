@@ -57,6 +57,7 @@ require('dotenv').config();
 const router = express.Router();
 
 const APP_URL = (process.env.SHOPIFY_APP_URL || '').replace(/\/$/, '');
+const FRONT_URL = (process.env.FRONT_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
 const API_KEY = process.env.SHOPIFY_API_KEY;
 const API_SECRET = process.env.SHOPIFY_API_SECRET;
 const RAW_SCOPES = String(process.env.SHOPIFY_API_SCOPES || '');
@@ -167,12 +168,12 @@ router.get('/auth', async (req, res) => {
             if (existingShop?.accessToken) {
                 const handle = toStoreHandle(shopNorm);
                 const safeHost = req.query.host || Buffer.from(`admin.shopify.com/store/${handle}`, 'utf8').toString('base64');
-                const targetUrl = `${process.env.FRONT_URL}/?shop=${shopNorm}&host=${encodeURIComponent(safeHost)}&embedded=1`;
+                const targetUrl = `${FRONT_URL}/?shop=${shopNorm}&host=${encodeURIComponent(safeHost)}&embedded=1`;
                 return res.redirect(targetUrl);
             }
         } catch { /* continua para fluxo de install */ }
 
-        const installUrl = `${process.env.FRONT_URL}/shopify-install?shop=${encodeURIComponent(shopNorm)}`;
+        const installUrl = `${FRONT_URL}/shopify-install?shop=${encodeURIComponent(shopNorm)}`;
         return res.redirect(installUrl);
     }
 
@@ -218,7 +219,7 @@ router.get('/auth/callback', async (req, res) => {
 
         const shopNorm = shop.toLowerCase();
         const host = req.query.host || Buffer.from(`admin.shopify.com/store/${toStoreHandle(shopNorm)}`, 'utf8').toString('base64');
-        const targetUrl = `${process.env.FRONT_URL}/?shop=${shopNorm}&host=${encodeURIComponent(host)}&embedded=1`;
+        const targetUrl = `${FRONT_URL}/?shop=${shopNorm}&host=${encodeURIComponent(host)}&embedded=1`;
 
         if (!req.cookies || req.cookies.shopify_state !== state) {
             return res.status(401).send('Invalid state');

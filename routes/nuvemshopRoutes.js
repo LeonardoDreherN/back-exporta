@@ -159,7 +159,7 @@ async function registrarCarrierNuvemshop(storeId, accessToken, appUrl, path = '/
 const APP_ID = process.env.NUVEMSHOP_APP_ID || '';
 const CLIENT_SECRET = process.env.NUVEMSHOP_CLIENT_SECRET || '';
 const APP_URL = (process.env.NUVEMSHOP_APP_URL || process.env.SHOPIFY_APP_URL || '').replace(/\/$/, '');
-const FRONT_URL = (process.env.FRONT_URL || '').replace(/\/$/, '');
+const FRONT_URL = (process.env.FRONT_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
 
 const NUVEMSHOP_AUTH_URL = `https://www.nuvemshop.com.br/apps/${APP_ID}/authorize`;
 const NUVEMSHOP_TOKEN_URL = 'https://www.nuvemshop.com.br/apps/authorize/token';
@@ -608,8 +608,18 @@ router.post('/registrar-options', autenticarUsuario, vincularCliente, async (req
 });
 
 // LGPD — obrigatório pela Nuvemshop
-router.post('/webhooks/store-redact', (req, res) => {
+// Também é o sinal mais confiável de desinstalação: apaga o token salvo e o vínculo com o cliente.
+router.post('/webhooks/store-redact', async (req, res) => {
     console.log('[NS LGPD] store-redact:', req.body);
+    try {
+        const storeId = String(req.body?.store_id || '');
+        if (storeId) {
+            await db.NuvemshopShop.destroy({ where: { storeId } });
+            await db.InfoNuvemshop.destroy({ where: { storeId } });
+        }
+    } catch (e) {
+        console.error('[NS LGPD] store-redact erro ao limpar dados:', e);
+    }
     res.status(200).json({ ok: true });
 });
 
