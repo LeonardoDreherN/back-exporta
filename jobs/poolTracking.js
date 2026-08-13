@@ -3,6 +3,7 @@ const { Cotacao, Sequelize } = require('../models');
 const { normalize } = require('../services/ups/tracking');
 const tracking = require('../services/ups/tracking'); // implemente getLatestEvent
 const { logSync } = require('../services/syncLog');
+const { pushTrackingEventNuvemshop } = require('../services/nuvemshop/fulfillment');
 
 async function pool() {
     const start = Date.now();
@@ -32,6 +33,15 @@ async function pool() {
                     tracking_raw: evt,
                 });
                 atualizados += 1;
+
+                // Empurra o novo status pra Nuvemshop, se o pedido veio de lá — nunca
+                // pode derrubar o polling dos outros pedidos se falhar
+                pushTrackingEventNuvemshop({
+                    clienteId: c.cliente_id,
+                    pedidoRef: c.pedido_ref,
+                    statusNorm: novo,
+                    trackingNumber: c.tracking_number,
+                }).catch((e) => console.error('[NS FULFILLMENT PUSH] erro ao chamar', c.pedido_ref, e.message));
             }
         } catch (err) {
             erros += 1;

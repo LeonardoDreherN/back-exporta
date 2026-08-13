@@ -238,6 +238,8 @@ function groupRowsByOrder(rows) {
             byId.set(pedido_ref, {
                 pedido_ref,
                 shopify_order_id: r.shopify_order_id || null,
+                nuvemshop_order_id: r.nuvemshop_order_id || null,
+                nuvemshop_fulfillment_order_id: r.nuvemshop_fulfillment_order_id || null,
                 moeda: "",
                 total: 0,
                 nomeComprador: "",
@@ -254,6 +256,10 @@ function groupRowsByOrder(rows) {
 
         const acc = byId.get(pedido_ref);
         if (!acc.shopify_order_id && r.shopify_order_id) acc.shopify_order_id = r.shopify_order_id;
+        if (!acc.nuvemshop_order_id && r.nuvemshop_order_id) acc.nuvemshop_order_id = r.nuvemshop_order_id;
+        if (!acc.nuvemshop_fulfillment_order_id && r.nuvemshop_fulfillment_order_id) {
+            acc.nuvemshop_fulfillment_order_id = r.nuvemshop_fulfillment_order_id;
+        }
 
         const item = {
             sku: s(r.sku),
@@ -387,6 +393,8 @@ async function importPedidosInternal(cliente_id, linhas) {
             cliente_id,
             pedido_ref: p.pedido_ref,
             shopify_order_id: p.shopify_order_id || null,
+            nuvemshop_order_id: p.nuvemshop_order_id || null,
+            nuvemshop_fulfillment_order_id: p.nuvemshop_fulfillment_order_id || null,
             // origem: p.origem,
             moeda: p.moeda || null,
             total: p.total || null,

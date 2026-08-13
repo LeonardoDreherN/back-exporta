@@ -145,6 +145,7 @@ app.use('/exports', express.static(path.join(__dirname, 'exports'), { maxAge: '1
 
 // rotas principais
 app.use('/nuvemshop', nuvemshopRoutes);
+app.use('/nuvemshop/webhooks', require('./routes/nuvemshopWebhookRoutes.js'));
 app.use('/shopify', shopifyModule);
 app.use('/shopify', shopifyCarrierRoutes);
 app.use('/shopify/webhooks', shopifyWebhookRoutes);
