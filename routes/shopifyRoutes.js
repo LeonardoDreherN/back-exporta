@@ -52,6 +52,7 @@ const { uploadOrdersMinimal } = require('../controller/pedidosMinimalController'
 const { uploadOrder } = require('../middleware/shopifyAuth');
 const { findCustomerFromCsv } = require('../controller/customerController');
 const { importPedidosInternal } = require('../controller/PedidoImportController');
+const { buildStatsPorCliente } = require('../utils/statsCliente');
 require('dotenv').config();
 
 const router = express.Router();
@@ -695,6 +696,8 @@ router.get('/app-status', autenticarUsuario, async (req, res) => {
             );
         }
 
+        const stats = infoRow?.id_cliente ? await buildStatsPorCliente(infoRow.id_cliente) : null;
+
         return res.json({
             ok: true,
             shop,
@@ -703,6 +706,7 @@ router.get('/app-status', autenticarUsuario, async (req, res) => {
             hasCarrier,
             hasOrdersWebhook,
             intrexConnected: !!infoRow?.id_cliente,
+            stats,
         });
     } catch (e) {
         console.error('[APP STATUS ERROR]', e);

@@ -1,6 +1,6 @@
-const { Op } = require('sequelize');
 const db = require('../models');
 const { getAccessTokenForStore } = require('../middleware/nuvemshopAuth');
+const { buildStatsPorCliente } = require('../utils/statsCliente');
 
 const API_BASE = 'https://api.nuvemshop.com.br/v1';
 const USER_AGENT = 'Intrex (contato@exportadigital.com)';
@@ -233,19 +233,6 @@ const getResumoNuvemshop = async (req, res) => {
     const resumo = await buildResumoPorStoreId(storeId, token);
     return res.status(200).json(resumo);
 };
-
-const ENTREGUE_STATUSES = ['ENTREGUE'];
-const EM_ANDAMENTO_STATUSES = ['EM_TRANSITO', 'SAIU_PARA_ENTREGA', 'COLETADO'];
-
-// Números de uso da Intrex (cotações/entregas) pra um cliente já resolvido
-async function buildStatsPorCliente(clienteId) {
-    const [totalCotacoes, entregues, emAndamento] = await Promise.all([
-        db.Cotacao.count({ where: { cliente_id: clienteId } }),
-        db.Cotacao.count({ where: { cliente_id: clienteId, status_norm: { [Op.in]: ENTREGUE_STATUSES } } }),
-        db.Cotacao.count({ where: { cliente_id: clienteId, status_norm: { [Op.in]: EM_ANDAMENTO_STATUSES } } }),
-    ]);
-    return { totalCotacoes, entregues, emAndamento };
-}
 
 // GET /nuvemshop/resumo-embed?store_id=...
 // Igual ao /nuvemshop/resumo, mas resolve a loja pelo store_id da query em vez de

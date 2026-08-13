@@ -1,6 +1,6 @@
 client_id = "7e9513a9b39dde8979fc570826744bcc"
 name = "Intrex Shipping"
-application_url = "https://back-exporta.onrender.com"
+application_url = "https://intrex.com.br"
 embedded = true
 handle = "intrex-shipping"
 
