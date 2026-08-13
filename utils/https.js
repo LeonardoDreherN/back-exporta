@@ -1,6 +1,7 @@
 const { setTimeout: delay } = require("timers/promises");
 const axios = require("axios");
 const { logSync } = require("../services/syncLog");
+const { sinalizarInstabilidade } = require("../services/integrationAlert");
 
 async function getJson(url, { timeout = 8000, headers = {} } = {}) {
     const ac = new AbortController();
@@ -60,6 +61,13 @@ function createHttp(timeoutMs = 15000, integration = null) {
                 : 250 * cfg.__retries;
             await delay(waitMs);
             return api(cfg);
+        }
+
+        // 429 persistente mesmo depois de esgotar as retentativas: sinaliza como
+        // instabilidade na status page (mesmo mecanismo do health-check periódico),
+        // não só loga — responde a "analisar se há algum problema na integração"
+        if (isRateLimited && integration) {
+            sinalizarInstabilidade(integration, `Rate limit (429) persistente após ${cfg.__retries} tentativas`).catch(() => {});
         }
 
         throw err;
