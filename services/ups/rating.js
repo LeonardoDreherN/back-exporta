@@ -3,7 +3,7 @@ const { createHttp } = require('../../utils/https');
 const { getToken } = require('./oauth');
 const cfg = require('../../config/ups');
 
-const http = createHttp(cfg.timeoutMs);
+const http = createHttp(cfg.timeoutMs, 'ups');
 
 function extractUpsMessage(err) {
     const data = err?.response?.data;

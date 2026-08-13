@@ -1,7 +1,9 @@
 // services/fedex/rates.js
-const axios = require('axios');
+const { createHttp } = require('../../utils/https');
 const { getToken, baseUrl } = require('./authFedex');
 const db = require('../../models');
+
+const http = createHttp(15000, 'fedex');
 
 // helpers de unidade
 const kgToLb = kg => +(kg * 2.2046226218).toFixed(3);
@@ -166,7 +168,7 @@ async function quoteRates({ shipper, recipient, packages, commodities, currency 
         carrierCodes: ["FDXE"]
     };
 
-    const { data } = await axios.post(url, body, {
+    const { data } = await http.post(url, body, {
         headers: {
             Authorization: `Bearer ${token}`,
             'x-customer-transaction-id': `intrex-${Date.now()}`,
