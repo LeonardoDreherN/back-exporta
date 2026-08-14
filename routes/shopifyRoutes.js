@@ -647,7 +647,7 @@ async function buildAppStatusShopify(shop) {
     if (accessToken) {
         const query = `
           query AppStatusCheck {
-            deliveryCarrierServices(first: 20) {
+            carrierServices(first: 20) {
               nodes {
                 id
                 name
@@ -676,7 +676,11 @@ async function buildAppStatusShopify(shop) {
 
         const data = await response.json();
 
-        const carriers = data?.data?.deliveryCarrierServices?.nodes || [];
+        if (data?.errors) {
+            console.error('[APP STATUS] GraphQL erro:', JSON.stringify(data.errors));
+        }
+
+        const carriers = data?.data?.carrierServices?.nodes || [];
         const webhooks = data?.data?.webhookSubscriptions?.nodes || [];
 
         hasCarrier = carriers.some((c) =>
