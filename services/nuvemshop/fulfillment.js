@@ -15,6 +15,28 @@ const STATUS_MAP = {
     RETORNADO: 'returned_to_sender',
 };
 
+// A Nuvemshop só reflete evento de rastreio no status visível do pedido depois que o
+// fulfillment order sai de UNPACKED (o estado inicial, "Por embalar") pra DISPATCHED —
+// sem isso os eventos ficam gravados no histórico mas o admin continua mostrando "por
+// embalar" pro lojista. PATCH idempotente: se já estiver DISPATCHED/DELIVERED, a
+// Nuvemshop retorna erro de transição inválida, que a gente ignora de propósito.
+async function garantirDespachado(storeId, orderId, fulfillmentOrderId, accessToken) {
+    try {
+        const url = `${API_BASE}/${storeId}/orders/${orderId}/fulfillment-orders/${fulfillmentOrderId}`;
+        await fetch(url, {
+            method: 'PATCH',
+            headers: {
+                'Authentication': `bearer ${accessToken}`,
+                'User-Agent': USER_AGENT,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ status: 'DISPATCHED' }),
+        });
+    } catch (e) {
+        console.error('[NS FULFILLMENT DISPATCH] erro (ignorado):', e.message);
+    }
+}
+
 /**
  * Empurra um evento de rastreio pra Nuvemshop, pra mover o pedido pelos status
  * (Coletado -> Postado -> Em Trânsito -> Saiu pra Entrega -> Entregue) no admin dela.
@@ -50,6 +72,8 @@ async function pushTrackingEventNuvemshop({ clienteId, pedidoRef, statusNorm, tr
             raw: true,
         });
         if (!shopRow?.accessToken) return;
+
+        await garantirDespachado(infoRow.storeId, pedido.nuvemshop_order_id, pedido.nuvemshop_fulfillment_order_id, shopRow.accessToken);
 
         const url = `${API_BASE}/${infoRow.storeId}/orders/${pedido.nuvemshop_order_id}/fulfillment-orders/${pedido.nuvemshop_fulfillment_order_id}/tracking-events`;
 
