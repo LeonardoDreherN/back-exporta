@@ -111,7 +111,9 @@ router.post('/orders-create', async (req, res) => {
             pais: pais,
 
             moeda: order.currency || 'USD',
-            valorTotal: Number(order.total_price || 0),
+            // sem valorTotal aqui de propósito: o agrupador soma valorTotalLinha de cada
+            // item pra formar o total do pedido — setar o total do pedido em toda linha
+            // fazia somar em dobro (ou mais, com >2 itens)
 
             titulo: item.name || '',
             quantidade: Number(item.quantity || 0),
