@@ -86,14 +86,19 @@ function normState(state) {
 function buildNsPackages(items = [], { includeFree = false } = {}) {
     const valid = includeFree ? items : items.filter(i => !i?.free_shipping);
     if (!valid.length) return [{ weightKg: 1, dimCm: { length: 20, width: 15, height: 10 } }];
-    return valid.map(item => ({
-        weightKg: Math.max(0.1, toKg(item.grams || 500)),
-        dimCm: {
-            length: Number(item.dimensions?.depth || 20),
-            width: Number(item.dimensions?.width || 15),
-            height: Number(item.dimensions?.height || 10),
-        },
-    }));
+    return valid.map(item => {
+        const qty = Number(item.quantity || 1) || 1;
+        return {
+            // peso total da linha (peso unitário x quantidade) — sem isso, pedir 10 unidades
+            // do mesmo produto cotava frete igual a pedir 1
+            weightKg: Math.max(0.1, toKg((item.grams || 500) * qty)),
+            dimCm: {
+                length: Number(item.dimensions?.depth || 20),
+                width: Number(item.dimensions?.width || 15),
+                height: Number(item.dimensions?.height || 10),
+            },
+        };
+    });
 }
 
 function buildNsCommodities(items = [], currency = 'USD', { includeFree = false } = {}) {
@@ -112,7 +117,8 @@ function buildNsCommodities(items = [], currency = 'USD', { includeFree = false 
             quantityUnits: 'PCS',
             unitPrice: { amount: Number((totalPrice / qty).toFixed(2)), currency },
             customsValue: { amount: Number(totalPrice.toFixed(2)), currency },
-            weight: { units: 'KG', value: Number(Math.max(0.1, toKg(item.grams || 500)).toFixed(3)) },
+            // peso total da linha, mesmo raciocínio do buildNsPackages acima
+            weight: { units: 'KG', value: Number(Math.max(0.1, toKg((item.grams || 500) * qty)).toFixed(3)) },
             countryOfManufacture: 'BR',
         };
     });
