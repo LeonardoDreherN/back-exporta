@@ -274,27 +274,49 @@ app.get('/', async (req, res) => {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
   <style>
+    * { box-sizing: border-box; }
     body {
-      font-family: Arial, sans-serif;
-      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      padding: 40px 24px;
       margin: 0;
-      background: #f6f6f7;
-    }
-    .card {
       background: #fff;
-      padding: 24px;
-      border-radius: 12px;
-      max-width: 700px;
-      margin: 32px auto;
-      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+      color: #0f172a;
     }
-    .muted {
-      color: #666;
+    .wrap { max-width: 640px; margin: 0 auto; text-align: center; }
+    .logo { height: 40px; margin-bottom: 24px; }
+    .skeleton { height: 16px; background: #e2e8f0; border-radius: 6px; margin: 8px auto; animation: pulse 1.4s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+    .check {
+      width: 48px; height: 48px; border-radius: 999px; background: #dcfce7; color: #16a34a;
+      display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 24px;
     }
+    h1 { font-size: 18px; font-weight: 700; margin: 0 0 4px; }
+    .subtitle { font-size: 14px; color: #64748b; margin: 0 0 20px; }
+    .badges { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 24px; }
+    .badge { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; border: 1px solid; }
+    .badge-green { background: #f0fdf4; color: #16a34a; border-color: #bbf7d0; }
+    .badge-yellow { background: #fefce8; color: #a16207; border-color: #fde68a; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; text-align: left; }
+    .stat { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+    .stat-title { font-size: 12px; font-weight: 600; color: #0f172a; text-transform: uppercase; letter-spacing: .02em; }
+    .stat-subtitle { font-size: 11px; color: #94a3b8; margin-bottom: 8px; }
+    .stat-value { font-size: 22px; font-weight: 800; color: #0f172a; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px; background: #2563eb; color: #fff;
+      text-decoration: none; font-weight: 700; font-size: 14px; padding: 12px 20px; border-radius: 10px;
+      width: 100%; max-width: 400px; justify-content: center;
+    }
+    .muted { color: #94a3b8; font-size: 13px; }
   </style>
 </head>
 <body>
-  <div class="card" id="root">Carregando...</div>
+  <div class="wrap">
+    <img class="logo" src="https://intrex.com.br/images/intrex_logo.png" alt="Intrex" />
+    <div id="root">
+      <div class="skeleton" style="width:160px;"></div>
+      <div class="skeleton" style="width:220px;"></div>
+    </div>
+  </div>
 
   <script>
     (async function () {
@@ -310,20 +332,39 @@ app.get('/', async (req, res) => {
         });
       }
 
+      const btn = '<a class="btn" href="https://intrex.com.br/login" target="_blank" rel="noopener noreferrer">Abrir painel Intrex ↗</a>';
+
       try {
-        const r = await fetch('/shopify/has-token?shop=' + encodeURIComponent(shop));
+        const r = await fetch('/shopify/resumo-embed?shop=' + encodeURIComponent(shop));
         const info = await r.json();
 
+        const badge = (label, ok) => '<span class="badge ' + (ok ? 'badge-green' : 'badge-yellow') + '">' + label + '</span>';
+
+        const stats = info.stats ? \`
+          <div class="stats">
+            <div class="stat"><div class="stat-title">Cotações</div><div class="stat-subtitle">Total</div><div class="stat-value">\${info.stats.totalCotacoes}</div></div>
+            <div class="stat"><div class="stat-title">Em andamento</div><div class="stat-subtitle">Envios</div><div class="stat-value">\${info.stats.emAndamento}</div></div>
+            <div class="stat"><div class="stat-title">Entregues</div><div class="stat-subtitle">Envios</div><div class="stat-value">\${info.stats.entregues}</div></div>
+          </div>
+        \` : '';
+
         document.getElementById('root').innerHTML = \`
+          <div class="check">✓</div>
           <h1>Intrex Shipping conectado</h1>
-          <p><strong>Loja:</strong> \${info.shop || shop || '—'}</p>
-          <p><strong>Token salvo:</strong> \${info.hasToken ? 'Sim' : 'Não'}</p>
-          <p class="muted">OAuth concluído com sucesso.</p>
+          <p class="subtitle">\${info.shop || shop || '—'}</p>
+          <div class="badges">
+            \${badge('Token salvo: ' + (info.hasToken ? 'Sim' : 'Não'), info.hasToken)}
+            \${badge('Frete internacional: ' + (info.hasCarrier ? 'Ativo' : 'Não ativo'), info.hasCarrier)}
+            \${badge('Webhook de pedidos: ' + (info.hasOrdersWebhook ? 'Ativo' : 'Não ativo'), info.hasOrdersWebhook)}
+          </div>
+          \${stats}
+          \${btn}
         \`;
       } catch (e) {
         document.getElementById('root').innerHTML = \`
-          <h1>Erro</h1>
-          <p class="muted">\${e.message}</p>
+          <h1>Intrex</h1>
+          <p class="muted" style="margin-bottom:20px;">Não foi possível carregar o status agora.</p>
+          \${btn}
         \`;
       }
     })();

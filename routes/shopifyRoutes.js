@@ -627,89 +627,117 @@ async function autoRegisterOrdersWebhook(shop, accessToken) {
     };
 }
 
+// Monta o status agregado do app (token/carrier/webhook/stats) pra uma loja Shopify já
+// identificada pelo domínio — reaproveitado tanto pela rota autenticada (/app-status,
+// chamada pelo React já dentro de uma sessão válida) quanto pela pública por shop
+// (/resumo-embed, pra quando a tela é servida direto pelo backend daquela empresa e não
+// há como confiar em verificação de token de sessão entre serviços Render diferentes).
+async function buildAppStatusShopify(shop) {
+    const accessToken = await getValidAccessToken(shop);
+
+    const infoRow = await db.InfoShopify.findOne({
+        where: { shopDomain: shop },
+        attributes: ['id_cliente', 'shopDomain'],
+        raw: true,
+    });
+
+    let hasCarrier = false;
+    let hasOrdersWebhook = false;
+
+    if (accessToken) {
+        const query = `
+          query AppStatusCheck {
+            deliveryCarrierServices(first: 20) {
+              nodes {
+                id
+                name
+                active
+                callbackUrl
+              }
+            }
+            webhookSubscriptions(first: 50) {
+              nodes {
+                id
+                topic
+                callbackUrl
+              }
+            }
+          }
+        `;
+
+        const response = await fetch(`https://${shop}/admin/api/2026-04/graphql.json`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Shopify-Access-Token': accessToken,
+            },
+            body: JSON.stringify({ query }),
+        });
+
+        const data = await response.json();
+
+        const carriers = data?.data?.deliveryCarrierServices?.nodes || [];
+        const webhooks = data?.data?.webhookSubscriptions?.nodes || [];
+
+        hasCarrier = carriers.some((c) =>
+            String(c?.name || '').toLowerCase().includes('intrex')
+        );
+
+        hasOrdersWebhook = webhooks.some((w) =>
+            String(w?.topic || '').toUpperCase() === 'ORDERS_CREATE'
+        );
+    }
+
+    const stats = infoRow?.id_cliente ? await buildStatsPorCliente(infoRow.id_cliente) : null;
+
+    return {
+        shop,
+        hasToken: !!accessToken,
+        hasInfoShopify: !!infoRow?.id_cliente,
+        hasCarrier,
+        hasOrdersWebhook,
+        intrexConnected: !!infoRow?.id_cliente,
+        stats,
+    };
+}
+
 router.get('/app-status', autenticarUsuario, async (req, res) => {
     try {
         const shopFromQuery = String(req.query?.shop || '').toLowerCase().trim();
         const shopFromSession = String(req.shopDomain || '').toLowerCase().trim();
-
         const shop = shopFromQuery || shopFromSession;
 
         if (!shop) {
-            return res.status(400).json({
-                ok: false,
-                erro: 'Loja não identificada',
-            });
+            return res.status(400).json({ ok: false, erro: 'Loja não identificada' });
         }
 
-        const accessToken = await getValidAccessToken(shop);
-
-        const infoRow = await db.InfoShopify.findOne({
-            where: { shopDomain: shop },
-            attributes: ['id_cliente', 'shopDomain'],
-            raw: true,
-        });
-
-        let hasCarrier = false;
-        let hasOrdersWebhook = false;
-
-        if (accessToken) {
-            const query = `
-              query AppStatusCheck {
-                deliveryCarrierServices(first: 20) {
-                  nodes {
-                    id
-                    name
-                    active
-                    callbackUrl
-                  }
-                }
-                webhookSubscriptions(first: 50) {
-                  nodes {
-                    id
-                    topic
-                    callbackUrl
-                  }
-                }
-              }
-            `;
-
-            const response = await fetch(`https://${shop}/admin/api/2026-04/graphql.json`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Shopify-Access-Token': accessToken,
-                },
-                body: JSON.stringify({ query }),
-            });
-
-            const data = await response.json();
-
-            const carriers = data?.data?.deliveryCarrierServices?.nodes || [];
-            const webhooks = data?.data?.webhookSubscriptions?.nodes || [];
-
-            hasCarrier = carriers.some((c) =>
-                String(c?.name || '').toLowerCase().includes('intrex')
-            );
-
-            hasOrdersWebhook = webhooks.some((w) =>
-                String(w?.topic || '').toUpperCase() === 'ORDERS_CREATE'
-            );
-        }
-
-        const stats = infoRow?.id_cliente ? await buildStatsPorCliente(infoRow.id_cliente) : null;
-
-        return res.json({
-            ok: true,
-            shop,
-            hasToken: !!accessToken,
-            hasInfoShopify: !!infoRow?.id_cliente,
-            hasCarrier,
-            hasOrdersWebhook,
-            intrexConnected: !!infoRow?.id_cliente,
-            stats,
-        });
+        const data = await buildAppStatusShopify(shop);
+        return res.json({ ok: true, ...data });
     } catch (e) {
         console.error('[APP STATUS ERROR]', e);
+        return res.status(500).json({
+            ok: false,
+            erro: 'Falha ao consultar status do app',
+        });
+    }
+});
+
+// GET /shopify/resumo-embed?shop=...
+// Igual ao /app-status, mas identificado só pelo shop (sem sessão/token JWT) — é o que a
+// landing embedded em server.js chama, já que essa página é servida direto pelo backend
+// específico de cada empresa e não dá pra garantir que o token de sessão do App Bridge
+// será verificado sempre no mesmo serviço Render que tem a secret certa daquele app.
+router.get('/resumo-embed', async (req, res) => {
+    try {
+        const shop = String(req.query?.shop || '').toLowerCase().trim();
+        if (!shop) {
+            return res.status(400).json({ ok: false, erro: 'Loja não identificada' });
+        }
+
+        const data = await buildAppStatusShopify(shop);
+        return res.json({ ok: true, ...data });
+    } catch (e) {
+        console.error('[SHOPIFY RESUMO EMBED ERROR]', e);
         return res.status(500).json({
             ok: false,
             erro: 'Falha ao consultar status do app',
