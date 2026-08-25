@@ -74,5 +74,10 @@ module.exports = (sequelize) => {
     destinoFixoRua: { type: DataTypes.STRING, allowNull: true },
     destinoFixoCEP: { type: DataTypes.STRING, allowNull: true },
     destinoFixoTelefone: { type: DataTypes.STRING, allowNull: true },
+
+    // Chave usada por plataformas externas (ex.: e-commerce próprio de um
+    // parceiro em PHP) para autenticar nas rotas públicas de cotação e
+    // criação de pedido (/api/public-quote e /api/public-orders).
+    publicApiKey: { type: DataTypes.STRING, allowNull: true, unique: true },
   });
 }

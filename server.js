@@ -150,6 +150,7 @@ app.use('/shopify', shopifyModule);
 app.use('/shopify', shopifyCarrierRoutes);
 app.use('/shopify/webhooks', shopifyWebhookRoutes);
 app.use('/api/public-quote', require('./routes/publicQuoteRoute.js'));
+app.use('/api/public-orders', require('./routes/publicOrdersRoute.js'));
 app.use('/api/ups', autenticarUsuario, vincularCliente, upsRoutes);
 app.use('/api/worldease', autenticarUsuario, vincularCliente, worldeaseRoutes);
 app.use('/api/fedex', fedexRoutes);
@@ -569,6 +570,9 @@ async function start() {
 
   await db.sequelize.query(
     'ALTER TABLE pedidos_importados ADD COLUMN IF NOT EXISTS shopify_order_id BIGINT'
+  );
+  await db.sequelize.query(
+    'ALTER TABLE "Clientes" ADD COLUMN IF NOT EXISTS "publicApiKey" VARCHAR(255) UNIQUE'
   );
 
   console.log('Banco sincronizado:', PORT);

@@ -444,6 +444,59 @@ async function importPedidos(req, res) {
     }
 }
 
+// POST /api/public-orders — usado por plataformas externas (ex.: e-commerce
+// próprio em PHP) para enviar um pedido fechado no checkout para a Intrex.
+async function publicCreateOrder(req, res) {
+    try {
+        const cliente_id = req.clienteId;
+        const body = req.body || {};
+
+        const pedido_ref = normalizeId(s(body.pedido_ref));
+        if (!pedido_ref) {
+            return res.status(400).json({ ok: false, error: '"pedido_ref" é obrigatório' });
+        }
+
+        const itensBody = Array.isArray(body.itens) ? body.itens : null;
+        if (!itensBody || !itensBody.length) {
+            return res.status(400).json({ ok: false, error: '"itens" deve ser um array não vazio' });
+        }
+
+        const comprador = body.comprador || {};
+        const endereco = body.endereco || {};
+
+        const linhas = itensBody.map((it) => ({
+            id: pedido_ref,
+            sku: s(it.sku),
+            titulo: s(it.titulo),
+            quantidade: Number(it.qty ?? it.quantidade ?? 0),
+            preco: Number(it.preco ?? 0),
+            categoria: s(it.categoria),
+            hscode: s(it.hscode),
+            descricao: s(it.descricao),
+            pesoUnit: s(it.pesoUnit),
+            moeda: s(body.moeda),
+            nome_completo: s(comprador.nome),
+            email: s(comprador.email),
+            telefone: s(comprador.telefone),
+            rua_e_numero: s(endereco.rua_numero),
+            cidade: s(endereco.cidade),
+            estado_provincia: s(endereco.estado),
+            cep: s(endereco.cep),
+            pais: s(endereco.pais),
+        }));
+
+        const r = await importPedidosInternal(cliente_id, linhas);
+        if (r.created === 0 && r.skipped > 0) {
+            return res.status(409).json({ ok: false, error: 'Pedido já importado anteriormente', pedido_ref, ...r });
+        }
+
+        return res.json({ ok: true, pedido_ref, ...r });
+    } catch (e) {
+        console.error('[publicCreateOrder] erro:', e);
+        return res.status(500).json({ ok: false, error: e.message });
+    }
+}
+
 async function listPedidos(req, res) {
     try {
         const cliente_id = req.clienteId;
@@ -529,4 +582,4 @@ async function listPedidosShopify(req, res) {
 }
 
 
-module.exports = { importPedidos, listPedidos, importPedidosInternal, listPedidosShopify };
+module.exports = { importPedidos, listPedidos, importPedidosInternal, listPedidosShopify, publicCreateOrder };

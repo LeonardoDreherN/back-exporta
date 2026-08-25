@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const crypto = require('crypto');
 const db = require('../models');
 
 const CLIENTE_LIST_ATTRS = [
@@ -171,4 +172,33 @@ const updateClienteStatus = async (req, res) => {
   }
 };
 
-module.exports = { listClientes, getClienteDetail, updateClienteStatus };
+// Gera (ou rotaciona) a chave usada por uma plataforma externa do cliente
+// para chamar /api/public-quote e /api/public-orders. A chave só é exibida
+// nesta resposta — o banco guarda apenas o valor atual, sem histórico.
+const regeneratePublicApiKey = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const cliente = await db.Cliente.findByPk(id);
+    if (!cliente) return res.status(404).json({ ok: false, error: 'Cliente não encontrado' });
+
+    const publicApiKey = crypto.randomBytes(24).toString('hex');
+    await cliente.update({ publicApiKey });
+
+    const { logAdminAction } = require('../services/audit');
+    await logAdminAction({
+      adminUserId: req.adminUser?.id,
+      action: 'client.public_api_key_regenerated',
+      entityType: 'Cliente',
+      entityId: cliente.id,
+      clienteId: cliente.id,
+      req,
+    });
+
+    return res.json({ ok: true, data: { id: cliente.id, publicApiKey } });
+  } catch (err) {
+    console.error('[AdminClientes] regeneratePublicApiKey erro:', err);
+    return res.status(500).json({ ok: false, error: 'Erro ao gerar API key' });
+  }
+};
+
+module.exports = { listClientes, getClienteDetail, updateClienteStatus, regeneratePublicApiKey };
