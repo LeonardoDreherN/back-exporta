@@ -1,6 +1,7 @@
 // exemplo em routes/auth.js
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const db = require('../models');
 const router = express.Router();
 
 const ACCESS_TOKEN = 15 * 60;
@@ -13,12 +14,18 @@ const cookieBase = {
   path: '/',
 };
 
-function refresh(req, res) {
+async function refresh(req, res) {
     const rt = req.cookies?.refresh_token;
     if (!rt) return res.status(401).json({ erro: 'Sem refresh' });
 
     try {
         const data = jwt.verify(rt, process.env.JWT_REFRESH_SECRET);
+
+        const cliente = await db.Cliente.findByPk(data.sub);
+        if (!cliente || cliente.status !== 'ativo') {
+            return res.status(403).json({ erro: 'Conta inativa ou suspensa' });
+        }
+
         const access = jwt.sign(
             { sub: data.sub, scope: ['user'] },
             process.env.JWT_SECRET,

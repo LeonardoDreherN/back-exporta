@@ -269,6 +269,14 @@ const loginCliente = async (req, res) => {
             return res.status(401).json({ erro: 'Credenciais inválidas' });
         }
 
+        if (cliente.status !== 'ativo') {
+            console.log('[TEMP-DEBUG-LOGIN] motivo 403: status do cliente =', cliente.status);
+            const msg = cliente.status === 'suspenso'
+                ? 'Sua conta está suspensa. Entre em contato com o suporte.'
+                : 'Sua conta está inativa. Entre em contato com o suporte.';
+            return res.status(403).json({ erro: msg });
+        }
+
         const baseRoles = Array.isArray(cliente.roles) && cliente.roles.length
             ? cliente.roles
             : ['cliente'];
