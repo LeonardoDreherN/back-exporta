@@ -4,6 +4,7 @@ const ctrl = require('../controller/AdminEnviosController');
 
 router.get('/', ctrl.listEnvios);
 router.get('/rastreio/:tracking', ctrl.buscarPorRastreio);
+router.post('/reconciliar', ctrl.reconciliarLote);
 router.get('/:id', ctrl.getEnvioDetail);
 
 module.exports = router;
