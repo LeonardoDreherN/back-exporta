@@ -9,6 +9,7 @@
 const db = require('../models');
 const health = require('../services/integrationsHealth');
 const { logSync } = require('../services/syncLog');
+const { enviarAlertaSlack } = require('../services/notifications/slack');
 
 const CHECKS = {
   database: health.checkDatabase,
@@ -34,14 +35,24 @@ async function run() {
       const result = await checkFn();
 
       if (row.state !== result.state) {
+        const previousState = row.state;
         await db.StatusIncident.create({
           integrationKey: key,
-          previousState: row.state,
+          previousState,
           newState: result.state,
           message: result.message ? `Detectado automaticamente: ${result.message}` : 'Detectado automaticamente',
           createdBy: null,
         });
         await row.update({ state: result.state, message: result.message, updatedBy: null });
+
+        enviarAlertaSlack({
+          title:
+            result.state === 'operational'
+              ? `${row.label} voltou ao normal`
+              : `${row.label} está com instabilidade`,
+          message: result.message || `Estado mudou de ${previousState} para ${result.state}`,
+          severity: result.state === 'operational' ? 'success' : 'critical',
+        }).catch(() => {});
       }
 
       if (LOGGABLE.has(key)) {

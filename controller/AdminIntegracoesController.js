@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const db = require('../models');
 const { logAdminAction } = require('../services/audit');
+const { enviarAlertaSlack } = require('../services/notifications/slack');
 
 const KNOWN_INTEGRATIONS = [
   { key: 'shopify', label: 'Shopify' },
@@ -144,4 +145,29 @@ const getLogs = async (req, res) => {
   }
 };
 
-module.exports = { getStatus, setStatus, getLogs };
+// Dispara um alerta de teste pro Slack, pra confirmar que o SLACK_WEBHOOK_URL
+// está configurado certo sem precisar esperar um incidente de verdade.
+const testarAlerta = async (req, res) => {
+  try {
+    const configurado = !!process.env.SLACK_WEBHOOK_URL;
+    if (!configurado) {
+      return res.status(400).json({
+        ok: false,
+        error: 'SLACK_WEBHOOK_URL não está configurada no servidor. Defina a variável de ambiente pra ativar os alertas.',
+      });
+    }
+
+    await enviarAlertaSlack({
+      title: 'Teste de alerta — Intrex Admin',
+      message: `Disparado manualmente por ${req.adminUser?.name || 'um admin'}. Se você está vendo isso, os alertas automáticos estão funcionando.`,
+      severity: 'info',
+    });
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[AdminIntegracoes] testarAlerta erro:', err);
+    return res.status(500).json({ ok: false, error: 'Erro ao enviar alerta de teste' });
+  }
+};
+
+module.exports = { getStatus, setStatus, getLogs, testarAlerta };

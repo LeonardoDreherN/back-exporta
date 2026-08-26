@@ -1,5 +1,6 @@
 // services/integrationAlert.js
 const db = require('../models');
+const { enviarAlertaSlack } = require('./notifications/slack');
 
 // Sinaliza instabilidade numa integração (ex.: 429 persistente após esgotar as
 // retentativas) usando a mesma tabela que já alimenta a status page pública
@@ -20,6 +21,12 @@ async function sinalizarInstabilidade(key, message) {
             createdBy: null,
         });
         await row.update({ state: 'instability', message });
+
+        enviarAlertaSlack({
+            title: `${row.label || key} está com instabilidade`,
+            message,
+            severity: 'critical',
+        }).catch(() => {});
     } catch (e) {
         console.error('[integrationAlert] falha ao sinalizar instabilidade:', e.message);
     }
