@@ -48,6 +48,33 @@ const listEnvios = async (req, res) => {
   }
 };
 
+// Busca exata por número de rastreio — usado pra descobrir de qual cliente
+// é uma fatura da transportadora quando só se tem o tracking em mãos.
+const buscarPorRastreio = async (req, res) => {
+  try {
+    const tracking = String(req.params.tracking || '').trim();
+    if (!tracking) {
+      return res.status(400).json({ ok: false, error: 'Informe o número de rastreio' });
+    }
+
+    const rows = await db.Cotacao.findAll({
+      where: { tracking_number: { [Op.iLike]: tracking } },
+      attributes: { exclude: ['etiqueta_base64', 'invoice_base64', 'tracking_raw'] },
+      include: [{ model: db.Cliente, as: 'cliente', attributes: ['id', 'razaoSocial', 'emailPrincipal', 'cnpj'] }],
+      order: [['createdAt', 'DESC']],
+    });
+
+    if (!rows.length) {
+      return res.status(404).json({ ok: false, error: 'Nenhum envio encontrado com esse número de rastreio' });
+    }
+
+    return res.json({ ok: true, data: rows });
+  } catch (err) {
+    console.error('[AdminEnvios] buscarPorRastreio erro:', err);
+    return res.status(500).json({ ok: false, error: 'Erro ao buscar por rastreio' });
+  }
+};
+
 const getEnvioDetail = async (req, res) => {
   try {
     const { id } = req.params;
@@ -63,4 +90,4 @@ const getEnvioDetail = async (req, res) => {
   }
 };
 
-module.exports = { listEnvios, getEnvioDetail };
+module.exports = { listEnvios, getEnvioDetail, buscarPorRastreio };
