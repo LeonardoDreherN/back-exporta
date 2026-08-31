@@ -3,7 +3,12 @@ const db = require("../models/index.js");
 const Cotacao = db.Cotacao;
 const { fromSurcharges } = require("../utils/fromSurcharges.js");
 const { valorConversao } = require("../utils/dolar.js");
+const { impostosBetaHabilitado } = require("../services/featureFlags.js");
 const axios = require("axios");
+
+function round2(v) {
+    return Math.round((Number(v) || 0) * 100) / 100;
+}
 
 const URL_ASAAS =
     process.env.ASAAS_AMB === "production"
@@ -226,7 +231,128 @@ const gerarBoleto = async (req, res) => {
     }
 }
 
+/**
+ * Gera UM boleto Asaas para UMA cotação, somando frete + imposto estimado.
+ * Feature beta — só para contas na allowlist IMPOSTOS_BETA_EMAILS.
+ * Devolve o detalhamento completo para conferência ("veio certo?").
+ * POST /boletos/cotacao/:id  body: { dueDate: "YYYY-MM-DD" }
+ */
+const gerarBoletoCotacao = async (req, res) => {
+    const t = await db.sequelize.transaction();
+    try {
+        const clienteId = Number(
+            req.clienteId ??
+            req.cliente?.id ??
+            req.usuario?.clienteId ??
+            req.user?.clienteId
+        );
+        const cotacaoId = Number(req.params.id);
+        const { dueDate } = req.body || {};
+
+        if (!clienteId) { await t.rollback(); return res.status(401).json({ ok: false, error: "Cliente não autenticado" }); }
+        if (!cotacaoId) { await t.rollback(); return res.status(400).json({ ok: false, error: "id da cotação inválido" }); }
+        if (!dueDate) { await t.rollback(); return res.status(400).json({ ok: false, error: "dueDate é obrigatório (YYYY-MM-DD)" }); }
+
+        const cot = await Cotacao.findOne({ where: { id: cotacaoId, cliente_id: clienteId }, transaction: t });
+        if (!cot) { await t.rollback(); return res.status(404).json({ ok: false, error: "Cotação não encontrada" }); }
+
+        const cliente = await db.Cliente.findByPk(clienteId, { transaction: t });
+        if (!cliente) { await t.rollback(); return res.status(404).json({ ok: false, error: "Cliente não encontrado" }); }
+
+        if (!impostosBetaHabilitado(cliente)) {
+            await t.rollback();
+            return res.status(403).json({ ok: false, error: "Feature não habilitada para esta conta." });
+        }
+
+        let fx = Number(await valorConversao());
+        if (!Number.isFinite(fx) || fx <= 0) fx = 0;
+
+        // frete: preco_final é tratado como USD aqui; itens vão separados na resposta
+        // para qualquer divergência de unidade ficar visível na conferência.
+        const freteUsd = n(cot.preco_final);
+        const freteBrl = round2(freteUsd * fx);
+        const impostoBrl = round2(n(cot.impostos_valor_brl));
+        const totalBrl = round2(freteBrl + impostoBrl);
+
+        if (!totalBrl || totalBrl <= 0) {
+            await t.rollback();
+            return res.status(400).json({ ok: false, error: "Total zerado (sem frete e sem imposto estimado)." });
+        }
+
+        let est = null;
+        if (cot.imposto_estimativa_id) {
+            est = await db.ImpostoEstimativa.findByPk(cot.imposto_estimativa_id, { transaction: t });
+        }
+
+        const customer = await verificaCustomer(cliente);
+
+        const description =
+            `Frete + impostos estimados (importação) - cotação #${cot.id} / pedido ${cot.pedido_ref}`;
+
+        const { data } = await axios.post(`${URL_ASAAS}/payments`, {
+            customer,
+            billingType: "BOLETO",
+            value: totalBrl,
+            dueDate,
+            description,
+        }, {
+            headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+                access_token: ASAAS_TOKEN,
+            },
+        });
+
+        const novoBoleto = await db.AsaasBoletos.create({
+            clienteId: cliente.id,
+            asaasCustomerId: customer,
+            asaasPaymentId: data.id,
+            bankSlipUrl: data.bankSlipUrl,
+            value: data.value,
+            dueDate: data.dueDate,
+            status: data.status,
+        }, { transaction: t });
+
+        await t.commit();
+
+        return res.json({
+            ok: true,
+            boleto: {
+                id: novoBoleto.id,
+                asaasPaymentId: novoBoleto.asaasPaymentId,
+                bankSlipUrl: novoBoleto.bankSlipUrl,
+                value: novoBoleto.value,
+                status: novoBoleto.status,
+            },
+            detalhe: {
+                frete_usd: freteUsd,
+                imposto_usd_base: est ? Number(est.imposto_usd_base) : null,
+                margem_pct: est ? Number(est.margem_pct) : null,
+                imposto_usd_com_margem: est ? Number(est.imposto_usd_com_margem) : null,
+                fx,
+                fx_fonte: est ? est.fx_fonte : "awesomeapi",
+                colchao_cambio_pct: est ? Number(est.colchao_cambio_pct) : null,
+                frete_brl: freteBrl,
+                imposto_brl: impostoBrl,
+                total_brl: totalBrl,
+                breakdown: est ? est.breakdown : (cot.impostos_estimados || []),
+                provider: est ? est.provider : null,
+                de_minimis: est ? est.de_minimis : null,
+                estimativa_id: cot.imposto_estimativa_id || null,
+                is_estimate: true,
+            },
+        });
+    } catch (err) {
+        const body = err?.response?.data;
+        console.error("[BOLETO/COTACAO] ERRO:", err?.response?.status, JSON.stringify(body, null, 2) || err.message);
+        try { await t.rollback(); } catch (_) { }
+        return res.status(500).json({ ok: false, error: "Erro ao gerar boleto da cotação.", detail: body || err.message });
+    }
+};
+
 module.exports = {
     gerarBoleto,
-    pegarValor
+    pegarValor,
+    verificaCustomer,
+    gerarBoletoCotacao
 }

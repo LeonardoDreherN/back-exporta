@@ -21,6 +21,7 @@ const ChangelogEntryModel = require('./ChangelogEntry.js');
 const RoadmapCardModel = require('./RoadmapCard.js');
 const ColetaAgendadaModel = require('./ColetaAgendada.js');
 const RegraFreteModel = require('./RegraFrete.js');
+const ImpostoEstimativaModel = require('./ImpostoEstimativa.js');
 
 require('dotenv/config');
 
@@ -71,6 +72,7 @@ const db = {
   RoadmapCard: RoadmapCardModel(sequelize),
   ColetaAgendada: ColetaAgendadaModel(sequelize),
   RegraFrete: RegraFreteModel(sequelize),
+  ImpostoEstimativa: ImpostoEstimativaModel(sequelize),
 };
 
 // Ativa apenas as associações necessárias para o admin (Cotacao já definia a sua,
@@ -87,6 +89,7 @@ const modelsWithAssociate = [
   'ChangelogEntry',
   'RoadmapCard',
   'ColetaAgendada',
+  'ImpostoEstimativa',
 ];
 
 modelsWithAssociate.forEach((name) => {

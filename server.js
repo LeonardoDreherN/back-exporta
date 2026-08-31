@@ -526,6 +526,8 @@ app.get('/pedidos', autenticarUsuario, vincularCliente, listPedidos);
 
 // Asaas
 app.post('/boletos', autenticarUsuario, vincularCliente, require('./controller/Asaas.js').gerarBoleto);
+// Boleto por cotação (frete + imposto estimado) — feature beta, gated por allowlist no controller
+app.post('/boletos/cotacao/:id', autenticarUsuario, vincularCliente, require('./controller/Asaas.js').gerarBoletoCotacao);
 
 app.get('/dolar', async (req, res) => {
   try {

@@ -51,6 +51,13 @@ module.exports = (sequelize) => {
             allowNull: true,
             defaultValue: null,
         },
+
+        // ===== Cobrança antecipada de impostos (feature beta) =====
+        impostos_valor_brl: { type: DataTypes.DECIMAL(12, 2), allowNull: true, defaultValue: null },
+        impostos_moeda: { type: DataTypes.STRING(3), allowNull: true, defaultValue: null },
+        impostos_estimados: { type: DataTypes.JSONB, allowNull: true, defaultValue: null },
+        imposto_estimativa_id: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
+        impostos_modo: { type: DataTypes.STRING(16), allowNull: true, defaultValue: null },
     }, {
         tableName: 'cotacoes',
         underscored: true,

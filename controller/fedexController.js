@@ -12,6 +12,10 @@ const { getClienteAtual } = require('./ClientesController');
 const tracking = require('../services/fedex/trackingFedex');
 const { accountNumber } = require('../config/fedex');
 const { createPickup } = require('../services/fedex/pickupFedex');
+const crypto = require('crypto');
+const { impostosBetaHabilitado, impostosModo } = require('../services/featureFlags');
+const { estimarImpostos } = require('../services/landedCost');
+const { logAdminAction } = require('../services/audit');
 
 // ========== HELPERS ==========
 const onlyDigits = (s) => String(s || '').replace(/\D+/g, '');
@@ -1038,6 +1042,73 @@ module.exports = {
                 }
             }
 
+            // ===== ESTIMATIVA DE IMPOSTOS (feature beta, só allowlist) =====
+            // Fail-open: o shipment já foi criado; nada aqui pode interromper a resposta.
+            if (cotacaoId && impostosBetaHabilitado(cliente)) {
+                try {
+                    const est = await estimarImpostos({
+                        destCountry,
+                        incoterm: termsOfSale,
+                        currency,
+                        commodities,
+                        shipper,
+                        recipient,
+                        packages,
+                    });
+
+                    const snap = await db.ImpostoEstimativa.create({
+                        cotacao_id: cotacaoId,
+                        cliente_id: cliente.id,
+                        provider: est.provider,
+                        incoterm: termsOfSale || null,
+                        pais_origem: 'BR',
+                        pais_destino: destCountry || null,
+                        moeda: est.currency,
+                        commodities_snapshot: commodities,
+                        imposto_usd_base: est.imposto_usd_base,
+                        margem_pct: est.margem_pct,
+                        imposto_usd_com_margem: est.imposto_usd_com_margem,
+                        fx_usado: est.fx,
+                        fx_fonte: est.fx_fonte,
+                        colchao_cambio_pct: est.colchao_cambio_pct,
+                        imposto_valor_brl: est.imposto_valor_brl,
+                        breakdown: est.breakdown,
+                        de_minimis: est.de_minimis,
+                        is_estimate: est.is_estimate,
+                        modo: impostosModo(),
+                        raw_request: est.raw_request,
+                        raw_response: est.raw_response,
+                        hash: crypto.createHash('sha256')
+                            .update(JSON.stringify(est.raw_response || {}))
+                            .digest('hex'),
+                    });
+
+                    await Cotacao.update({
+                        impostos_valor_brl: est.imposto_valor_brl,
+                        impostos_moeda: 'BRL',
+                        impostos_estimados: est.breakdown,
+                        imposto_estimativa_id: snap.id,
+                        impostos_modo: impostosModo(),
+                    }, { where: { id: cotacaoId } });
+
+                    logAdminAction({
+                        action: 'IMPOSTO_ESTIMADO',
+                        entityType: 'cotacao',
+                        entityId: cotacaoId,
+                        clienteId: cliente.id,
+                        metadata: {
+                            provider: est.provider,
+                            imposto_usd_base: est.imposto_usd_base,
+                            imposto_valor_brl: est.imposto_valor_brl,
+                            de_minimis: est.de_minimis,
+                            modo: impostosModo(),
+                        },
+                    });
+                } catch (errImposto) {
+                    console.error('[IMPOSTO][ESTIMA][ERR]', errImposto?.message);
+                }
+            }
+
             return res.json({ ok: true, raw: data });
         } catch (err) {
             return res.status(err.status || 500).json({
@@ -1090,13 +1161,17 @@ module.exports = {
                 const location = origin?.pickupLocation || {};
                 const address = location?.address || {};
                 const readyDateTimestamp = String(origin?.readyDateTimestamp || '');
+                // colunas ready_time/close_time são VARCHAR(5); o front manda "HH:MM:SS"
+                const closeTime = origin?.customerCloseTime
+                    ? String(origin.customerCloseTime).slice(0, 5)
+                    : null;
 
                 await db.ColetaAgendada.create({
                     cliente_id: cliente.id,
                     carrier: 'FEDEX',
                     pickup_date: readyDateTimestamp ? readyDateTimestamp.slice(0, 10) : null,
                     ready_time: readyDateTimestamp ? readyDateTimestamp.slice(11, 16) : null,
-                    close_time: origin?.customerCloseTime || null,
+                    close_time: closeTime,
                     rua: Array.isArray(address?.streetLines) ? address.streetLines.join(', ') : null,
                     cidade: address?.city || null,
                     estado: address?.stateOrProvinceCode || null,
@@ -1108,7 +1183,11 @@ module.exports = {
                     raw_response: data || null,
                 });
             } catch (errSave) {
-                console.error('[FEDEX/PICKUP] Falha ao salvar coleta agendada', errSave?.message);
+                console.error('[FEDEX/PICKUP] Falha ao salvar coleta agendada:', {
+                    message: errSave?.message,
+                    original: errSave?.original?.message,
+                    name: errSave?.name,
+                });
             }
 
             return res.json({ ok: true, raw: data });
