@@ -1,4 +1,4 @@
-const { quote: upsQuote } = require('../services/ups/rating');
+const { quoteShop: upsShop } = require('../services/ups/rating');
 const { quoteRates: fedexRates } = require('../services/fedex/ratingFedex');
 
 const SHIPPER = {
@@ -100,9 +100,19 @@ const ISO_TO_KEY = {
 
 // SLA estimado por carrier (dias úteis)
 const SLA = {
-    UPS_EXPEDITED: 5,
-    UPS_EXPRESS:   3,
-    FEDEX_ICP:     7,
+    UPS_PADRAO: 5,
+    FEDEX_ICP:  7,
+};
+
+// Serviços internacionais da UPS. A cotação usa o endpoint Shop, que devolve um
+// RatedShipment por serviço disponível na rota — este mapa só traduz o código
+// para nome e SLA. Código fora da lista ainda é cotado, com SLA padrão.
+const UPS_SERVICES = {
+    '07': { name: 'Worldwide Express',      slaDays: 3 },
+    '08': { name: 'Worldwide Expedited',    slaDays: 5 },
+    '11': { name: 'Standard',               slaDays: 7 },
+    '54': { name: 'Worldwide Express Plus', slaDays: 2 },
+    '65': { name: 'Worldwide Saver',        slaDays: 4 },
 };
 
 function normKey(s) {
@@ -128,32 +138,44 @@ function pesoTaxavel(pesoKg, compCm, largCm, altCm) {
     return Math.max(Number(pesoKg), cubado || 0);
 }
 
-function extractUpsRates(upsRaw) {
-    const rs = upsRaw?.RateResponse?.RatedShipment;
-    const arr = Array.isArray(rs) ? rs : (rs ? [rs] : []);
-    const preferred =
-        arr.find(r => r?.Service?.Code === '08') ||
-        arr.find(r => r?.Service?.Code === '07') ||
-        arr[0];
-    if (!preferred) return null;
-
-    const serviceCode = preferred?.Service?.Code || '08';
-    const currency    = preferred?.TotalCharges?.CurrencyCode || 'USD';
-    const published   = +Number(preferred?.TotalCharges?.MonetaryValue || 0).toFixed(2);
+// Converte um RatedShipment (um serviço) no formato interno de tarifa.
+function ratedShipmentToRates(r) {
+    const serviceCode = String(r?.Service?.Code || '').trim();
+    const currency    = r?.TotalCharges?.CurrencyCode || 'USD';
+    const published   = +Number(r?.TotalCharges?.MonetaryValue || 0).toFixed(2);
     const negotiated  = +Number(
-        preferred?.NegotiatedRateCharges?.TotalCharge?.MonetaryValue ||
-        preferred?.TotalCharges?.MonetaryValue || 0
+        r?.NegotiatedRateCharges?.TotalCharge?.MonetaryValue ||
+        r?.TotalCharges?.MonetaryValue || 0
     ).toFixed(2);
     const baseRaw     = +Number(
-        preferred?.NegotiatedRateCharges?.BaseServiceCharge?.MonetaryValue ||
-        preferred?.TransportationCharges?.MonetaryValue || 0
+        r?.NegotiatedRateCharges?.BaseServiceCharge?.MonetaryValue ||
+        r?.TransportationCharges?.MonetaryValue || 0
     ).toFixed(2);
     const base        = baseRaw > 0 ? baseRaw : negotiated;
     const surcharges  = +Math.max(0, negotiated - base).toFixed(2);
-    const slaDays     = serviceCode === '07' ? SLA.UPS_EXPRESS : SLA.UPS_EXPEDITED;
-    const service     = serviceCode === '07' ? 'Worldwide Express' : 'Worldwide Expedited';
+    const info        = UPS_SERVICES[serviceCode] ||
+        { name: serviceCode ? `Internacional ${serviceCode}` : 'Internacional', slaDays: SLA.UPS_PADRAO };
 
-    return { negotiated, published, currency, base, surcharges, slaDays, service };
+    return {
+        negotiated, published, currency, base, surcharges,
+        slaDays: info.slaDays,
+        service: info.name,
+    };
+}
+
+// Do retorno do Shop, escolhe o serviço mais barato entre os disponíveis.
+function extractUpsRates(upsRaw) {
+    const rs  = upsRaw?.RateResponse?.RatedShipment;
+    const arr = Array.isArray(rs) ? rs : (rs ? [rs] : []);
+
+    const rates = arr
+        .map(ratedShipmentToRates)
+        .filter(r => r.negotiated > 0);
+
+    if (!rates.length) return null;
+
+    rates.sort((a, b) => a.negotiated - b.negotiated);
+    return rates[0];
 }
 
 function extractFedexRates(fedexResp) {
@@ -249,7 +271,10 @@ async function publicQuote(req, res) {
 
     const upsPayload = {
         RateRequest: {
-            Request: { TransactionReference: { CustomerContext: 'intrex-checkout-quote' } },
+            Request: {
+                RequestOption: 'Shop',
+                TransactionReference: { CustomerContext: 'intrex-checkout-quote' },
+            },
             Shipment: {
                 Shipper: {
                     Name: SHIPPER.name,
@@ -273,7 +298,6 @@ async function publicQuote(req, res) {
                     },
                 },
                 ShipTo: { Name: 'Destinatario', Address: shipToAddr },
-                Service: { Code: '08' },
                 ShipmentRatingOptions: { NegotiatedRatesIndicator: 'Y' },
                 Package: [{
                     PackagingType: { Code: '02' },
@@ -313,7 +337,7 @@ async function publicQuote(req, res) {
     };
 
     const [upsResult, fedexResult] = await Promise.allSettled([
-        upsQuote(upsPayload),
+        upsShop(upsPayload),
         fedexRates({
             shipper: fedexShipper,
             recipient: fedexRecipient,

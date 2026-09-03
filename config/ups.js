@@ -6,6 +6,9 @@ module.exports = {
     base,
     oauth: `${base}/security/v1/oauth/token`,
     rate: `${base}/api/rating/v2407/Rate`,
+    // Shop devolve todos os servicos disponiveis na rota, em vez de cotar um
+    // Service.Code fixo — usado pela cotacao publica de checkout.
+    shop: `${base}/api/rating/v2407/Shop`,
     ship: `${base}/api/shipments/v2407/ship`,
     track: `${base}/api/track/v1/details`,
     pickupCreate: `${base}/api/pickupcreation/v2407/pickup`,

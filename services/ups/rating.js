@@ -20,12 +20,12 @@ function extractUpsMessage(err) {
     );
 }
 
-async function quote(payload, creds = {}) {
+async function requestRating(url, payload, creds = {}) {
     try {
         const token = await getToken(false, creds);
-        
+
         const res = await http.post(
-            cfg.rate,
+            url,
             payload,
             {
                 headers: {
@@ -44,6 +44,7 @@ async function quote(payload, creds = {}) {
         const headers = err?.response?.headers;
 
         console.error('UPS RATE error =>', {
+            url,
             status,
             correlation:
                 headers?.['transId'] ||
@@ -60,4 +61,15 @@ async function quote(payload, creds = {}) {
     }
 }
 
-module.exports = { quote };
+// Cota um Service.Code especifico (o payload precisa trazer Shipment.Service).
+async function quote(payload, creds = {}) {
+    return requestRating(cfg.rate, payload, creds);
+}
+
+// Cota todos os servicos que a UPS oferece na rota. O payload NAO deve trazer
+// Shipment.Service — a resposta vem com um RatedShipment por servico disponivel.
+async function quoteShop(payload, creds = {}) {
+    return requestRating(cfg.shop, payload, creds);
+}
+
+module.exports = { quote, quoteShop };
