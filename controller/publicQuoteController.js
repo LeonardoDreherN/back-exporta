@@ -1,13 +1,17 @@
 const { quote: upsQuote } = require('../services/ups/rating');
 const { quoteRates: fedexRates } = require('../services/fedex/ratingFedex');
 
+// Mesma origem usada pela integracao Shopify (routes/shopifyCarrier.js). A UPS
+// recusa cotacao saindo de Florianopolis 88036003 com erro 111217 ("service
+// unavailable between the selected locations") em todos os servicos; saindo
+// daqui ela cota normalmente.
 const SHIPPER = {
     name: 'INTREX',
     phone: '47992104226',
-    address: 'Rua Lauro Linhares 2055',
-    city: 'Florianopolis',
+    address: 'Rua Saint German, 87',
+    city: 'Santo Amaro da Imperatriz',
     state: 'SC',
-    postalCode: '88036003',
+    postalCode: '88140570',
     countryCode: 'BR',
 };
 
