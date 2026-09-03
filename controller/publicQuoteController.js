@@ -287,16 +287,10 @@ async function publicQuote(req, res) {
                         CountryCode: SHIPPER.countryCode,
                     },
                 },
-                ShipFrom: {
-                    Name: SHIPPER.name,
-                    Address: {
-                        AddressLine: [SHIPPER.address],
-                        City: SHIPPER.city,
-                        StateProvinceCode: SHIPPER.state,
-                        PostalCode: SHIPPER.postalCode,
-                        CountryCode: SHIPPER.countryCode,
-                    },
-                },
+                // Sem ShipFrom de proposito: quando ele existe, a UPS valida a
+                // origem por ele em vez de pelo endereco do Shipper. Como os dois
+                // seriam iguais aqui, mandar so o Shipper (igual a integracao
+                // Shopify, que cota normalmente) evita a validacao extra.
                 ShipTo: { Name: 'Destinatario', Address: shipToAddr },
                 ShipmentRatingOptions: { NegotiatedRatesIndicator: 'Y' },
                 Package: [{

@@ -43,6 +43,15 @@ async function requestRating(url, payload, creds = {}) {
         const data = err?.response?.data;
         const headers = err?.response?.headers;
 
+        // JSON.stringify em vez de passar o objeto: o console do Node corta em
+        // dois niveis e esconde response.errors[], onde fica o codigo do erro.
+        let dataStr;
+        try {
+            dataStr = JSON.stringify(data);
+        } catch {
+            dataStr = String(data);
+        }
+
         console.error('UPS RATE error =>', {
             url,
             status,
@@ -51,7 +60,7 @@ async function requestRating(url, payload, creds = {}) {
                 headers?.['x-correlation-id'] ||
                 headers?.['x-transaction-id'] ||
                 null,
-            data,
+            data: dataStr,
         });
 
         const e = new Error(extractUpsMessage(err) || `UPS Rate failed with status ${status}`);
