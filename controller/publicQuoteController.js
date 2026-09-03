@@ -1,4 +1,4 @@
-const { quoteShop: upsShop } = require('../services/ups/rating');
+const { quote: upsQuote } = require('../services/ups/rating');
 const { quoteRates: fedexRates } = require('../services/fedex/ratingFedex');
 
 const SHIPPER = {
@@ -104,9 +104,10 @@ const SLA = {
     FEDEX_ICP:  7,
 };
 
-// Serviços internacionais da UPS. A cotação usa o endpoint Shop, que devolve um
-// RatedShipment por serviço disponível na rota — este mapa só traduz o código
-// para nome e SLA. Código fora da lista ainda é cotado, com SLA padrão.
+// Serviços internacionais da UPS consultados na cotação de checkout. O endpoint
+// Shop (catálogo por rota) não funciona nesta conta: responde 111100 mesmo sem
+// serviço no payload. Então cotamos cada código em paralelo e ficamos com o mais
+// barato que responder. Código fora do mapa ainda é lido, com SLA padrão.
 const UPS_SERVICES = {
     '07': { name: 'Worldwide Express',      slaDays: 3 },
     '08': { name: 'Worldwide Expedited',    slaDays: 5 },
@@ -114,6 +115,9 @@ const UPS_SERVICES = {
     '54': { name: 'Worldwide Express Plus', slaDays: 2 },
     '65': { name: 'Worldwide Saver',        slaDays: 4 },
 };
+
+// Ordem não importa: as três consultas saem em paralelo.
+const UPS_SERVICE_CODES = ['65', '08', '07'];
 
 function normKey(s) {
     // eslint-disable-next-line no-misleading-character-class
@@ -240,6 +244,47 @@ function buildOption(carrier, rates) {
     };
 }
 
+// Consulta cada serviço da UPS em paralelo e devolve a tarifa mais barata entre
+// os que responderam. Se nenhum responder, lança um erro com o motivo de cada um,
+// que é o que aparece em errors.ups.
+async function cotarUps(basePayload) {
+    const tentativas = await Promise.allSettled(
+        UPS_SERVICE_CODES.map((code) => {
+            const payload = {
+                ...basePayload,
+                RateRequest: {
+                    ...basePayload.RateRequest,
+                    Shipment: {
+                        ...basePayload.RateRequest.Shipment,
+                        Service: { Code: code },
+                    },
+                },
+            };
+            return upsQuote(payload);
+        })
+    );
+
+    const rates  = [];
+    const falhas = [];
+
+    tentativas.forEach((t, i) => {
+        const code = UPS_SERVICE_CODES[i];
+        if (t.status === 'fulfilled') {
+            const rate = extractUpsRates(t.value);
+            if (rate) rates.push(rate);
+        } else {
+            falhas.push(`${code}: ${t.reason?.message || 'sem resposta'}`);
+        }
+    });
+
+    if (!rates.length) {
+        throw new Error(falhas.join(' | ') || 'UPS não retornou cotação');
+    }
+
+    rates.sort((a, b) => a.negotiated - b.negotiated);
+    return rates[0];
+}
+
 async function publicQuote(req, res) {
     const { comprimento, largura, altura, peso, destino } = req.body || {};
 
@@ -272,7 +317,7 @@ async function publicQuote(req, res) {
     const upsPayload = {
         RateRequest: {
             Request: {
-                RequestOption: 'Shop',
+                RequestOption: 'Rate',
                 TransactionReference: { CustomerContext: 'intrex-checkout-quote' },
             },
             Shipment: {
@@ -331,7 +376,7 @@ async function publicQuote(req, res) {
     };
 
     const [upsResult, fedexResult] = await Promise.allSettled([
-        upsShop(upsPayload),
+        cotarUps(upsPayload),
         fedexRates({
             shipper: fedexShipper,
             recipient: fedexRecipient,
@@ -353,8 +398,7 @@ async function publicQuote(req, res) {
     const errors  = {};
 
     if (upsResult.status === 'fulfilled') {
-        const rates = extractUpsRates(upsResult.value);
-        if (rates) options.push(buildOption('UPS', rates));
+        options.push(buildOption('UPS', upsResult.value));
     } else {
         console.error('[PUBLIC QUOTE][UPS]', upsResult.reason?.message);
         errors.ups = upsResult.reason?.message || 'UPS indisponível';
