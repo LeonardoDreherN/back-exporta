@@ -2,7 +2,6 @@
 const express = require('express');
 const cors = require('cors');
 const ctrl = require('../controller/Dashboard');
-const pendenciasCtrl = require('../controller/PendenciasController.js');
 const { Cotacao } = require('../models');
 
 const router = express.Router();
@@ -42,9 +41,6 @@ router.get('/envioVsCotacao', corsOpts, ctrl.envioVsCotacao)
 router.get('/infosBreves', corsOpts, ctrl.dadosBreves)
 router.get('/paises/valores', corsOpts, ctrl.valorTotalPaisDestinatario)
 router.get('/quantidadeStatus', corsOpts, ctrl.quantidadeStatus)
-// Bloco "Precisa de voce" do dashboard: uma chamada so, em vez de somar
-// mais quatro requisicoes na carga da tela.
-router.get('/pendencias', corsOpts, pendenciasCtrl.pendencias)
 
 
 module.exports = router;
