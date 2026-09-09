@@ -1192,6 +1192,12 @@ module.exports = {
 
             return res.json({ ok: true, raw: data });
         } catch (err) {
+            // Sem este log a falha de pickup sumia: o front mostrava "falha ao
+            // agendar" e o Render nao registrava nada, porque so o catch de
+            // dentro (o que salva no banco) logava. Mesmo formato do
+            // [UPS/PICKUP ERROR], para os dois aparecerem igual.
+            console.error('[FEDEX/PICKUP ERROR]', err?.message, err?.upstream);
+
             return res.status(err.status || 500).json({
                 ok: false,
                 error: err.message || 'Falha no pickup FedEx',
