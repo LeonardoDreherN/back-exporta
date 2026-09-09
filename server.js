@@ -160,6 +160,7 @@ app.use('/api/cotacoes', autenticarUsuario, vincularCliente, require('./routes/c
 app.use('/api/coletas', autenticarUsuario, vincularCliente, require('./routes/coletasRoutes.js'));
 app.use('/api/relatorio', autenticarUsuario, vincularCliente, require('./routes/relatorioPagamentos.js'));
 app.use('/api/rate', require('./routes/rateMulti.js'));
+app.use('/api/simulacao', autenticarUsuario, vincularCliente, require('./routes/simulacaoRoutes.js'));
 app.use('/__fedex', autenticarUsuario, require('./routes/debugFedex.js'));
 
 // Admin (staff interno da Intrex) — autenticação e API própria
