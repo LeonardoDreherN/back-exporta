@@ -44,6 +44,15 @@ const UPS_SERVICES = {
 
 const UPS_SERVICE_CODES = ['65', '08', '07'];
 
+// Desembaraco aduaneiro cobrado pela transportadora, em USD. E fixo por
+// transportadora e vale para qualquer destino — nao entra no rate nem no EDT,
+// entao precisa ser somado aqui. Valores mudam: da para sobrescrever por env
+// sem mexer no codigo.
+const DESEMBARACO_USD = {
+    FEDEX: Number(process.env.SIMULACAO_DESEMBARACO_FEDEX_USD) || 15,
+    UPS: Number(process.env.SIMULACAO_DESEMBARACO_UPS_USD) || 3,
+};
+
 // Limites do simulador. Express internacional nao aceita volume acima disso,
 // entao barramos antes de gastar chamada de transportadora.
 const LIMITES = {
@@ -571,10 +580,16 @@ async function simular(entrada = {}) {
         avisos.push('Transportadoras cotaram em moedas diferentes e o cambio esta indisponivel: nao da para compara-las agora.');
     }
 
-    // Landed cost: frete + imposto, que e a leitura que o cliente quer.
+    // Landed cost: frete + desembaraco + imposto, que e a leitura que o cliente
+    // quer. O desembaraco fica em linha propria: e taxa da transportadora, nao
+    // tributo do destino, e o valor muda conforme quem leva.
     const totais = fretes.map((f) => {
         const freteUsd = paraUsd(f.total, f.moeda);
         const freteBrl = paraBrl(f.total, f.moeda);
+
+        const desembaracoUsd = round2(DESEMBARACO_USD[f.carrier] ?? 0);
+        const desembaracoBrl = fx ? round2(desembaracoUsd * fx) : null;
+
         const impostoUsd = impostos.disponivel ? impostos.intrex_usd : null;
         const impostoBrl = impostos.disponivel ? impostos.intrex_brl : null;
 
@@ -583,13 +598,15 @@ async function simular(entrada = {}) {
             moeda_frete: f.moeda,
             frete_usd: freteUsd,
             frete_brl: freteBrl,
+            desembaraco_usd: desembaracoUsd,
+            desembaraco_brl: desembaracoBrl,
             imposto_usd: impostoUsd,
             imposto_brl: impostoBrl,
             total_usd: (freteUsd != null && impostoUsd != null)
-                ? round2(freteUsd + impostoUsd)
+                ? round2(freteUsd + desembaracoUsd + impostoUsd)
                 : null,
-            total_brl: (freteBrl != null && impostoBrl != null)
-                ? round2(freteBrl + impostoBrl)
+            total_brl: (freteBrl != null && impostoBrl != null && desembaracoBrl != null)
+                ? round2(freteBrl + desembaracoBrl + impostoBrl)
                 : null,
         };
     });
