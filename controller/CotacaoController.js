@@ -760,11 +760,25 @@ async function listCotacoes(req, res) {
             pedido_ref, tracking_number, date_from, date_to,
             page = 1, limit = 10,
             only_with_tracking,
-            refresh, search, start_day, end_day
+            refresh, search, start_day, end_day,
+            status,
         } = req.query;
         const tzOffset = "-03:00";
 
         const where = { cliente_id };
+
+        // Filtro por status_norm. Aceita lista separada por virgula
+        // ("EXCECAO,EM_TRANSITO") para a tela de ocorrencias poder crescer sem
+        // precisar de outro endpoint.
+        if (status) {
+            const lista = String(status)
+                .split(',')
+                .map((s) => s.trim().toUpperCase())
+                .filter(Boolean);
+
+            if (lista.length === 1) where.status_norm = lista[0];
+            else if (lista.length > 1) where.status_norm = { [Op.in]: lista };
+        }
 
         if (search && String(search).trim()) {
             const q = `%${String(search).trim()}%`;
