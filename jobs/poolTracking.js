@@ -15,6 +15,24 @@ const { getStatusOnly } = require('../services/trackingStatus');
 const { logSync } = require('../services/syncLog');
 const { pushTrackingEventNuvemshop } = require('../services/nuvemshop/fulfillment');
 
+// Status que ainda podem mudar. EXCECAO estava de fora e isso congelava o
+// envio: assim que a transportadora sinalizava um problema, o job parava de
+// consultar aquele rastreio para sempre — mesmo depois de o pacote ser
+// entregue. Havia envio marcado como excecao ha seis meses, com o ultimo
+// evento gravado sendo "On the way".
+const STATUS_EM_ANDAMENTO = [
+    'CRIADO',
+    'COLETADO',
+    'EM_TRANSITO',
+    'SAIU_PARA_ENTREGA',
+    'EXCECAO',
+];
+
+// UPS e FedEx descartam o historico de rastreio depois de alguns meses: passar
+// disso e gastar chamada para receber vazio, e ainda ocupa o teto de 200 por
+// rodada que os envios recentes precisam.
+const DIAS_MAX_RASTREIO = 90;
+
 function dataValida(valor) {
     if (!valor) return null;
     const d = new Date(valor);
@@ -24,8 +42,14 @@ function dataValida(valor) {
 async function pool() {
     const start = Date.now();
     const { Op } = Sequelize;
+    const limiteIdade = new Date(Date.now() - DIAS_MAX_RASTREIO * 24 * 60 * 60 * 1000);
+
     const pendentes = await Cotacao.findAll({
-        where: { status_norm: { [Op.in]: ['CRIADO', 'EM_TRANSITO'] }, tracking_number: { [Op.ne]: null } },
+        where: {
+            status_norm: { [Op.in]: STATUS_EM_ANDAMENTO },
+            tracking_number: { [Op.ne]: null },
+            createdAt: { [Op.gte]: limiteIdade },
+        },
         limit: 200,
     });
 
