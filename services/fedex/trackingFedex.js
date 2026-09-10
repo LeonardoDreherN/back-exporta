@@ -225,6 +225,22 @@ function pickLatestFedexActivity(json) {
 function fromFEDEX(evt = {}) {
     const code = String(evt?.statusCode || '').toUpperCase();
     const derived = String(evt?.derivedCode || '').toUpperCase();
+    const codigos = new Set([code, derived].filter(Boolean));
+
+    // O codigo da FedEx e o campo autoritativo: vem de latestStatusDetail, ou
+    // seja, e o estado ATUAL do envio. Consultar ele primeiro evita o problema
+    // que existia aqui, de casar palavra solta num texto que mistura o status
+    // atual com a descricao do scan.
+    if (codigos.has('DL')) return 'ENTREGUE';
+    if (codigos.has('OD')) return 'SAIU_PARA_ENTREGA';
+    if (codigos.has('CA')) return 'CANCELADO';
+    if (codigos.has('RS')) return 'RETORNADO';
+    if (codigos.has('DE') || codigos.has('SE') || codigos.has('HL')) return 'EXCECAO';
+    if (codigos.has('PU')) return 'COLETADO';
+    if (codigos.has('IT') || codigos.has('AR') || codigos.has('DP') || codigos.has('PF')) {
+        return 'EM_TRANSITO';
+    }
+
     const text = [
         evt?.statusByLocale,
         evt?.statusDescription,
@@ -234,91 +250,54 @@ function fromFEDEX(evt = {}) {
 
     const hasAny = (arr) => arr.some(k => text.includes(k));
 
-    // CANCELADO
-    const canceledHints = [
-        'CANCEL',
-        'VOID',
-        'CANCELED'
-    ];
-    if (hasAny(canceledHints)) return 'CANCELADO';
+    // Do mais especifico para o mais generico. A ordem aqui e o que estava
+    // errado antes: 'DELIVERY' vinha antes de 'OUT FOR DELIVERY', entao
+    // "ON FEDEX VEHICLE FOR DELIVERY" era lido como entregue. Pior,
+    // "DELIVERY UPDATED AT LOCAL FEDEX FACILITY" — que e so um reagendamento
+    // dentro do galpao — tambem virava ENTREGUE, e "REFUSED THE DELIVERY"
+    // idem: pacote recusado marcado como entregue.
 
-    // EXCECAO
-    const exceptionHints = [
-        'EXCEPTION',
-        'DELAY',
-        'FAILED',
-        'UNDELIVERABLE',
-        'RETURN TO SENDER',
-        'HELD',
-        'HOLD',
-        'ADDRESS',
-        'DAMAGED'
-    ];
-    if (hasAny(exceptionHints)) return 'EXCECAO';
+    if (hasAny(['OUT FOR DELIVERY', 'ON FEDEX VEHICLE FOR DELIVERY',
+                'ON VEHICLE FOR DELIVERY', 'VEHICLE FOR DELIVERY'])) {
+        return 'SAIU_PARA_ENTREGA';
+    }
 
-    // RETORNADO
-    const returnedHints = [
-        'RETURNED',
-        'RETURN TO SHIPPER',
-        'RETURN TO SENDER',
-        'RTS'
-    ];
-    if (hasAny(returnedHints)) return 'RETORNADO';
+    if (hasAny(['CANCEL', 'VOID'])) return 'CANCELADO';
 
-    // ENTREGUE
-    const deliveredHints = [
-        'DELIVERED',
-        'DELIVERY',
-        'SIGNED'
-    ];
-    if (code === 'DL' || derived === 'DL' || hasAny(deliveredHints)) return 'ENTREGUE';
+    if (hasAny(['RETURNED TO SHIPPER', 'RETURN TO SHIPPER',
+                'RETURNED TO SENDER', 'RETURN TO SENDER'])) {
+        return 'RETORNADO';
+    }
 
-    // SAIU_PARA_ENTREGA
-    const outForDeliveryHints = [
-        'OUT FOR DELIVERY',
-        'ON FEDEX VEHICLE FOR DELIVERY',
-        'ON VEHICLE FOR DELIVERY',
-        'DELIVERY TODAY'
-    ];
-    if (hasAny(outForDeliveryHints)) return 'SAIU_PARA_ENTREGA';
+    // 'ADDRESS' sozinho saiu da lista: casava em qualquer frase que citasse
+    // endereco, inclusive entrega bem-sucedida. Trocado pelos casos reais.
+    if (hasAny(['EXCEPTION', 'REFUSED', 'UNDELIVERABLE', 'DAMAGED',
+                'DELAY', 'HELD', 'HOLD AT LOCATION',
+                'INCORRECT ADDRESS', 'BAD ADDRESS', 'UNABLE TO DELIVER',
+                'DELIVERY ATTEMPT FAILED', 'CUSTOMER NOT AVAILABLE'])) {
+        return 'EXCECAO';
+    }
 
-    // COLETADO
-    const collectedHints = [
-        'PICKED UP',
-        'PICKUP',
-        'RECEIVED BY FEDEX',
-        'ARRIVAL AT FEDEX LOCATION',
-        'ARRIVED AT FEDEX LOCATION'
-    ];
-    if (code === 'PU' || derived === 'PU' || hasAny(collectedHints)) return 'COLETADO';
+    // 'DELIVERED', nunca 'DELIVERY': o segundo aparece em meia duzia de
+    // eventos que nao sao entrega.
+    if (hasAny(['DELIVERED', 'SIGNED FOR BY', 'LEFT AT'])) return 'ENTREGUE';
 
-    // EM_TRANSITO
-    const transitHintsSiglas = new Set(['IT', 'AR', 'DP', 'OD']);
-    const transitHints = [
-        'IN TRANSIT',
-        'ON THE WAY',
-        'AT LOCAL FEDEX FACILITY',
-        'ARRIVED',
-        'DEPARTED',
-        'CUSTOMS',
-        'CLEARANCE',
-        'INTERNATIONAL SHIPMENT RELEASE',
-        'MOVING THROUGH NETWORK'
-    ];
-    if (hasAny(transitHints) || transitHintsSiglas.has(code) || transitHintsSiglas.has(derived)) {
+    if (hasAny(['PICKED UP', 'PICKUP', 'RECEIVED BY FEDEX',
+                'ARRIVAL AT FEDEX LOCATION', 'ARRIVED AT FEDEX LOCATION'])) {
+        return 'COLETADO';
+    }
+
+    if (hasAny(['IN TRANSIT', 'ON THE WAY', 'AT LOCAL FEDEX FACILITY',
+                'ARRIVED', 'DEPARTED', 'CUSTOMS', 'CLEARANCE',
+                'INTERNATIONAL SHIPMENT RELEASE', 'MOVING THROUGH NETWORK',
+                'DELIVERY UPDATED'])) {
         return 'EM_TRANSITO';
     }
 
-    // CRIADO (label / shipment info received)
-    const createdHints = [
-        'LABEL',
-        'SHIPMENT INFORMATION SENT',
-        'SHIPMENT INFORMATION RECEIVED',
-        'PICKUP REQUESTED',
-        'CREATED',
-        'ELECTRONIC'
-    ];
-    if (hasAny(createdHints)) return 'CRIADO';
+    if (hasAny(['LABEL', 'SHIPMENT INFORMATION SENT', 'SHIPMENT INFORMATION RECEIVED',
+                'PICKUP REQUESTED', 'CREATED', 'ELECTRONIC'])) {
+        return 'CRIADO';
+    }
 
     return 'CRIADO';
 }

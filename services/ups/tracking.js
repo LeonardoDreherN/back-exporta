@@ -237,6 +237,34 @@ function normalizeUpsStatusFromTimeline(events) {
         }
     }
 
+    // Excecao: a UPS marca com statusCode 'X'. Nao havia ramo para isso aqui,
+    // entao uma entrega recusada nunca virava ocorrencia — ficava como transito
+    // ou, pior, como entregue.
+    //
+    // Olha SO o evento mais recente, nunca o historico: um pacote que teve
+    // problema no caminho e depois seguiu normalmente nao pode ficar marcado
+    // como excecao para sempre. E o mesmo erro que congelava os envios FedEx.
+    const maisRecente = events[0] || {};
+    const codeAtual = String(maisRecente?.statusCode || maisRecente?.status?.type || '').toUpperCase();
+    const textoAtual = [maisRecente?.statusDescription, maisRecente?.description, maisRecente?.activity]
+        .filter(Boolean).join(' ').toUpperCase();
+
+    const excecaoHints = [
+        'REFUSED',
+        'EXCEPTION',
+        'UNDELIVERABLE',
+        'DAMAGED',
+        'INCORRECT ADDRESS',
+        'BAD ADDRESS',
+        'UNABLE TO DELIVER',
+        'RETURNED TO SENDER',
+        'RETURN TO SENDER',
+    ];
+
+    if (codeAtual === 'X' || excecaoHints.some((k) => textoAtual.includes(k))) {
+        return 'EXCECAO';
+    }
+
     const createdKeywords = [
         'LABEL',
         'SHIPPER CREATED A LABEL',
