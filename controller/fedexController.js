@@ -513,6 +513,30 @@ function mergePedidoItemOverrides(pedido, pedidoManual) {
     return { ...basePedido, itens: merged };
 }
 
+/**
+ * Hora no formato que a FedEx aceita em customerCloseTime: HH:MM:SS.
+ * Aceita "8:30", "17:30", "17:30:00", "1730" e "173000".
+ * Se não der para entender, devolve o original — deixar a FedEx recusar é
+ * melhor que inventar um horário de fechamento para o cliente.
+ */
+function paraHoraFedex(valor) {
+    const s = String(valor ?? '').trim();
+    if (!s) return s;
+
+    const comSeparador = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    const semSeparador = s.match(/^(\d{2})(\d{2})(\d{2})?$/);
+    const m = comSeparador || semSeparador;
+    if (!m) return s;
+
+    const h = Number(m[1]);
+    const min = Number(m[2]);
+    const seg = Number(m[3] ?? 0);
+    if (h > 23 || min > 59 || seg > 59) return s;
+
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(h)}:${pad(min)}:${pad(seg)}`;
+}
+
 function buildCommoditiesFromPedido(pedido, packages = []) {
     const currency = (pedido.moeda || 'USD').toUpperCase();
 
@@ -1149,6 +1173,16 @@ module.exports = {
             const payload = req.body || {};
             if (!payload || typeof payload !== 'object') {
                 return res.status(400).json({ ok: false, error: 'Payload de pickup obrigatório.' });
+            }
+
+            // A FedEx exige HH:MM:SS em customerCloseTime e devolve 400
+            // (INCORRECT.COMPANYCLOSETIME.FORMAT) com qualquer outra coisa.
+            // Normaliza aqui, e não só no front: o payload chega de mais de
+            // uma tela, e um <input type="time"> emite "HH:MM" ou "HH:MM:SS"
+            // dependendo do step. Melhor consertar onde é obrigatório.
+            if (payload.originDetail?.customerCloseTime) {
+                payload.originDetail.customerCloseTime =
+                    paraHoraFedex(payload.originDetail.customerCloseTime);
             }
 
             const data = await createPickup(payload, {
