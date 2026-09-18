@@ -584,6 +584,78 @@ function fitCommodityWeightsToPackages(commodities = [], totalKgFromPackages = 0
     }));
 }
 
+// Texto da posicao HS (4 digitos) usado para qualificar a descricao na invoice.
+// Nao inventa nada: descreve a classificacao que o proprio pedido declarou.
+const DESC_POR_POSICAO_HS = {
+    '4202': 'trunks, suitcases, handbags and similar carrying containers',
+    '4819': 'cartons, boxes and cases of paper or paperboard',
+    '4821': 'printed paper labels and tags',
+    '4823': 'other articles of paper or paperboard',
+    '4901': 'printed books and brochures',
+    '4909': 'printed postcards and greeting cards',
+    '4911': 'other printed matter',
+    '5701': 'knotted carpets of textile materials',
+    '5703': 'tufted carpets and textile floor coverings',
+    '6305': 'sacks and bags for packing of goods, of textile materials',
+    '6307': 'other made-up articles of textile materials',
+    '9403': 'furniture and parts thereof',
+};
+
+// Fallback por capitulo (2 digitos), para cobrir posicoes fora da tabela acima.
+const DESC_POR_CAPITULO_HS = {
+    '33': 'essential oils and cosmetic preparations',
+    '34': 'soap and washing preparations',
+    '39': 'articles of plastics',
+    '42': 'articles of leather and travel goods',
+    '44': 'articles of wood',
+    '48': 'articles of paper and paperboard',
+    '49': 'printed matter and printed products',
+    '52': 'cotton textile products',
+    '57': 'carpets and other textile floor coverings',
+    '58': 'special woven fabrics and trimmings',
+    '61': 'knitted or crocheted apparel articles',
+    '62': 'apparel articles, not knitted or crocheted',
+    '63': 'other made-up textile articles',
+    '64': 'footwear articles',
+    '65': 'headgear articles',
+    '69': 'ceramic articles',
+    '70': 'glassware articles',
+    '71': 'imitation jewellery articles',
+    '73': 'articles of iron or steel',
+    '76': 'articles of aluminium',
+    '82': 'tools and cutlery of base metal',
+    '83': 'miscellaneous articles of base metal',
+    '84': 'machinery and mechanical appliances',
+    '85': 'electrical machines and apparatus',
+    '91': 'clocks, watches and parts thereof',
+    '94': 'furniture, bedding and lighting fittings',
+    '95': 'toys, games and sports articles',
+    '96': 'miscellaneous manufactured articles',
+};
+
+/**
+ * A FedEx recusa descricao generica na invoice
+ * (SHIPMENT.COMMODITYDESC.VAGUE.NOTALLOWED) para titulos como "Bag", "Parts",
+ * "Gift". O titulo do item vem do pedido importado e nao e editavel na tela,
+ * entao qualificamos a descricao com o texto da posicao HS declarada no pedido.
+ */
+function detalharDescricaoCommodity(descricao, hscode) {
+    const base = String(descricao || '').trim() || 'Item';
+    const digitos = String(hscode || '').replace(/D/g, '');
+    if (digitos.length < 2) return base.slice(0, 450);
+
+    const texto =
+        DESC_POR_POSICAO_HS[digitos.slice(0, 4)] ||
+        DESC_POR_CAPITULO_HS[digitos.slice(0, 2)] ||
+        null;
+    if (!texto) return base.slice(0, 450);
+
+    // evita duplicar quando a descricao ja traz o texto da posicao
+    if (base.toLowerCase().includes(texto.toLowerCase())) return base.slice(0, 450);
+
+    return `${base} - ${texto}`.slice(0, 450);
+}
+
 function buildCommoditiesFromPedido(pedido, packages = []) {
     const currency = (pedido.moeda || 'USD').toUpperCase();
 
@@ -617,7 +689,7 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
         const weightKg = round3(weightKgRaw);
 
         return {
-            description: (it.titulo || 'Item').slice(0, 450),
+            description: detalharDescricaoCommodity(it.titulo, hs),
             countryOfManufacture: 'BR',
             quantity: qty,
             quantityUnits: 'PCS',
