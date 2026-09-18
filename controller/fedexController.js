@@ -311,6 +311,10 @@ function round3(n) {
     return Math.round((Number(n) || 0) * 1000) / 1000;
 }
 
+function floor3(n) {
+    return Math.floor((Number(n) || 0) * 1000) / 1000;
+}
+
 function round2(n) {
     return Math.round((Number(n) || 0) * 100) / 100;
 }
@@ -537,6 +541,49 @@ function paraHoraFedex(valor) {
     return `${pad(h)}:${pad(min)}:${pad(seg)}`;
 }
 
+/**
+ * A FedEx recusa a emissao (COMMODITYWEIGHT.GREATERTHAN.PACKAGEWEIGHT) quando a
+ * soma do peso das commodities passa do peso declarado nas caixas. O peso unitario
+ * cadastrado no produto costuma estar errado/desatualizado, entao o peso real da
+ * caixa manda: se a soma estourar, redistribui proporcionalmente dentro do total.
+ */
+function fitCommodityWeightsToPackages(commodities = [], totalKgFromPackages = 0) {
+    const alvo = floor3(totalKgFromPackages);
+    if (!Array.isArray(commodities) || !commodities.length || alvo <= 0) return commodities;
+
+    const pesos = commodities.map((c) => Number(c?.weight?.value) || 0);
+    const soma = pesos.reduce((acc, w) => acc + w, 0);
+    if (soma <= 0 || soma <= alvo) return commodities;
+
+    const minKg = 0.01; // minimo aceito pela FedEx por commodity
+    // se nem o minimo por item cabe no peso da caixa, deixa a FedEx recusar
+    if (minKg * commodities.length > alvo) return commodities;
+
+    let ajustados = pesos.map((w) => Math.max(minKg, floor3(alvo * (w / soma))));
+
+    // o clamp do minimo pode empurrar a soma de volta para cima do alvo
+    let somaAjustada = round3(ajustados.reduce((acc, w) => acc + w, 0));
+    while (somaAjustada > alvo) {
+        let maiorIdx = 0;
+        for (let i = 1; i < ajustados.length; i++) {
+            if (ajustados[i] > ajustados[maiorIdx]) maiorIdx = i;
+        }
+        if (ajustados[maiorIdx] <= minKg) break;
+        ajustados[maiorIdx] = round3(ajustados[maiorIdx] - minKg);
+        somaAjustada = round3(somaAjustada - minKg);
+    }
+
+    console.warn('[FEDEX][COMMODITIES] peso das commodities acima do peso das caixas; ajustado', {
+        somaOriginalKg: round3(soma),
+        pesoCaixasKg: alvo,
+    });
+
+    return commodities.map((c, i) => ({
+        ...c,
+        weight: { units: 'KG', value: ajustados[i] },
+    }));
+}
+
 function buildCommoditiesFromPedido(pedido, packages = []) {
     const currency = (pedido.moeda || 'USD').toUpperCase();
 
@@ -581,7 +628,10 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
         };
     });
 
-    return { commodities, currency };
+    return {
+        commodities: fitCommodityWeightsToPackages(commodities, totalKgFromPackages),
+        currency,
+    };
 }
 
 async function buildFedexShipPayload({
