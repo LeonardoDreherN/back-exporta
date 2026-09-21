@@ -264,6 +264,17 @@ const gerarBoletoCotacao = async (req, res) => {
             return res.status(403).json({ ok: false, error: "Feature não habilitada para esta conta." });
         }
 
+        // Cotação marcada como GERADO já foi cobrada — no boleto em lote ou num
+        // boleto com impostos anterior. Como o valor daqui inclui o frete, gerar
+        // de novo cobraria o frete duas vezes do mesmo cliente.
+        if (cot.status_pagamento === 'GERADO') {
+            await t.rollback();
+            return res.status(409).json({
+                ok: false,
+                error: "Esta cotação já foi cobrada. Confira os boletos do cliente antes de gerar outro.",
+            });
+        }
+
         let fx = Number(await valorConversao());
         if (!Number.isFinite(fx) || fx <= 0) fx = 0;
 
@@ -305,6 +316,7 @@ const gerarBoletoCotacao = async (req, res) => {
 
         const novoBoleto = await db.AsaasBoletos.create({
             clienteId: cliente.id,
+            cotacaoId: cot.id,
             asaasCustomerId: customer,
             asaasPaymentId: data.id,
             bankSlipUrl: data.bankSlipUrl,
@@ -312,6 +324,10 @@ const gerarBoletoCotacao = async (req, res) => {
             dueDate: data.dueDate,
             status: data.status,
         }, { transaction: t });
+
+        // Fecha o ciclo: daqui em diante o boleto em lote não pega mais esta
+        // cotação, porque ele varre justamente as que estão em NAOGERADO.
+        await cot.update({ status_pagamento: 'GERADO' }, { transaction: t });
 
         await t.commit();
 

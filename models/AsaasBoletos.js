@@ -7,6 +7,10 @@ module.exports = (sequelize) => {
 
         // vínculo com seu sistema
         clienteId: { type: DataTypes.INTEGER, allowNull: false },
+
+        // Qual cotação este boleto cobriu. Sem isso não dava para saber se uma
+        // cotação já tinha sido cobrada, e ela voltava a entrar no boleto em lote.
+        cotacaoId: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
         
         // dados do Asaas
         asaasCustomerId: { type: DataTypes.STRING, allowNull: true },
