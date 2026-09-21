@@ -706,6 +706,19 @@ function buildCommoditiesFromPedido(pedido, packages = []) {
     };
 }
 
+// Valores que a FedEx aceita em commercialInvoice.shipmentPurpose. Sem valor
+// valido a chave nao vai no payload, e a invoice sai como sempre saiu
+// ("Commercial"), para nao mudar a declaracao de quem nao escolheu nada.
+const FINALIDADES_FEDEX = new Set([
+    'SOLD', 'NOT_SOLD', 'SAMPLE', 'GIFT', 'COMMERCIAL',
+    'REPAIR_AND_RETURN', 'RETURN_AND_REPAIR', 'PERSONAL_EFFECTS', 'PERSONAL_USE',
+]);
+
+function normalizeShipmentPurpose(valor) {
+    const v = String(valor || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+    return FINALIDADES_FEDEX.has(v) ? v : null;
+}
+
 async function buildFedexShipPayload({
     shipper,
     recipient,
@@ -717,9 +730,13 @@ async function buildFedexShipPayload({
     invoiceNumber,
     freightTotal,
     termsOfSale,
-    invoiceOtherAmount = 0
+    invoiceOtherAmount = 0,
+    shipmentPurpose,
+    declarationStatement
 }) {
     const acct = process.env.FEDEX_ACCOUNT_NUMBER;
+    const purposeFedex = normalizeShipmentPurpose(shipmentPurpose);
+    const declaracao = String(declarationStatement || '').trim().slice(0, 450);
     const requestedPackageLineItems = normalizePackagesForShip(packages, pesoTotalPedidoKg);
 
     const invNumber = String(invoiceNumber || `INV-${Date.now()}`);
@@ -775,6 +792,12 @@ async function buildFedexShipPayload({
                         { customerReferenceType: 'INVOICE_NUMBER', value: invNumber },
                     ],
                     termsOfSale: normalizeTermsOfSale(termsOfSale),
+                    // Finalidade e declaracao sao opcionais: a chave so entra no
+                    // payload quando a tela mandou algo, senao a FedEx mantem o
+                    // padrao. shipmentPurpose imprime em "Purpose of Shipment" e
+                    // declarationStatement em "Declaration Statement(s)".
+                    ...(purposeFedex ? { shipmentPurpose: purposeFedex } : {}),
+                    ...(declaracao ? { declarationStatement: declaracao } : {}),
                     paymentTerms: 'Paid in Advance',
                     freightCharge: {
                         amount: freightAmount,
@@ -1136,7 +1159,18 @@ module.exports = {
                 invoiceNumber,
                 freightTotal,
                 termsOfSale,
-                invoiceOtherAmount
+                invoiceOtherAmount,
+                // Finalidade do envio e texto da declaracao, quando a tela mandar.
+                // Hoje so a conta em teste mostra esses campos; sem eles o payload
+                // sai exatamente como antes.
+                shipmentPurpose:
+                    req.body?.shipmentPurpose ||
+                    req.body?.finalidade_envio ||
+                    null,
+                declarationStatement:
+                    req.body?.declarationStatement ||
+                    req.body?.declaracao_invoice ||
+                    null,
             });
 
             const data = await createShipment(payload);
