@@ -1,5 +1,5 @@
 // controller/shipments.controller.js
-const { Transaction } = require('sequelize');
+const { Transaction, Op } = require('sequelize');
 const db = require('../models');
 
 const { Cliente, Shipment, Cotacao, sequelize } = db;
@@ -199,14 +199,41 @@ async function confirmRate(req, res) {
         if (!shipment) { await t.rollback(); return res.status(404).json({ ok: false, error: 'Shipment não encontrado' }); }
         if (Number(shipment.cliente_id) !== Number(cliente_id)) { await t.rollback(); return res.status(403).json({ ok: false, error: 'Sem permissão' }); }
 
-        if (shipment.status !== 'COMPARE') {
-            await t.rollback();
-            return res.status(409).json({ ok: false, error: `Shipment não está em COMPARE (status atual: ${shipment.status})` });
-        }
-
         const rate_result = shipment.rate_result || {};
         const pedido_ref = normRef(rate_result.pedido_ref);
         if (!pedido_ref) { await t.rollback(); return res.status(400).json({ ok: false, error: 'Shipment sem pedido_ref' }); }
+
+        // Retentativa depois de uma emissão que falhou. A primeira confirmação
+        // já deixa o shipment em CONFIRMED, então recusar aqui obrigava o
+        // cliente a apagar a cotação e refazer o fluxo inteiro só porque a
+        // etiqueta falhou. Enquanto nada foi despachado — nenhuma cotação do
+        // pedido com tracking — confirmar de novo é seguro: a idempotência
+        // logo abaixo devolve a cotação que já existe, em vez de duplicar.
+        if (shipment.status !== 'COMPARE') {
+            if (shipment.status !== 'CONFIRMED') {
+                await t.rollback();
+                return res.status(409).json({ ok: false, error: `Shipment não está em COMPARE (status atual: ${shipment.status})` });
+            }
+
+            const jaDespachada = await Cotacao.findOne({
+                where: {
+                    cliente_id,
+                    pedido_ref,
+                    tracking_number: { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }] },
+                },
+                attributes: ['id', 'carrier', 'tracking_number'],
+                transaction: t,
+            });
+
+            if (jaDespachada) {
+                await t.rollback();
+                return res.status(409).json({
+                    ok: false,
+                    error: `Pedido já despachado na ${jaDespachada.carrier} (rastreio ${jaDespachada.tracking_number}).`,
+                    cotacao_id: jaDespachada.id,
+                });
+            }
+        }
 
         const quote = rate_result?.quotes?.[chosen];
         if (!quote || !Number.isFinite(Number(quote.base))) {

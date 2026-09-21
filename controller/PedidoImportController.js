@@ -1,6 +1,6 @@
 // controller/PedidoImportController.js
 const { PedidoImport } = require("../models");
-const { Op, where, fn, col } = require("sequelize");
+const { Op, where, fn, col, literal } = require("sequelize");
 const db = require("../models");
 const { resolveLojaEToken } = require("./ShopifyController");
 
@@ -536,6 +536,19 @@ async function listPedidos(req, res) {
                 "pais",
                 "status",
                 "itens",
+                // Ja despachado = existe cotacao desse pedido com rastreio. O flag
+                // `status` vira true assim que a cotacao e criada, antes da etiqueta
+                // sair: quando a emissao falhava, o pedido sumia da tela de cotacao e
+                // so voltava apagando a cotacao. Aqui a tela filtra por despacho real.
+                [
+                    literal(`EXISTS (
+                        SELECT 1 FROM cotacoes c
+                        WHERE c.cliente_id = "PedidoImport"."cliente_id"
+                          AND c.pedido_ref = "PedidoImport"."pedido_ref"
+                          AND COALESCE(c.tracking_number, '') <> ''
+                    )`),
+                    'despachado'
+                ],
             ],
         });
 
