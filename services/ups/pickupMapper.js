@@ -26,6 +26,18 @@ function toHM(value) {
     return s.replace(/\D/g, '').slice(0, 4);
 }
 
+// Pickup API da UPS: ASCII e tamanho máximo por campo (CompanyName 27, ContactName 22, AddressLine 73)
+function upsText(value, max) {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '')
+        .replace(/[^A-Za-z0-9 .,&'\-\/#]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, max)
+        .trim();
+}
+
 function buildUpsPickupPayload(data) {
     const accountNumber = data.accountNumber;
     if (!accountNumber) {
@@ -52,9 +64,9 @@ function buildUpsPickupPayload(data) {
                 ReadyTime: toHM(data.readyTime),
             },
             PickupAddress: {
-                CompanyName: data.companyName || data.contactName || 'Intrex',
-                ContactName: data.contactName,
-                AddressLine: String(data.addressLine1 || ''),
+                CompanyName: upsText(data.companyName || data.contactName, 27) || 'Intrex',
+                ContactName: upsText(data.contactName, 22) || 'Intrex',
+                AddressLine: upsText(data.addressLine1, 73),
                 Room: data.room || '',
                 Floor: data.floor || '',
                 City: data.city,
