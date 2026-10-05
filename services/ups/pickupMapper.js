@@ -26,7 +26,7 @@ function toHM(value) {
     return s.replace(/\D/g, '').slice(0, 4);
 }
 
-// Pickup API da UPS: ASCII e tamanho máximo por campo (CompanyName 27, ContactName 22, AddressLine 73)
+// Pickup API da UPS: ASCII e tamanho máximo por campo (CompanyName 27, ContactName 22, AddressLine 73, SpecialInstruction 57)
 function upsText(value, max) {
     return String(value || '')
         .normalize('NFD')
@@ -96,7 +96,7 @@ function buildUpsPickupPayload(data) {
             },
             OverweightIndicator: data.overweightIndicator || 'N',
             PaymentMethod: data.paymentMethod || '01',
-            SpecialInstruction: data.specialInstructions || '',
+            SpecialInstruction: upsText(data.specialInstructions, 57),
             ReferenceNumber: data.referenceNumber || '',
         },
     };
