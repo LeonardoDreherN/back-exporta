@@ -1341,6 +1341,24 @@ module.exports = {
                     paraHoraFedex(payload.originDetail.customerCloseTime);
             }
 
+            // A FedEx devolve 400 (PICKUP.STREETLINE.MISSING) quando a rua
+            // chega vazia, e linha só com ", " (rua e número em branco no
+            // cadastro) conta como vazia. Limpa, quebra em linhas de 35 e
+            // barra aqui com uma mensagem que o cliente entende.
+            const pickupAddress = payload.originDetail?.pickupLocation?.address;
+            if (pickupAddress) {
+                const linhas = Array.isArray(pickupAddress.streetLines) ? pickupAddress.streetLines : [];
+                pickupAddress.streetLines = buildFedexStreetLines(
+                    ...linhas.map((ln) => String(ln ?? '').replace(/^[\s,\-]+|[\s,\-]+$/g, ''))
+                );
+            }
+            if (!pickupAddress?.streetLines?.length) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'Endereço da coleta sem rua. Preencha rua e número antes de agendar.',
+                });
+            }
+
             const data = await createPickup(payload, {
                 idempotencyKey: req.headers['x-idempotency-key'] || null
             });

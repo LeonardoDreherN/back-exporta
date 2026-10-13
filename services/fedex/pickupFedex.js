@@ -48,7 +48,13 @@ async function createPickup(payload, { idempotencyKey } = {}) {
         const data = err?.response?.data || err.upstream;
         const headers = err?.response?.headers;
 
-        const e = new Error(extractFedexMessage(err) || `FedEx Pickup failed with status ${status}`);
+        // O erro lançado acima já vem sem `response`, só com `upstream`:
+        // extrai dele também, senão a mensagem da FedEx some.
+        const e = new Error(
+            extractFedexMessage(err) ||
+            extractFedexMessage({ response: { data } }) ||
+            `FedEx Pickup failed with status ${status}`
+        );
         e.status = status;
         e.upstream = data;
         e.correlation =
