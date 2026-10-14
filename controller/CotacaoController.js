@@ -1,7 +1,7 @@
 // controllers/cotacoes.controller.js
 const { Op, literal, Transaction, Sequelize } = require('sequelize');
 const { Cotacao, Cliente, PedidoImport, sequelize } = require('../models');
-const { keepFirstPageFromPdfB64 } = require('../utils/pdfTools');
+const { keepFirstPageFromPdfB64, mesclarEtiquetasEmPdfB64 } = require('../utils/pdfTools');
 const { getStatusOnly } = require('../services/trackingStatus');
 const { aplicarPlano } = require('../utils/regrasPlanos');
 const { cotarCarrier } = require('../services/carriers');
@@ -128,6 +128,40 @@ async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'image/png') {
     } catch (err) {
         console.error('Erro ao salvar etiqueta na storage:', err);
     }
+}
+
+/**
+ * Salva a etiqueta de um envio de N volumes. Com mais de uma, junta tudo num
+ * PDF (uma pagina por volume) e salva como etiqueta da cotacao - era aqui que
+ * os volumes 2..N se perdiam, porque so a primeira etiqueta era guardada.
+ *
+ * @param {number} cotacaoId
+ * @param {Array<{ b64: string, mime?: string }>} partes
+ */
+async function salvarEtiquetasNaStorage(cotacaoId, partes = []) {
+    const lista = (Array.isArray(partes) ? partes : []).filter(
+        (p) => p && typeof p.b64 === 'string' && p.b64.trim()
+    );
+    if (!lista.length) return;
+
+    if (lista.length === 1) {
+        await salvarEtiquetaNaStorage(cotacaoId, lista[0].b64, lista[0].mime || 'application/pdf');
+        return;
+    }
+
+    const juntado = await mesclarEtiquetasEmPdfB64(lista);
+    if (juntado) {
+        await salvarEtiquetaNaStorage(cotacaoId, juntado, 'application/pdf');
+        return;
+    }
+
+    // Formato que o pdf-lib nao abre (ZPL): guarda a do primeiro volume, que e
+    // o comportamento antigo, e registra para nao sumir silenciosamente.
+    console.error(
+        '[ETIQUETA][MERGE] formatos nao suportados, salvando so o volume 1:',
+        lista.map((p) => p.mime || 'sem-mime').join(', ')
+    );
+    await salvarEtiquetaNaStorage(cotacaoId, lista[0].b64, lista[0].mime || 'application/pdf');
 }
 
 async function salvarInvoiceNaStorage(cotacaoId, base64, mime = 'application/pdf') {
@@ -616,6 +650,8 @@ async function attachDocs(req, res) {
             invoice_url,
             tracking_number,
             carrier,
+            // Multi-volume: [{ base64 | url, mime }], uma entrada por caixa.
+            etiquetas,
         } = req.body || {};
 
         const cot = await Cotacao.findByPk(id);
@@ -643,19 +679,69 @@ async function attachDocs(req, res) {
             return { b64, mime };
         }
         // ===== LABEL -> Supabase Storage =====
-        if (typeof etiqueta_base64 === 'string' && etiqueta_base64.trim()) {
-            const mime = typeof etiqueta_mime === 'string' && etiqueta_mime.trim()
-                ? etiqueta_mime.trim()
-                : 'application/pdf';
+        // Envio multi-volume manda `etiquetas` (uma por caixa); os campos
+        // antigos continuam valendo para quem manda uma so.
+        const mimeDoCorpo = typeof etiqueta_mime === 'string' && etiqueta_mime.trim()
+            ? etiqueta_mime.trim()
+            : null;
 
-            await salvarEtiquetaNaStorage(cot.id, etiqueta_base64, mime);
-        } else if (typeof etiqueta_url === 'string' && etiqueta_url.trim()) {
-            // comentario informal: FedEx manda URL, entao baixa e salva igual UPS
-            const fetched = await fetchUrlAsBase64(etiqueta_url.trim());
-            const mime = typeof etiqueta_mime === 'string' && etiqueta_mime.trim()
-                ? etiqueta_mime.trim()
-                : (fetched.mime || 'application/pdf');
-            await salvarEtiquetaNaStorage(cot.id, fetched.b64, mime);
+        const entradasEtiqueta = Array.isArray(etiquetas)
+            ? etiquetas.filter((e) => e && (e.base64 || e.url))
+            : [];
+
+        if (!entradasEtiqueta.length) {
+            if (typeof etiqueta_base64 === 'string' && etiqueta_base64.trim()) {
+                entradasEtiqueta.push({ base64: etiqueta_base64.trim(), mime: mimeDoCorpo });
+            } else if (typeof etiqueta_url === 'string' && etiqueta_url.trim()) {
+                // comentario informal: FedEx manda URL, entao baixa e salva igual UPS
+                entradasEtiqueta.push({ url: etiqueta_url.trim(), mime: mimeDoCorpo });
+            }
+        }
+
+        if (entradasEtiqueta.length) {
+            const partes = [];
+
+            for (const entrada of entradasEtiqueta) {
+                const mimeEntrada = typeof entrada.mime === 'string' && entrada.mime.trim()
+                    ? entrada.mime.trim()
+                    : null;
+
+                if (typeof entrada.base64 === 'string' && entrada.base64.trim()) {
+                    partes.push({
+                        b64: entrada.base64.trim(),
+                        mime: mimeEntrada || 'application/pdf',
+                    });
+                    continue;
+                }
+
+                // Falha num volume nao derruba a chamada: a rota de ship ja
+                // salvou as etiquetas no servidor, e o resto da chamada
+                // (tracking, invoice) ainda precisa acontecer.
+                try {
+                    const fetched = await fetchUrlAsBase64(String(entrada.url).trim());
+                    partes.push({
+                        b64: fetched.b64,
+                        mime: mimeEntrada || fetched.mime || 'application/pdf',
+                    });
+                } catch (errEtiqueta) {
+                    console.error(
+                        '[ETIQUETA][DOWNLOAD] falhou para',
+                        String(entrada.url).slice(0, 120),
+                        errEtiqueta?.message
+                    );
+                }
+            }
+
+            // Lista incompleta nao sobrescreve: melhor manter o que a rota de
+            // ship salvou (com todos os volumes) do que gravar so uma parte.
+            if (partes.length === entradasEtiqueta.length) {
+                await salvarEtiquetasNaStorage(cot.id, partes);
+            } else if (partes.length) {
+                console.error(
+                    '[ETIQUETA] baixou', partes.length, 'de', entradasEtiqueta.length,
+                    'volumes; mantendo a etiqueta salva na emissao'
+                );
+            }
         }
 
         // ===== INVOICE -> Supabase Storage =====
@@ -1154,6 +1240,7 @@ module.exports = {
     getCotacaoStatusByPedidoRef,
     getCotacaoDetails,
     salvarEtiquetaNaStorage,
+    salvarEtiquetasNaStorage,
     salvarInvoiceNaStorage,
     getCotacaoRemetente
 };

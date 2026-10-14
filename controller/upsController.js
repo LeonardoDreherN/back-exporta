@@ -2,7 +2,7 @@
 const rating = require('../services/ups/rating');
 const tracking = require('../services/ups/tracking');
 const axios = require('axios');
-const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
+const { salvarEtiquetaNaStorage, salvarEtiquetasNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
 const db = require('../models');
 const { Cotacao } = db;
 const { getUpsToken } = require('../services/upsAuth');
@@ -93,6 +93,9 @@ function labelTypeToMime(t) {
     if (s === 'GIF') return 'image/gif';
     if (s === 'ZPL') return 'text/plain';
     if (s === 'URL') return 'text/uri-list';
+    // O ship manda LabelImageFormat PDF; sem este caso a etiqueta era salva
+    // como octet-stream (.bin) e nao dava para juntar os volumes num PDF.
+    if (s === 'PDF') return 'application/pdf';
     return 'application/octet-stream';
 }
 
@@ -433,6 +436,23 @@ function mapFromUpsShipment(raw) {
     const master = sr?.ShipmentIdentificationNumber;
     if (!trackingNumbers.length && master) trackingNumbers.push(master);
 
+    // Uma etiqueta por volume: a UPS devolve um PackageResults por caixa. Antes
+    // so a primeira era lida e os volumes 2..N saiam sem etiqueta.
+    const labels = list
+        .map((p) => {
+            const b64 = p?.ShippingLabel?.GraphicImage || p?.LabelImage?.GraphicImage || null;
+            const type =
+                p?.ShippingLabel?.LabelImageFormat?.Code ||
+                p?.LabelImage?.LabelImageFormat?.Code ||
+                'PNG';
+            const href = p?.ShippingLabel?.URL || p?.LabelImage?.URL || null;
+
+            if (b64) return { b64, type, tracking: p?.TrackingNumber || null };
+            if (href) return { href, type: 'URL', tracking: p?.TrackingNumber || null };
+            return null;
+        })
+        .filter(Boolean);
+
     const first = list[0] || {};
     const labelB64 =
         first?.ShippingLabel?.GraphicImage ||
@@ -488,6 +508,7 @@ function mapFromUpsShipment(raw) {
         label: labelB64
             ? { b64: labelB64, type: labelType }
             : (labelHref ? { href: labelHref, type: 'URL' } : null),
+        labels,
         invoice,
         raw,
     };
@@ -1082,7 +1103,14 @@ console.log('[UPS SHIP] billing account payload:', upsReq?.ShipmentRequest?.Ship
                         }
 
                         // ===== LABEL → Supabase Storage =====
-                        if (out.label?.b64 && out.label?.type) {
+                        // Multi-volume vira um PDF com uma pagina por caixa.
+                        const partesEtiqueta = (Array.isArray(out.labels) ? out.labels : [])
+                            .filter((l) => l?.b64)
+                            .map((l) => ({ b64: l.b64, mime: labelTypeToMime(l.type) }));
+
+                        if (partesEtiqueta.length) {
+                            await salvarEtiquetasNaStorage(row.id, partesEtiqueta);
+                        } else if (out.label?.b64 && out.label?.type) {
                             const mime = labelTypeToMime(out.label.type);
                             await salvarEtiquetaNaStorage(row.id, out.label.b64, mime);
                         }

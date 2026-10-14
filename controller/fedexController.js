@@ -2,7 +2,7 @@
 const axios = require('axios');
 const { iso2Country, splitEndereco } = require('../services/cotacoesHelpers');
 const { createShipment } = require('../services/fedex/shippingFedex');
-const { salvarEtiquetaNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
+const { salvarEtiquetaNaStorage, salvarEtiquetasNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
 const { quoteRates, loadPedidoImport } = require('../services/fedex/ratingFedex');
 const { autoFulfillShopifyOrder } = require('../services/shopify/fulfillment');
 const { extractFedexBreakdown } = require('../services/fedex/cotacaoFedex');
@@ -367,6 +367,19 @@ function distributePedidoWeightAcrossCaixas(totalKg, caixas = []) {
     parts[parts.length - 1].weightKg = round3((parts[parts.length - 1].weightKg || 0) + diff);
 
     return parts;
+}
+
+// Peso informado caixa por caixa (cotacao manual multi-volume). So vale quando
+// veio um peso valido para cada caixa carregada; qualquer furo cai de volta na
+// divisao por volume, que e o comportamento antigo.
+function aplicarPesosPorCaixa(pesos, caixas = []) {
+    if (!Array.isArray(pesos) || !Array.isArray(caixas)) return null;
+    if (!caixas.length || pesos.length !== caixas.length) return null;
+
+    const valores = pesos.map(Number);
+    if (!valores.every(p => Number.isFinite(p) && p > 0)) return null;
+
+    return caixas.map((cx, i) => ({ ...cx, weightKg: round3(valores[i]) }));
 }
 
 function mapClienteToFedexShipper(cliente) {
@@ -891,7 +904,10 @@ function extractFedexShipmentDocs(data = {}) {
         }
     }
 
-    let labelUrl = null;
+    // Uma etiqueta por volume: a FedEx devolve um pieceResponse por caixa do
+    // MPS. Antes so a primeira era lida e os outros volumes ficavam sem
+    // etiqueta nenhuma.
+    const labelUrls = [];
     let labelType = 'PNG';
 
     if (Array.isArray(shipment.pieceResponses)) {
@@ -900,17 +916,16 @@ function extractFedexShipmentDocs(data = {}) {
             const arrDocs = Array.isArray(docs) ? docs : [docs];
             for (const d of arrDocs) {
                 const t = (d.contentType || d.type || d.docType || '').toUpperCase();
-                if (t.includes('LABEL')) {
-                    if (d.url) {
-                        labelUrl = d.url;
-                        labelType = d.imageType || d.imageFormat || d.docType || 'PDF';
-                        break;
-                    }
+                if (t.includes('LABEL') && d.url) {
+                    labelUrls.push(d.url);
+                    labelType = d.imageType || d.imageFormat || d.docType || 'PDF';
+                    break;
                 }
             }
-            if (labelUrl) break;
         }
     }
+
+    let labelUrl = labelUrls[0] || null;
 
     let invoiceUrl = null;
     if (Array.isArray(shipment.shipmentDocuments)) {
@@ -925,12 +940,16 @@ function extractFedexShipmentDocs(data = {}) {
         }
     }
 
-    if (!labelUrl && out.labelUrl) labelUrl = out.labelUrl;
+    if (!labelUrl && out.labelUrl) {
+        labelUrl = out.labelUrl;
+        labelUrls.push(out.labelUrl);
+    }
     if (!invoiceUrl && out.invoiceUrl) invoiceUrl = out.invoiceUrl;
 
     return {
         trackingNumbers: [...new Set(trackingNumbers)],
         labelUrl,
+        labelUrls,
         labelType,
         invoiceUrl,
     };
@@ -948,10 +967,14 @@ async function loadCaixaImport(packId, clienteId) {
     if (!ids.length) return [];
 
     const rows = await db.Caixa.findAll({
-        where: { id: ids, id_cliente: clienteId },
+        where: { id: [...new Set(ids.map(String))], id_cliente: clienteId },
     });
 
-    const caixas = rows.map(r => r.toJSON());
+    // O findAll devolve uma linha por id distinto. Envio com 3 volumes da mesma
+    // caixa manda o mesmo id 3x, entao remontamos na ordem (e na repeticao) que
+    // o front pediu - senao 3 caixas iguais viravam 1 pacote na cotacao.
+    const byId = new Map(rows.map(r => [String(r.id), r.toJSON()]));
+    const caixas = ids.map(id => byId.get(String(id))).filter(Boolean);
 
     return caixas.map((cx) => {
         const dims = getBoxDimsCm(cx);
@@ -985,7 +1008,9 @@ module.exports = {
             let packages = await loadCaixaImport(packagesId, cliente.id);
             if (!packages.length) return res.status(404).json({ ok: false, error: 'Caixa(s) não encontrada(s).' });
 
-            packages = distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
+            packages =
+                aplicarPesosPorCaixa(req.body?.pesosCaixasKg, packages) ||
+                distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
 
             let pedido = await loadPedidoImport(pedido_ref, cliente.id);
             if (!pedido && req.body?.pedido_manual) {
@@ -1063,7 +1088,9 @@ module.exports = {
             let packages = await loadCaixaImport(packagesId, cliente.id);
             if (!packages.length) return res.status(404).json({ ok: false, error: 'Caixa(s) não encontrada(s).' });
 
-            packages = distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
+            packages =
+                aplicarPesosPorCaixa(req.body?.pesosCaixasKg, packages) ||
+                distributePedidoWeightAcrossCaixas(pesoTotalPedidoKg, packages);
 
             let pedido = await loadPedidoImport(pedido_ref, cliente.id);
             if (!pedido && req.body?.pedido_manual) {
@@ -1183,7 +1210,7 @@ module.exports = {
                     if (!row) {
                         console.warn('[FEDEX/SHIP] Cotação não encontrada para salvar anexos:', cotacaoId);
                     } else {
-                        const { trackingNumbers, labelUrl, invoiceUrl } = extractFedexShipmentDocs(data);
+                        const { trackingNumbers, labelUrls, invoiceUrl } = extractFedexShipmentDocs(data);
                         const patch = {};
 
                         if (trackingNumbers?.[0]) {
@@ -1195,9 +1222,14 @@ module.exports = {
                         }
 
                         // label e invoice via URL (FedEx retorna URL, não base64) -> baixa antes de salvar
-                        if (labelUrl) {
-                            const labelB64 = await fetchUrlAsBase64(labelUrl);
-                            if (labelB64) await salvarEtiquetaNaStorage(row.id, labelB64, 'application/pdf');
+                        if (labelUrls?.length) {
+                            const partes = [];
+                            for (const url of labelUrls) {
+                                const b64 = await fetchUrlAsBase64(url);
+                                if (b64) partes.push({ b64, mime: 'application/pdf' });
+                            }
+                            // Multi-volume vira um PDF com uma pagina por caixa.
+                            await salvarEtiquetasNaStorage(row.id, partes);
                         }
                         if (invoiceUrl) {
                             const invoiceB64 = await fetchUrlAsBase64(invoiceUrl);
