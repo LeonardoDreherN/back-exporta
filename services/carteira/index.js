@@ -1,0 +1,289 @@
+// services/carteira/index.js
+// Regras da carteira Intrex: saldo, crédito, débito e a ponte com o Asaas.
+//
+// Decisões (2026-10-14): saldo em real; a taxa do cartão é paga pelo cliente
+// (PIX e saldo sem taxa); liberado só para a allowlist CARTEIRA_BETA_EMAILS.
+
+const axios = require('axios');
+const db = require('../../models');
+const { verificaCustomer } = require('../../controller/Asaas.js');
+
+const URL_ASAAS = process.env.ASAAS_AMB === 'production'
+    ? 'https://api.asaas.com/v3'
+    : 'https://api-sandbox.asaas.com/v3';
+
+function tokenAsaas() {
+    return process.env.ASAAS_AMB === 'production'
+        ? process.env.ASAAS_TOKEN_PROD
+        : process.env.ASAAS_TOKEN_SANDBOX;
+}
+
+function asaas() {
+    return axios.create({
+        baseURL: URL_ASAAS,
+        timeout: 20000,
+        headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'User-Agent': 'exporta-digital-intrex/1.0',
+            access_token: tokenAsaas(),
+        },
+    });
+}
+
+// ---------- liberação ----------
+
+function emailsBeta() {
+    return String(process.env.CARTEIRA_BETA_EMAILS || '')
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+}
+
+function carteiraHabilitada(cliente) {
+    const email = String(cliente?.emailPrincipal || '').trim().toLowerCase();
+    return !!email && emailsBeta().includes(email);
+}
+
+// ---------- valores ----------
+
+const intEnv = (nome, padrao) => {
+    const v = Number(process.env[nome]);
+    return Number.isFinite(v) && v >= 0 ? Math.round(v) : padrao;
+};
+
+const LIMITES = {
+    minimo: () => intEnv('CARTEIRA_RECARGA_MIN_CENTAVOS', 1000),   // R$ 10
+    maximo: () => intEnv('CARTEIRA_RECARGA_MAX_CENTAVOS', 2000000), // R$ 20.000
+};
+
+/**
+ * Taxa repassada ao cliente no cartão. Padrões = contrato Asaas (cartão à vista 2,99% + R$ 0,49, conferido em 2026-10-14); ajuste
+ * CARTAO_TAXA_PCT / CARTAO_TAXA_FIXA_CENTAVOS para o contrato real do Asaas.
+ * Calculada "por dentro": o total cobre a taxa que o Asaas desconta do total.
+ */
+function taxaCartao(valorCentavos) {
+    const pct = Number(process.env.CARTAO_TAXA_PCT ?? 2.99);
+    const fixa = intEnv('CARTAO_TAXA_FIXA_CENTAVOS', 49);
+    const p = Number.isFinite(pct) && pct >= 0 && pct < 50 ? pct / 100 : 0.0299;
+    const total = Math.ceil((valorCentavos + fixa) / (1 - p));
+    return { taxa: total - valorCentavos, total };
+}
+
+const reais = (centavos) => Math.round(centavos) / 100;
+
+// ---------- livro ----------
+
+async function saldoCentavos(clienteId, { transaction } = {}) {
+    const total = await db.CarteiraLancamento.sum('valor_centavos', {
+        where: { cliente_id: clienteId },
+        transaction,
+    });
+    return Number(total) || 0;
+}
+
+/** Insere o lançamento; se a chave já existe, não faz nada (idempotente). */
+async function lancar({ clienteId, tipo, valorCentavos, descricao, referenciaTipo, referenciaId, chave }, { transaction } = {}) {
+    try {
+        const l = await db.CarteiraLancamento.create({
+            cliente_id: clienteId,
+            tipo,
+            valor_centavos: valorCentavos,
+            descricao,
+            referencia_tipo: referenciaTipo,
+            referencia_id: referenciaId,
+            chave,
+        }, { transaction });
+        return { criado: true, lancamento: l };
+    } catch (err) {
+        if (err?.name === 'SequelizeUniqueConstraintError') return { criado: false };
+        throw err;
+    }
+}
+
+/**
+ * Debita o saldo de forma atômica. Trava a linha do cliente durante a
+ * transação: dois envios pagos ao mesmo tempo não conseguem gastar o mesmo
+ * saldo. Recusa se não houver saldo suficiente.
+ */
+async function debitar({ clienteId, valorCentavos, tipo = 'debito_envio', descricao, referenciaTipo, referenciaId, chave }) {
+    if (!Number.isInteger(valorCentavos) || valorCentavos <= 0) throw new Error('valor de débito inválido');
+
+    return db.sequelize.transaction(async (t) => {
+        await db.Cliente.findByPk(clienteId, { transaction: t, lock: t.LOCK.UPDATE });
+
+        const saldo = await saldoCentavos(clienteId, { transaction: t });
+        if (saldo < valorCentavos) {
+            const e = new Error('Saldo insuficiente');
+            e.code = 'SALDO_INSUFICIENTE';
+            e.saldo = saldo;
+            throw e;
+        }
+
+        const r = await lancar({
+            clienteId, tipo, valorCentavos: -valorCentavos, descricao, referenciaTipo, referenciaId, chave,
+        }, { transaction: t });
+
+        return { ...r, saldo: saldo - (r.criado ? valorCentavos : 0) };
+    });
+}
+
+// ---------- cobranças no Asaas ----------
+
+function hojeBrasil(diasAFrente = 0) {
+    const d = new Date(Date.now() - 3 * 3600 * 1000 + diasAFrente * 86400 * 1000);
+    return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Cria a recarga: registro local + cobrança no Asaas. PIX volta com o QR;
+ * cartão volta com o link da página de pagamento do Asaas (o cartão é
+ * digitado lá, nunca passa pelo nosso servidor).
+ */
+async function criarRecarga(cliente, { valorCentavos, metodo }) {
+    if (!['PIX', 'CREDIT_CARD'].includes(metodo)) {
+        const e = new Error('Forma de pagamento inválida'); e.status = 400; throw e;
+    }
+    if (!Number.isInteger(valorCentavos) || valorCentavos < LIMITES.minimo() || valorCentavos > LIMITES.maximo()) {
+        const e = new Error(`Valor deve ficar entre R$ ${reais(LIMITES.minimo()).toFixed(2)} e R$ ${reais(LIMITES.maximo()).toFixed(2)}`);
+        e.status = 400; throw e;
+    }
+
+    const { taxa, total } = metodo === 'CREDIT_CARD'
+        ? taxaCartao(valorCentavos)
+        : { taxa: 0, total: valorCentavos };
+
+    const pagamento = await db.Pagamento.create({
+        cliente_id: cliente.id,
+        finalidade: 'recarga',
+        metodo,
+        valor_centavos: valorCentavos,
+        taxa_centavos: taxa,
+        total_centavos: total,
+    });
+
+    try {
+        const customer = await verificaCustomer(cliente);
+        const api = asaas();
+
+        const { data } = await api.post('/payments', {
+            customer,
+            billingType: metodo,
+            value: reais(total),
+            dueDate: hojeBrasil(metodo === 'PIX' ? 1 : 0),
+            description: `Recarga carteira Intrex - R$ ${reais(valorCentavos).toFixed(2)}`,
+            externalReference: `recarga:${pagamento.id}`,
+        });
+
+        const patch = {
+            asaas_payment_id: data.id,
+            invoice_url: data.invoiceUrl || null,
+            status_asaas: data.status || null,
+        };
+
+        let pixImagem = null;
+        if (metodo === 'PIX') {
+            const { data: qr } = await api.get(`/payments/${data.id}/pixQrCode`);
+            patch.pix_copia_cola = qr.payload || null;
+            patch.pix_expira_em = qr.expirationDate ? new Date(qr.expirationDate) : null;
+            pixImagem = qr.encodedImage || null;
+        }
+
+        await pagamento.update(patch);
+        return { pagamento, pixImagem };
+    } catch (err) {
+        await pagamento.update({ status: 'FALHOU' });
+        const msg = err?.response?.data?.errors?.[0]?.description || err.message;
+        console.error('[CARTEIRA][RECARGA] falha no Asaas', { pagamentoId: pagamento.id, msg });
+        const e = new Error(`Não foi possível criar a cobrança: ${msg}`);
+        e.status = 502;
+        throw e;
+    }
+}
+
+const STATUS_PAGO = ['CONFIRMED', 'RECEIVED', 'RECEIVED_IN_CASH'];
+const STATUS_ESTORNO = ['REFUNDED', 'REFUND_IN_PROGRESS', 'CHARGEBACK_REQUESTED', 'CHARGEBACK_DISPUTE', 'AWAITING_CHARGEBACK_REVERSAL'];
+const STATUS_CANCELADO = ['DELETED', 'OVERDUE'];
+
+/**
+ * Lê o status no Asaas (fonte da verdade) e aplica no sistema. Chamado pelo
+ * webhook e pela consulta do front. Seguro para rodar várias vezes: crédito e
+ * estorno têm chave única.
+ */
+async function sincronizarPagamento(pagamento) {
+    if (!pagamento?.asaas_payment_id) return pagamento;
+
+    const { data } = await asaas().get(`/payments/${pagamento.asaas_payment_id}`);
+    const st = String(data?.status || '');
+
+    if (STATUS_PAGO.includes(st)) {
+        if (pagamento.finalidade === 'recarga') {
+            await lancar({
+                clienteId: pagamento.cliente_id,
+                tipo: 'recarga',
+                valorCentavos: pagamento.valor_centavos,
+                descricao: pagamento.metodo === 'PIX' ? 'Recarga via PIX' : 'Recarga via cartão',
+                referenciaTipo: 'pagamento',
+                referenciaId: pagamento.id,
+                chave: `recarga:pagamento:${pagamento.id}`,
+            });
+        }
+        await pagamento.update({
+            status: 'PAGO',
+            status_asaas: st,
+            pago_em: pagamento.pago_em || new Date(),
+        });
+    } else if (STATUS_ESTORNO.includes(st)) {
+        // Só desfaz o que foi creditado. Pode deixar o saldo negativo se o
+        // cliente já gastou: aí fica devendo, e isso aparece no extrato.
+        if (pagamento.finalidade === 'recarga' && pagamento.status === 'PAGO') {
+            await lancar({
+                clienteId: pagamento.cliente_id,
+                tipo: 'estorno',
+                valorCentavos: -pagamento.valor_centavos,
+                descricao: st.startsWith('CHARGEBACK') ? 'Chargeback da recarga' : 'Estorno da recarga',
+                referenciaTipo: 'pagamento',
+                referenciaId: pagamento.id,
+                chave: `estorno:pagamento:${pagamento.id}`,
+            });
+        }
+        await pagamento.update({ status: 'ESTORNADO', status_asaas: st });
+    } else if (STATUS_CANCELADO.includes(st) && pagamento.status === 'PENDING') {
+        await pagamento.update({ status: 'CANCELADO', status_asaas: st });
+    } else if (st && st !== pagamento.status_asaas) {
+        await pagamento.update({ status_asaas: st });
+    }
+
+    return pagamento;
+}
+
+function pagamentoPublico(p, extra = {}) {
+    return {
+        id: p.id,
+        finalidade: p.finalidade,
+        metodo: p.metodo,
+        valor: reais(p.valor_centavos),
+        taxa: reais(p.taxa_centavos),
+        total: reais(p.total_centavos),
+        status: p.status,
+        invoice_url: p.invoice_url,
+        pix_copia_cola: p.pix_copia_cola,
+        pix_expira_em: p.pix_expira_em,
+        criado_em: p.created_at || p.createdAt,
+        pago_em: p.pago_em,
+        ...extra,
+    };
+}
+
+module.exports = {
+    carteiraHabilitada,
+    taxaCartao,
+    LIMITES,
+    reais,
+    saldoCentavos,
+    lancar,
+    debitar,
+    criarRecarga,
+    sincronizarPagamento,
+    pagamentoPublico,
+};

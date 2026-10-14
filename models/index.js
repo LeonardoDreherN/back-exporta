@@ -8,6 +8,8 @@ const CotacaoModel = require('./Cotacao.js');
 const PedidoImportModel = require('./PedidoImport.js');
 const ShipmentModel = require('./Shipment.js');
 const AsaasBoletosModel = require('./AsaasBoletos.js');
+const CarteiraLancamentoModel = require('./CarteiraLancamento.js');
+const PagamentoModel = require('./Pagamento.js');
 const WorldeaseMasterModel = require('./WorldeaseMaster.js');
 const InfoNuvemshopModel = require('./InfoNuvemshop.js');
 const NuvemshopShopModel = require('./NuvemshopShop.js');
@@ -60,6 +62,8 @@ const db = {
   AsaasBoletos: AsaasBoletosModel(sequelize),
   Shipment: ShipmentModel(sequelize),
   WorldeaseMaster: WorldeaseMasterModel(sequelize),
+  CarteiraLancamento: CarteiraLancamentoModel(sequelize),
+  Pagamento: PagamentoModel(sequelize),
   InfoNuvemshop: InfoNuvemshopModel(sequelize),
   NuvemshopShop: NuvemshopShopModel(sequelize),
   AdminUser: AdminUserModel(sequelize),
