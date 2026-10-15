@@ -12,10 +12,16 @@ const URL_ASAAS = process.env.ASAAS_AMB === 'production'
     ? 'https://api.asaas.com/v3'
     : 'https://api-sandbox.asaas.com/v3';
 
+const AMBIENTE_ASAAS = process.env.ASAAS_AMB === 'production' ? 'production' : 'sandbox';
+const VAR_TOKEN = AMBIENTE_ASAAS === 'production' ? 'ASAAS_TOKEN_PROD' : 'ASAAS_TOKEN_SANDBOX';
+
+// Chave colada com aspas ou \n no painel do Render chega aqui junto do valor e
+// o Asaas responde "chave de API inválida", que não ajuda ninguém a achar o
+// problema. Limpa antes de mandar.
 function tokenAsaas() {
-    return process.env.ASAAS_AMB === 'production'
-        ? process.env.ASAAS_TOKEN_PROD
-        : process.env.ASAAS_TOKEN_SANDBOX;
+    return String(process.env[VAR_TOKEN] || '')
+        .trim()
+        .replace(/^['"]|['"]$/g, '');
 }
 
 function asaas() {
@@ -162,6 +168,17 @@ async function criarRecarga(cliente, { valorCentavos, metodo }) {
         total_centavos: total,
     });
 
+    // Sem chave nao adianta chamar o Asaas: ele devolve "chave de API invalida"
+    // e o erro chega no cliente como se a cobranca tivesse sido recusada.
+    if (!tokenAsaas()) {
+        await pagamento.update({ status: 'FALHOU' });
+        const e = new Error(
+            `Asaas nao configurado no servidor: falta ${VAR_TOKEN} (ambiente ${AMBIENTE_ASAAS}).`
+        );
+        e.status = 503;
+        throw e;
+    }
+
     try {
         const customer = await verificaCustomer(cliente);
         const api = asaas();
@@ -194,7 +211,13 @@ async function criarRecarga(cliente, { valorCentavos, metodo }) {
     } catch (err) {
         await pagamento.update({ status: 'FALHOU' });
         const msg = err?.response?.data?.errors?.[0]?.description || err.message;
-        console.error('[CARTEIRA][RECARGA] falha no Asaas', { pagamentoId: pagamento.id, msg });
+        console.error('[CARTEIRA][RECARGA] falha no Asaas', {
+            pagamentoId: pagamento.id,
+            ambiente: AMBIENTE_ASAAS,
+            varToken: VAR_TOKEN,
+            url: URL_ASAAS,
+            msg,
+        });
         const e = new Error(`Não foi possível criar a cobrança: ${msg}`);
         e.status = 502;
         throw e;
