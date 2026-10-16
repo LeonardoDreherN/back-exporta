@@ -3,7 +3,7 @@ const { Op, literal, Transaction, Sequelize } = require('sequelize');
 const { Cotacao, Cliente, PedidoImport, sequelize } = require('../models');
 const { keepFirstPageFromPdfB64, mesclarEtiquetasEmPdfB64 } = require('../utils/pdfTools');
 const { getStatusOnly } = require('../services/trackingStatus');
-const { aplicarPlano } = require('../utils/regrasPlanos');
+const { aplicarPlano, MARKUP_PCT } = require('../utils/regrasPlanos');
 const { cotarCarrier } = require('../services/carriers');
 const { sse } = require('../server'); // usa a mesma instância criada no app.js
 const { extractUpsBreakdown, extractFromRawUps } = require('../utils/extractUpsBreakdown');
@@ -466,10 +466,15 @@ async function createCotacaoReal(req, res) {
             };
         }
 
-        const pricingBase = aplicarPlanoSafely(carrierBase, plano);
+        // O markup do plano incide sobre o total da transportadora (frete +
+        // taxas), nao so sobre a base: e esse total com acrescimo que o cliente
+        // ve na comparacao e paga na cotacao.
+        const carrierTotalComTaxas = Number(
+            (carrierBase + carrierTaxesTotal).toFixed(2)
+        );
+        const pricingBase = aplicarPlanoSafely(carrierTotalComTaxas, plano);
         const precoFinalCliente =
-            (toNumSafe(pricingBase?.preco_final) ?? carrierBase) +
-            carrierTaxesTotal;
+            toNumSafe(pricingBase?.preco_final) ?? carrierTotalComTaxas;
 
         // ===== Monta surcharges / pricing dentro do pedido =====
         const basePedido =
@@ -480,8 +485,17 @@ async function createCotacaoReal(req, res) {
 
         pedidoJson.pricing = {
             plano_aplicado: pricingBase.plano_aplicado,
-            preco_base: carrierBase + pricingBase.ajuste, // BASE com plano aplicado
-            preco_final: precoFinalCliente, // BASE + TAXAS
+            // O markup fica embutido na base exibida: assim base + taxas fecha
+            // exatamente o total, sem uma linha de acrescimo aparecendo pro
+            // cliente no detalhe do envio. Os valores puros ficam guardados
+            // abaixo (carrier_base / markup_valor) pra conferencia interna.
+            preco_base: Number(
+                (carrierBase + pricingBase.ajuste).toFixed(2)
+            ),
+            carrier_base: carrierBase,
+            markup_valor: pricingBase.ajuste,
+            markup_pct: MARKUP_PCT,
+            preco_final: precoFinalCliente, // (BASE + TAXAS) + markup
             carrier: carrierCode,
             fonte_base: fonte_base || 'CARRIER',
             currency: currency || 'USD',
@@ -1123,8 +1137,9 @@ async function getCotacaoDetails(req, res) {
 
         const planAdj = Number(pricing?.ajuste || 0);
         const basePura = Number.isFinite(sur?.base) ? Number(sur.base) : (base - planAdj);
-        const compare_total = Number.isFinite(pricing?.preco_base)
-            ? Number(pricing.preco_base)       // já “aplicarPlano(base)”
+        // valor comparável = o que o cliente paga, já com o markup do plano
+        const compare_total = Number.isFinite(pricing?.preco_final)
+            ? Number(pricing.preco_final)
             : (Number(basePura) + Number(planAdj));  // fallback: base + ajuste
 
         const carrierCode = String(pricing?.carrier || cot.carrier || '').toUpperCase();
@@ -1144,12 +1159,10 @@ async function getCotacaoDetails(req, res) {
         const svc = Number(sur?.serviceOptions || 0);
         if (svc) itemized.unshift({ code: 'SVC', label: 'Service options (UPS)', value: svc });
 
-        if (planAdj) {
-            const planLabel = pricing?.plano_aplicado
-                ? `Markup plano (${pricing.plano_aplicado})`
-                : 'Markup plano';
-            itemized.push({ code: 'PLAN', label: planLabel, value: planAdj });
-        }
+        // Nao expoe o markup do plano como linha: ele ja vem embutido no
+        // preco_base, entao base + taxas fecha o total sem revelar o acrescimo.
+        // planAdj segue usado abaixo so pra nao duplicar valor em cotacao
+        // antiga, gravada quando o markup ia separado em pricing.ajuste.
 
         if (itemized.filter(i => i.code !== 'PLAN' && i.code !== 'SVC').length === 0) {
             const already = planAdj + (svc || 0);

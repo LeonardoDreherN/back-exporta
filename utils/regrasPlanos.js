@@ -1,15 +1,18 @@
 // utils/regrasPlano.js
-// Comissão zerada temporariamente para todos os planos (sem markup) até
-// definirmos um mecanismo real de cobrança — clientes hoje pagam o boleto
-// da transportadora direto, então a comissão embutida aqui não é recebida.
+// Markup de 20% para todos os planos, aplicado sobre o valor da transportadora
+// (frete + taxas). O cliente vê o valor já com o acréscimo na cotação.
+const MARKUP_PCT = 20;
+
+const comMarkup = (p) => Number((p * (1 + MARKUP_PCT / 100)).toFixed(2));
+
 const regrasPorPlano = {
-    avulsos: (p) => Number(p.toFixed(2)),
-    basico: (p) => Number(p.toFixed(2)),
-    vinte: (p) => Number(p.toFixed(2)),
-    gold: (p) => Number(p.toFixed(2)),
-    premium: (p) => Number(p.toFixed(2)),
-    minimo: (p) => Number(p.toFixed(2)),
-    parceiro: (p) => Number(p.toFixed(2))
+    avulsos: comMarkup,
+    basico: comMarkup,
+    vinte: comMarkup,
+    gold: comMarkup,
+    premium: comMarkup,
+    minimo: comMarkup,
+    parceiro: comMarkup
 };
 
 function aplicarPlano(precoBase, plano = 'basico') {
@@ -26,4 +29,4 @@ function aplicarPlano(precoBase, plano = 'basico') {
     };
 }
 
-module.exports = { aplicarPlano, regrasPorPlano };
+module.exports = { aplicarPlano, regrasPorPlano, MARKUP_PCT };

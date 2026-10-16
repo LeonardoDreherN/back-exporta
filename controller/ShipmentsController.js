@@ -7,6 +7,7 @@ const { Cliente, Shipment, Cotacao, sequelize } = db;
 // Reaproveita o que você já tem pronto:
 const { prepararCotacaoUPS } = require('../services/ups/cotacaoUps');
 const { prepararCotacaoFedex } = require('../services/fedex/cotacaoFedex');
+const { aplicarPlano } = require('../utils/regrasPlanos');
 
 function toInt(v) {
     const n = Number(v);
@@ -21,17 +22,36 @@ function getClienteId(req) {
 }
 
 // Normaliza as 2 respostas num formato único pro front
-function normalizeRateResult(carrierResult) {
+function normalizeRateResult(carrierResult, plano) {
     if (!carrierResult) return null;
 
     const base = Number(carrierResult.base);
     const total = Number(carrierResult.total);
+
+    // Preço do cliente = total da transportadora (frete + taxas) com o markup
+    // do plano. base/total seguem com o valor puro da transportadora: são eles
+    // que voltam no confirm como override e entram nos payloads de emissão, e
+    // é lá que o markup é aplicado de novo — aplicar aqui também cobraria 20%
+    // duas vezes.
+    const bruto = Number.isFinite(total)
+        ? total
+        : (Number.isFinite(base) ? base : null);
+
+    // Só o preço final do cliente vai na resposta: o valor e o percentual do
+    // markup não são devolvidos pro front, que não tem o que fazer com eles.
+    let total_cliente = bruto;
+    if (bruto != null) {
+        try {
+            total_cliente = Number(aplicarPlano(bruto, plano).preco_final);
+        } catch (_) { /* segue com o valor bruto */ }
+    }
 
     return {
         carrier: String(carrierResult.carrier || '').toUpperCase(),
         currency: carrierResult.currency || 'USD',
         base: Number.isFinite(base) ? base : null,
         total: Number.isFinite(total) ? total : null,
+        total_cliente: Number.isFinite(Number(total_cliente)) ? Number(total_cliente) : null,
         taxesTotal: Number.isFinite(Number(carrierResult.taxesTotal)) ? Number(carrierResult.taxesTotal) : null,
         fonte_base: carrierResult.fonte_base || null,
         surcharges: carrierResult.surcharges ?? null,
@@ -130,8 +150,8 @@ async function compareRates(req, res) {
             plano,
             pesoTotalPedidoKg: Number(pesoTotalPedidoKg) > 0 ? Number(pesoTotalPedidoKg) : null,
             quotes: {
-                UPS: upsResult ? normalizeRateResult(upsResult) : null,
-                FEDEX: fedexResult ? normalizeRateResult(fedexResult) : null,
+                UPS: upsResult ? normalizeRateResult(upsResult, plano) : null,
+                FEDEX: fedexResult ? normalizeRateResult(fedexResult, plano) : null,
             },
             errors: Object.keys(errors).length ? errors : null,
             createdAt: new Date().toISOString(),
