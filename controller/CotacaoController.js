@@ -1220,6 +1220,32 @@ async function listCotacoes(req, res) {
             return cotacaoListDTO(plain);
         }));
 
+        // Em shadow o imposto nao vai para impostos_valor_brl de proposito,
+        // entao a lista nao teria numero nenhum para mostrar. O snapshot
+        // guarda a estimativa dos dois jeitos: lemos dele para a tela poder
+        // exibir "imposto estimado" sem que isso signifique cobranca.
+        const idsEstimativa = itens
+            .map((i) => i.imposto_estimativa_id)
+            .filter(Boolean);
+
+        if (idsEstimativa.length) {
+            const snaps = await db.ImpostoEstimativa.findAll({
+                where: { id: [...new Set(idsEstimativa)] },
+                attributes: ['id', 'imposto_valor_brl', 'imposto_usd_com_margem', 'margem_pct', 'moeda'],
+            });
+            const porId = new Map(snaps.map((sn) => [sn.id, sn]));
+
+            for (const item of itens) {
+                const sn = porId.get(item.imposto_estimativa_id);
+                if (!sn) continue;
+                item.imposto_estimado_brl = sn.imposto_valor_brl != null ? Number(sn.imposto_valor_brl) : null;
+                item.imposto_estimado_usd = sn.imposto_usd_com_margem != null ? Number(sn.imposto_usd_com_margem) : null;
+                item.imposto_margem_pct = sn.margem_pct != null ? Number(sn.margem_pct) : null;
+                // Em shadow a estimativa aparece na tela mas nao soma no total.
+                item.imposto_cobrado = item.impostos_valor_brl != null;
+            }
+        }
+
         return res.json({ ok: true, cliente_id, page: pageNum, limit: lim, offset, total: count, itens });
     } catch (err) {
         console.error('listCotacoes error:', err);
