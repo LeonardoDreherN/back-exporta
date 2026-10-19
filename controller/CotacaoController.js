@@ -266,7 +266,15 @@ async function downloadEtiqueta(req, res) {
     // Documento so sai depois de pago: e a trava que faz a cobranca
     // antecipada valer alguma coisa. 402 para o front saber que e falta de
     // pagamento, e nao erro.
-    const pagamento = await situacaoPagamento(row);
+    //
+    // So vale para quem esta na allowlist da carteira. As cotacoes que ja
+    // existiam nunca passaram por este pagamento — ligar a trava para todo
+    // mundo deixaria centenas de clientes sem baixar a propria etiqueta.
+    const donoDaCotacao = await db.Cliente.findByPk(row.cliente_id);
+    const pagamento = carteira.carteiraHabilitada(donoDaCotacao)
+        ? await situacaoPagamento(row)
+        : { pago: true, forma: 'fora_da_cobranca_antecipada' };
+
     if (!pagamento.pago) {
         return res.status(402).json({
             error: 'Documento liberado após o pagamento da remessa.',
@@ -333,7 +341,15 @@ async function downloadInvoice(req, res) {
     // Documento so sai depois de pago: e a trava que faz a cobranca
     // antecipada valer alguma coisa. 402 para o front saber que e falta de
     // pagamento, e nao erro.
-    const pagamento = await situacaoPagamento(row);
+    //
+    // So vale para quem esta na allowlist da carteira. As cotacoes que ja
+    // existiam nunca passaram por este pagamento — ligar a trava para todo
+    // mundo deixaria centenas de clientes sem baixar a propria etiqueta.
+    const donoDaCotacao = await db.Cliente.findByPk(row.cliente_id);
+    const pagamento = carteira.carteiraHabilitada(donoDaCotacao)
+        ? await situacaoPagamento(row)
+        : { pago: true, forma: 'fora_da_cobranca_antecipada' };
+
     if (!pagamento.pago) {
         return res.status(402).json({
             error: 'Documento liberado após o pagamento da remessa.',
@@ -1304,7 +1320,19 @@ async function listCotacoes(req, res) {
         // que a pagina ja trouxe.
         const idsPagina = itens.map((i) => i.id).filter(Boolean);
 
-        if (idsPagina.length) {
+        // Fora da allowlist da carteira nada e travado, entao tudo entra como
+        // pago: e o comportamento que os clientes ja tinham.
+        const clienteDaLista = await Cliente.findByPk(cliente_id);
+        const cobrancaLigada = carteira.carteiraHabilitada(clienteDaLista);
+
+        if (!cobrancaLigada) {
+            for (const item of itens) {
+                item.pago = true;
+                item.forma_pagamento = null;
+                item.boleto_pendente = false;
+                item.boleto_url = null;
+            }
+        } else if (idsPagina.length) {
             const [debitos, boletos] = await Promise.all([
                 db.CarteiraLancamento.findAll({
                     where: { chave: idsPagina.map((id) => chaveDebito(id)) },
