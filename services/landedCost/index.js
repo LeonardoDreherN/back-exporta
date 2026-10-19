@@ -104,7 +104,7 @@ function conferirSanidade({ impostoUsdBase, valorDeclarado }) {
     return { ok: true, motivo: null };
 }
 
-async function estimarImpostos({ destCountry, incoterm, currency = 'USD', commodities, regime = null }) {
+async function estimarImpostos({ destCountry, incoterm, currency = 'USD', commodities, regime = null, frete = null }) {
     const moeda = String(currency || 'USD').toUpperCase();
     const valorDeclarado = somarValorDeclarado(commodities);
 
@@ -116,6 +116,7 @@ async function estimarImpostos({ destCountry, incoterm, currency = 'USD', commod
         moeda,
         incoterm,
         regime,
+        frete,
     });
 
     // A folga sai do nível de confiança que a própria estimativa declara: não
@@ -253,6 +254,8 @@ async function registrarEstimativaDaCotacao({ cotacao, db }) {
             currency: moeda,
             commodities,
             regime,
+            // preco_final ja e o frete cobrado do cliente, em USD.
+            frete: num(cotacao.preco_final),
         });
 
         const snap = await db.ImpostoEstimativa.create({

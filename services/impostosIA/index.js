@@ -239,6 +239,11 @@ async function estimarImpostosIA({
     moeda = 'USD',
     incoterm,
     regime = null,
+    // Frete da remessa. Em boa parte do mundo a base do imposto sobre consumo
+    // e CIF: na UE o IVA incide sobre mercadoria + frete + seguro + direito.
+    // Sem este numero a estimativa para a Europa saia curta, porque o modelo
+    // nao tinha como somar o que nunca recebeu.
+    frete = null,
 }) {
     if (!paisDestino) throw new Error('paisDestino é obrigatório');
 
@@ -257,7 +262,10 @@ async function estimarImpostosIA({
         `Origem: ${paisOrigem}`,
         `Destino: ${paisDestino}`,
         incoterm ? `Incoterm: ${incoterm}` : null,
-        `Valor declarado total: ${valorDeclarado} ${moeda}`,
+        `Valor declarado total (mercadoria): ${valorDeclarado} ${moeda}`,
+        Number(frete) > 0
+            ? `Frete da remessa: ${Number(frete).toFixed(2)} ${moeda} — some na base quando o destino tributar sobre CIF`
+            : null,
         '',
         'Itens:',
         descreverItens(commodities) || '(sem detalhamento de itens)',
