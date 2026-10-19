@@ -8,6 +8,7 @@ const { Cliente, Shipment, Cotacao, sequelize } = db;
 const { prepararCotacaoUPS } = require('../services/ups/cotacaoUps');
 const { prepararCotacaoFedex } = require('../services/fedex/cotacaoFedex');
 const { aplicarPlano } = require('../utils/regrasPlanos');
+const { registrarEstimativaDaCotacao } = require('../services/landedCost');
 
 function toInt(v) {
     const n = Number(v);
@@ -344,6 +345,24 @@ async function confirmRate(req, res) {
         }, { transaction: t });
 
         await t.commit();
+
+        // Estimativa de imposto na CRIACAO da cotacao, nao mais so depois da
+        // emissao: o cliente precisa ver o total com imposto para decidir
+        // pagar, e a etiqueta so sai depois do pagamento. Solta sem await
+        // (leva ~25s com regime apurado, ~2min sem) e e idempotente — se ja
+        // houver estimativa a funcao devolve 'ja_estimado' sem gastar chamada,
+        // entao o gatilho antigo do attachDocs continua valendo de rede de
+        // seguranca sem cobrar duas vezes pela mesma conta.
+        try {
+            const cot = await Cotacao.findByPk(cotacao_id);
+            if (cot) {
+                registrarEstimativaDaCotacao({ cotacao: cot, db })
+                    .catch((e) => console.error('[IMPOSTO][IA][CONFIRM]', cotacao_id, e?.message));
+            }
+        } catch (e) {
+            console.error('[IMPOSTO][IA][CONFIRM] nao carregou a cotacao', cotacao_id, e?.message);
+        }
+
         return res.json({
             ok: true,
             created: true,

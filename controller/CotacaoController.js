@@ -1030,6 +1030,13 @@ function cotacaoListDTO(c) {
         carrier: c.carrier || null,
         surcharges: c.surcharges || null,
         status_pagamento: c.status_pagamento || null,
+        // Imposto estimado: sem isto a lista nao tem como mostrar o total com
+        // imposto, so o frete. `impostos_valor_brl` so vem preenchido em
+        // enforce; em shadow fica null de proposito e o front mostra apenas a
+        // estimativa, sem somar no total a pagar.
+        impostos_valor_brl: c.impostos_valor_brl != null ? Number(c.impostos_valor_brl) : null,
+        impostos_modo: c.impostos_modo || null,
+        imposto_estimativa_id: c.imposto_estimativa_id || null,
         createdAt: c.createdAt,
     };
 }
