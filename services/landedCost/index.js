@@ -233,6 +233,7 @@ async function registrarEstimativaDaCotacao({ cotacao, db }) {
         if (!commodities.length) return { ok: false, motivo: 'pedido_sem_itens' };
 
         const destino = cotacao.pais_dest
+            || pedido?.pais
             || pedido?.destinatario?.pais
             || pedido?.recipient?.address?.countryCode
             || null;

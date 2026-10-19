@@ -292,7 +292,13 @@ async function confirmRate(req, res) {
                 pedido_ref,
                 // comentario informal: tenta preencher pais pra nao salvar null
                 pais_remetente: rate_result?.pedido?.pais_remetente || rate_result?.pedido?.endereco?.pais || null,
-                pais_dest: rate_result?.pedido?.pais_dest || rate_result?.pedido?.shipping_address?.country_code || null,
+                // `pais` entrou na lista porque o fluxo manual monta o pedido
+                // com esse campo; sem ele a cotacao nascia com pais_dest null
+                // e a estimativa de imposto nem rodava.
+                pais_dest: rate_result?.pedido?.pais_dest
+                    || rate_result?.pedido?.pais
+                    || rate_result?.pedido?.shipping_address?.country_code
+                    || null,
                 pedido: rate_result.pedido || {},
                 pedido_manual: rate_result.pedido_manual || null,
                 caixa: rate_result.caixa || {},
