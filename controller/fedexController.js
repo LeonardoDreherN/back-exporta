@@ -2,7 +2,7 @@
 const axios = require('axios');
 const { iso2Country, splitEndereco } = require('../services/cotacoesHelpers');
 const { createShipment } = require('../services/fedex/shippingFedex');
-const { salvarEtiquetaNaStorage, salvarEtiquetasNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
+const { salvarEtiquetasNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
 const { quoteRates, loadPedidoImport } = require('../services/fedex/ratingFedex');
 const { autoFulfillShopifyOrder } = require('../services/shopify/fulfillment');
 const { extractFedexBreakdown } = require('../services/fedex/cotacaoFedex');
@@ -12,9 +12,6 @@ const { getClienteAtual } = require('./ClientesController');
 const tracking = require('../services/fedex/trackingFedex');
 const { accountNumber } = require('../config/fedex');
 const { createPickup } = require('../services/fedex/pickupFedex');
-const crypto = require('crypto');
-const { impostosBetaHabilitado, impostosModo } = require('../services/featureFlags');
-const { estimarImpostos } = require('../services/landedCost');
 const { logAdminAction } = require('../services/audit');
 
 // ========== HELPERS ==========
@@ -369,7 +366,7 @@ function distributePedidoWeightAcrossCaixas(totalKg, caixas = []) {
     return parts;
 }
 
-// Peso informado caixa por caixa (cotacao manual multi-volume). So vale quando
+// Peso informado caixa por caixa (cotacao manual multi-volume). Só vale quando
 // veio um peso valido para cada caixa carregada; qualquer furo cai de volta na
 // divisao por volume, que e o comportamento antigo.
 function aplicarPesosPorCaixa(pesos, caixas = []) {
@@ -972,7 +969,7 @@ async function loadCaixaImport(packId, clienteId) {
 
     // O findAll devolve uma linha por id distinto. Envio com 3 volumes da mesma
     // caixa manda o mesmo id 3x, entao remontamos na ordem (e na repeticao) que
-    // o front pediu - senao 3 caixas iguais viravam 1 pacote na cotacao.
+    // o front pediu — senao 3 caixas iguais viravam 1 pacote na cotacao.
     const byId = new Map(rows.map(r => [String(r.id), r.toJSON()]));
     const caixas = ids.map(id => byId.get(String(id))).filter(Boolean);
 
@@ -1254,72 +1251,11 @@ module.exports = {
                 }
             }
 
-            // ===== ESTIMATIVA DE IMPOSTOS (feature beta, só allowlist) =====
-            // Fail-open: o shipment já foi criado; nada aqui pode interromper a resposta.
-            if (cotacaoId && impostosBetaHabilitado(cliente)) {
-                try {
-                    const est = await estimarImpostos({
-                        destCountry,
-                        incoterm: termsOfSale,
-                        currency,
-                        commodities,
-                        shipper,
-                        recipient,
-                        packages,
-                    });
-
-                    const snap = await db.ImpostoEstimativa.create({
-                        cotacao_id: cotacaoId,
-                        cliente_id: cliente.id,
-                        provider: est.provider,
-                        incoterm: termsOfSale || null,
-                        pais_origem: 'BR',
-                        pais_destino: destCountry || null,
-                        moeda: est.currency,
-                        commodities_snapshot: commodities,
-                        imposto_usd_base: est.imposto_usd_base,
-                        margem_pct: est.margem_pct,
-                        imposto_usd_com_margem: est.imposto_usd_com_margem,
-                        fx_usado: est.fx,
-                        fx_fonte: est.fx_fonte,
-                        colchao_cambio_pct: est.colchao_cambio_pct,
-                        imposto_valor_brl: est.imposto_valor_brl,
-                        breakdown: est.breakdown,
-                        de_minimis: est.de_minimis,
-                        is_estimate: est.is_estimate,
-                        modo: impostosModo(),
-                        raw_request: est.raw_request,
-                        raw_response: est.raw_response,
-                        hash: crypto.createHash('sha256')
-                            .update(JSON.stringify(est.raw_response || {}))
-                            .digest('hex'),
-                    });
-
-                    await Cotacao.update({
-                        impostos_valor_brl: est.imposto_valor_brl,
-                        impostos_moeda: 'BRL',
-                        impostos_estimados: est.breakdown,
-                        imposto_estimativa_id: snap.id,
-                        impostos_modo: impostosModo(),
-                    }, { where: { id: cotacaoId } });
-
-                    logAdminAction({
-                        action: 'IMPOSTO_ESTIMADO',
-                        entityType: 'cotacao',
-                        entityId: cotacaoId,
-                        clienteId: cliente.id,
-                        metadata: {
-                            provider: est.provider,
-                            imposto_usd_base: est.imposto_usd_base,
-                            imposto_valor_brl: est.imposto_valor_brl,
-                            de_minimis: est.de_minimis,
-                            modo: impostosModo(),
-                        },
-                    });
-                } catch (errImposto) {
-                    console.error('[IMPOSTO][ESTIMA][ERR]', errImposto?.message);
-                }
-            }
+            // ===== ESTIMATIVA DE IMPOSTOS =====
+            // Saiu daqui. Ficava logo apos o ship e segurava a resposta do
+            // despacho enquanto estimava. Hoje roda em POST /cotacoes/:id/docs
+            // (CotacaoController.attachDocs), que e o momento em que a
+            // documentacao sai e vale para FedEx e UPS igual.
 
             return res.json({ ok: true, raw: data });
         } catch (err) {

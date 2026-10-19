@@ -58,6 +58,13 @@ module.exports = (sequelize) => {
         impostos_estimados: { type: DataTypes.JSONB, allowNull: true, defaultValue: null },
         imposto_estimativa_id: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
         impostos_modo: { type: DataTypes.STRING(16), allowNull: true, defaultValue: null },
+
+        // Imposto realmente cobrado, lançado quando a fatura do desembaraço
+        // chega. É o que permite medir se a estimativa acerta.
+        imposto_real_usd: { type: DataTypes.DECIMAL(12, 2), allowNull: true, defaultValue: null },
+        imposto_real_brl: { type: DataTypes.DECIMAL(12, 2), allowNull: true, defaultValue: null },
+        imposto_real_fonte: { type: DataTypes.STRING(32), allowNull: true, defaultValue: null },
+        imposto_real_em: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
     }, {
         tableName: 'cotacoes',
         underscored: true,

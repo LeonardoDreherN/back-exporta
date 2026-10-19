@@ -51,6 +51,11 @@ function buildUpsPickupPayload(data) {
 
     return {
         PickupCreationRequest: {
+            Request: {
+                TransactionReference: {
+                    CustomerContext: 'Intrex Pickup',
+                },
+            },
             RatePickupIndicator: data.ratePickupIndicator || 'N',
             Shipper: {
                 Account: {

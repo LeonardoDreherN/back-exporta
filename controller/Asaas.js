@@ -4,6 +4,7 @@ const Cotacao = db.Cotacao;
 const { fromSurcharges } = require("../utils/fromSurcharges.js");
 const { valorConversao } = require("../utils/dolar.js");
 const { impostosBetaHabilitado } = require("../services/featureFlags.js");
+const { desembaracoUsd } = require("../services/taxasTransportadora.js");
 const axios = require("axios");
 
 function round2(v) {
@@ -278,16 +279,39 @@ const gerarBoletoCotacao = async (req, res) => {
         let fx = Number(await valorConversao());
         if (!Number.isFinite(fx) || fx <= 0) fx = 0;
 
-        // frete: preco_final é tratado como USD aqui; itens vão separados na resposta
-        // para qualquer divergência de unidade ficar visível na conferência.
+        // Boleto único, cobrindo a remessa inteira: frete + desembaraço +
+        // imposto. Isso pressupõe que a Intrex seja a pagadora junto à
+        // transportadora nesta conta — se o cliente também receber a fatura da
+        // FedEx/UPS, ele paga o frete duas vezes.
+        //
+        // preco_final é tratado como USD aqui; os itens vão separados na
+        // resposta para qualquer divergência de unidade ficar visível na
+        // conferência.
         const freteUsd = n(cot.preco_final);
         const freteBrl = round2(freteUsd * fx);
-        const impostoBrl = round2(n(cot.impostos_valor_brl));
-        const totalBrl = round2(freteBrl + impostoBrl);
 
-        if (!totalBrl || totalBrl <= 0) {
+        // Desembaraco: nao vem no rate (conferido nos surcharges reais — a
+        // FedEx devolve so FUEL e ANCILLARY_FEE) e nao e tributo do destino,
+        // entao a estimativa de imposto tambem nao o inclui.
+        const desembaraco = desembaracoUsd(cot.carrier);
+        const desembaracoBrl = round2(desembaraco * fx);
+
+        const impostoBrl = round2(n(cot.impostos_valor_brl));
+        const totalBrl = round2(freteBrl + desembaracoBrl + impostoBrl);
+
+        if (freteBrl <= 0) {
             await t.rollback();
-            return res.status(400).json({ ok: false, error: "Total zerado (sem frete e sem imposto estimado)." });
+            return res.status(400).json({ ok: false, error: "Cotação sem valor de frete: não há o que cobrar." });
+        }
+
+        // Sem estimativa o boleto sairia so com frete e desembaraco, sem avisar
+        // que a parte de imposto — o motivo desta rota existir — nunca rodou.
+        if (!cot.imposto_estimativa_id && cot.impostos_valor_brl == null) {
+            await t.rollback();
+            return res.status(400).json({
+                ok: true,
+                error: "Cotação sem estimativa de imposto. Emita a documentação primeiro para a estimativa rodar.",
+            });
         }
 
         let est = null;
@@ -298,7 +322,7 @@ const gerarBoletoCotacao = async (req, res) => {
         const customer = await verificaCustomer(cliente);
 
         const description =
-            `Frete + impostos estimados (importação) - cotação #${cot.id} / pedido ${cot.pedido_ref}`;
+            `Frete + desembaraço + impostos estimados (importação) - cotação #${cot.id} / pedido ${cot.pedido_ref}`;
 
         const { data } = await axios.post(`${URL_ASAAS}/payments`, {
             customer,
@@ -349,6 +373,8 @@ const gerarBoletoCotacao = async (req, res) => {
                 fx_fonte: est ? est.fx_fonte : "awesomeapi",
                 colchao_cambio_pct: est ? Number(est.colchao_cambio_pct) : null,
                 frete_brl: freteBrl,
+                desembaraco_usd: desembaraco,
+                desembaraco_brl: desembaracoBrl,
                 imposto_brl: impostoBrl,
                 total_brl: totalBrl,
                 breakdown: est ? est.breakdown : (cot.impostos_estimados || []),

@@ -2,14 +2,19 @@
 // Simulador de frete + impostos do dashboard do cliente.
 //
 // Cota UPS e FedEx em paralelo (mesma mecanica da cotacao publica de checkout)
-// e, na mesma rodada, pede o EDT da FedEx para estimar o imposto de importacao
-// do pais de destino. Nada aqui grava no banco: e so estimativa.
+// e, na mesma rodada, estima o imposto de importacao do destino a partir do
+// regime apurado do pais. Nada aqui grava cotacao: e so estimativa — a unica
+// escrita e a cache de classificacao, que existe justamente para o simulador
+// nao virar torneira aberta de chamada de IA.
 
 const { quote: upsQuote } = require('../ups/rating');
 const { quoteRates: fedexRates } = require('../fedex/ratingFedex');
-const { cotarEdt, parseEdt } = require('../fedex/edtFedex');
 const { valorConversao } = require('../../utils/dolar');
-const { impostosMargemPct, impostosColchaoCambioPct } = require('../featureFlags');
+const { impostosMargemPorConfianca, impostosColchaoCambioPct } = require('../featureFlags');
+const { desembaracoUsd } = require('../taxasTransportadora');
+const { obterRegimeAprovado } = require('../regimeImportacao');
+const { obterClassificacao, aplicarClassificacao } = require('../impostosIA/classificacao');
+const db = require('../../models');
 const { resolveDestino, listarDestinos } = require('../../utils/destinosPadrao');
 
 // Origens que as contas UPS/FedEx da Intrex conseguem cotar. A UPS recusa
@@ -44,14 +49,8 @@ const UPS_SERVICES = {
 
 const UPS_SERVICE_CODES = ['65', '08', '07'];
 
-// Desembaraco aduaneiro cobrado pela transportadora, em USD. E fixo por
-// transportadora e vale para qualquer destino — nao entra no rate nem no EDT,
-// entao precisa ser somado aqui. Valores mudam: da para sobrescrever por env
-// sem mexer no codigo.
-const DESEMBARACO_USD = {
-    FEDEX: Number(process.env.SIMULACAO_DESEMBARACO_FEDEX_USD) || 15,
-    UPS: Number(process.env.SIMULACAO_DESEMBARACO_UPS_USD) || 3,
-};
+// A tabela de desembaraco saiu daqui para services/taxasTransportadora.js: a
+// cobranca real precisa somar exatamente o mesmo valor que o simulador mostra.
 
 // Limites do simulador. Express internacional nao aceita volume acima disso,
 // entao barramos antes de gastar chamada de transportadora.
@@ -362,38 +361,87 @@ function montarEnderecosFedex({ origem, destino }) {
     };
 }
 
-/* ---------- Impostos (FedEx EDT) ---------- */
+/* ---------- Impostos (regime apurado + classificacao em cache) ---------- */
 
 /**
  * Estimativa de imposto do destino em duas leituras: o bruto que a alfandega
- * cobraria (EDT puro) e o valor que a Intrex cobraria na antecipacao, ja com
- * margem de seguranca e colchao de cambio.
+ * cobraria e o valor que a Intrex cobraria na antecipacao, ja com margem de
+ * seguranca e colchao de cambio.
+ *
+ * A fonte era o EDT da FedEx, que nesta conta devolve resposta sem nenhum
+ * campo de imposto — o simulador vinha mostrando R$ 0,00 e "de minimis" para
+ * o cliente, o que e falso. Agora sai do regime apurado do destino, com a
+ * classificacao do item em cache: a alicota nao depende do valor da remessa,
+ * entao um item ja classificado nao gasta nada em simulacoes seguintes.
+ *
+ * Sem regime aprovado nao inventa numero: devolve indisponivel com o motivo.
  */
-async function estimarImpostosSimulacao({ shipper, recipient, packages, commodities, moeda }) {
-    const edtResp = await cotarEdt({ shipper, recipient, packages, commodities, currency: moeda });
-    const edt = parseEdt(edtResp);
+async function estimarImpostosSimulacao({ destino, valor, moeda, descricao, ncm }) {
+    const regime = await obterRegimeAprovado({ paisDestino: destino, db });
 
-    const margemPct = impostosMargemPct();
-    const colchaoPct = impostosColchaoCambioPct();
-
-    const brutoUsd = round2(edt.total);
-    const comMargemUsd = round2(brutoUsd * (1 + margemPct / 100));
+    if (!regime) {
+        return {
+            disponivel: false,
+            motivo: 'sem_regime',
+            aviso: 'Ainda nao ha regime tarifario conferido para este destino. O frete acima esta correto; o imposto precisa ser consultado caso a caso.',
+        };
+    }
 
     let fx = Number(await valorConversao());
     if (!Number.isFinite(fx) || fx <= 0) fx = 0;
 
+    // A classificacao raciocina em USD: faixa de valor e taxas fixas do pais
+    // sao definidas em dolar. Sem cambio nao da para posicionar a faixa, e
+    // chutar a faixa erra o de minimis inteiro.
+    const moedaNorm = String(moeda || 'USD').toUpperCase();
+    let valorUsd = Number(valor) || 0;
+    if (moedaNorm !== 'USD') {
+        if (!fx) {
+            return {
+                disponivel: false,
+                motivo: 'sem_cambio',
+                aviso: 'Cambio indisponivel agora: nao da para estimar o imposto do destino.',
+            };
+        }
+        valorUsd = round2(valorUsd / fx);
+    }
+
+    const { classificacao, doCache } = await obterClassificacao({
+        regime,
+        ncm,
+        descricao,
+        valorUsd,
+        db,
+    });
+
+    const calc = aplicarClassificacao({ classificacao, valorUsd });
+
+    const margemPct = impostosMargemPorConfianca(calc.confianca);
+    const colchaoPct = impostosColchaoCambioPct();
+
+    const brutoUsd = round2(calc.total_usd);
+    const comMargemUsd = round2(brutoUsd * (1 + margemPct / 100));
+
     return {
         disponivel: true,
-        provider: 'FEDEX_EDT',
-        moeda: edt.currency || 'USD',
-        duties: round2(edt.duties),
-        taxes: round2(edt.taxes),
-        fees: round2(edt.fees),
-        breakdown: edt.breakdown || [],
+        provider: 'CLAUDE_OPUS_5',
+        regime_id: regime.id,
+        do_cache: doCache,
+        moeda: 'USD',
+
+        ncm: calc.ncm,
+        aliquota_pct: calc.aliquota_importacao_pct,
+        duties: calc.imposto_importacao_usd,
+        taxes: calc.imposto_consumo_usd,
+        fees: calc.taxas_fixas_usd,
+        breakdown: calc.medidas_aplicadas,
         de_minimis: brutoUsd === 0,
 
         bruto_usd: brutoUsd,
         bruto_brl: round2(brutoUsd * fx),
+
+        confianca: calc.confianca,
+        observacoes: calc.observacoes,
 
         margem_pct: margemPct,
         colchao_cambio_pct: colchaoPct,
@@ -405,6 +453,7 @@ async function estimarImpostosSimulacao({ shipper, recipient, packages, commodit
         is_estimate: true,
     };
 }
+
 
 /* ---------- Simulacao ---------- */
 
@@ -481,7 +530,7 @@ async function simular(entrada = {}) {
     const [upsResult, fedexResult, impostoResult] = await Promise.allSettled([
         cotarUps(montarPayloadUps({ origem, destino, volumes })),
         fedexRates({ shipper, recipient, packages: packagesFedex, commodities, currency: moeda }),
-        estimarImpostosSimulacao({ shipper, recipient, packages: packagesFedex, commodities, moeda }),
+        estimarImpostosSimulacao({ destino: destino.code, valor, moeda, descricao, ncm }),
     ]);
 
     const fretes = [];
@@ -528,13 +577,18 @@ async function simular(entrada = {}) {
     let impostos = { disponivel: false, is_estimate: true };
     if (impostoResult.status === 'fulfilled') {
         impostos = impostoResult.value;
-        if (impostos.de_minimis) {
+        // Indisponivel tem motivo, e o motivo vira aviso: antes o simulador
+        // mostrava R$ 0,00 quando na verdade nao sabia, o que e pior que nao
+        // mostrar nada.
+        if (!impostos.disponivel && impostos.aviso) {
+            avisos.push(impostos.aviso);
+        } else if (impostos.de_minimis) {
             avisos.push(
                 'A alfandega do destino nao apontou imposto para este valor declarado (possivel de minimis).'
             );
         }
     } else {
-        console.error('[SIMULACAO][EDT]', impostoResult.reason?.message);
+        console.error('[SIMULACAO][IMPOSTO]', impostoResult.reason?.message);
         avisos.push('Nao foi possivel estimar os impostos do destino agora.');
     }
 
@@ -587,8 +641,8 @@ async function simular(entrada = {}) {
         const freteUsd = paraUsd(f.total, f.moeda);
         const freteBrl = paraBrl(f.total, f.moeda);
 
-        const desembaracoUsd = round2(DESEMBARACO_USD[f.carrier] ?? 0);
-        const desembaracoBrl = fx ? round2(desembaracoUsd * fx) : null;
+        const desembaraco = round2(desembaracoUsd(f.carrier));
+        const desembaracoBrl = fx ? round2(desembaraco * fx) : null;
 
         const impostoUsd = impostos.disponivel ? impostos.intrex_usd : null;
         const impostoBrl = impostos.disponivel ? impostos.intrex_brl : null;
@@ -598,12 +652,12 @@ async function simular(entrada = {}) {
             moeda_frete: f.moeda,
             frete_usd: freteUsd,
             frete_brl: freteBrl,
-            desembaraco_usd: desembaracoUsd,
+            desembaraco_usd: desembaraco,
             desembaraco_brl: desembaracoBrl,
             imposto_usd: impostoUsd,
             imposto_brl: impostoBrl,
             total_usd: (freteUsd != null && impostoUsd != null)
-                ? round2(freteUsd + desembaracoUsd + impostoUsd)
+                ? round2(freteUsd + desembaraco + impostoUsd)
                 : null,
             total_brl: (freteBrl != null && impostoBrl != null && desembaracoBrl != null)
                 ? round2(freteBrl + desembaracoBrl + impostoBrl)

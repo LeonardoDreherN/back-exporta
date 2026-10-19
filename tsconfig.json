@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": false,
+    "strictNullChecks": true,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "types/global.d.ts",
+    "services/carriers.js",
+    "services/upsAuth.js",
+    "services/ups/cotacaoUps.js",
+    "services/fedex/cotacaoFedex.js"
+  ]
+}

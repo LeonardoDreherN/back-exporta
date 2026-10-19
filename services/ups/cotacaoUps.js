@@ -1,3 +1,4 @@
+// @ts-check
 const { default: axios } = require("axios");
 const { Cotacao, Cliente, sequelize } = require("../../models");
 const { onlyDigits } = require("../../utils/cnpj");
@@ -9,8 +10,36 @@ const { cleanPostal } = require("../../utils/postalcode");
 
 const SHIPPER_NUMBER = process.env.UPS_ACCOUNT_NUMBER
 
-// Substitui Package.PackageWeight.Weight no rate_payload pela soma pesoTotalKg,
-// distribuída igualmente entre os pacotes. Não muta o original.
+/**
+ * @typedef {Object} PrepararCotacaoUpsInput
+ * @property {any} [req]
+ * @property {any} [rate_payload]
+ * @property {string | number} [preco_base]
+ * @property {number} [freightValueNum]
+ * @property {any} [plano]
+ * @property {number} [pesoTotalPedidoKg]
+ */
+
+/**
+ * @typedef {Object} CotacaoCarrierResult
+ * @property {'UPS' | 'FEDEX'} carrier
+ * @property {number} base
+ * @property {number} total
+ * @property {number} taxesTotal
+ * @property {string} currency
+ * @property {any} surcharges
+ * @property {any} carrier_raw
+ * @property {'OVERRIDE' | 'UPS' | 'FEDEX'} fonte_base
+ * @property {string} [serviceCode]
+ */
+
+/**
+ * Substitui Package.PackageWeight.Weight no rate_payload pela soma pesoTotalKg,
+ * distribuída igualmente entre os pacotes. Não muta o original.
+ * @param {any} payload
+ * @param {number | undefined} pesoTotalKg
+ * @returns {any}
+ */
 function overrideUpsPackageWeight(payload, pesoTotalKg) {
     const total = Number(pesoTotalKg);
     if (!Number.isFinite(total) || total <= 0) return payload;
@@ -50,9 +79,16 @@ function overrideUpsPackageWeight(payload, pesoTotalKg) {
     };
 }
 
+/**
+ * @param {PrepararCotacaoUpsInput} input
+ * @returns {Promise<CotacaoCarrierResult>}
+ */
 async function prepararCotacaoUPS({ req, rate_payload, preco_base, freightValueNum, pesoTotalPedidoKg }) {
+    /** @type {number | null} */
     let precoBase = null;      // valor base retornado/override
+    /** @type {any} */
     let carrierResp = null;    // resposta do adapter UPS
+    /** @type {any} */
     let breakdown = null;      // resultado do extractUpsBreakdown
 
     const precoBaseOverride = toNumSafe(preco_base ?? freightValueNum);
@@ -60,7 +96,7 @@ async function prepararCotacaoUPS({ req, rate_payload, preco_base, freightValueN
 
     if (overrideUsado) {
         // Usuário mandou a BASE manualmente (override)
-        precoBase = precoBaseOverride;
+        precoBase = precoBaseOverride ?? null;
 
         if (rate_payload) {
             try {
@@ -134,17 +170,16 @@ async function prepararCotacaoUPS({ req, rate_payload, preco_base, freightValueN
         toNumSafe(carrierResp?.negotiated) ??
         toNumSafe(carrierResp?.published) ??
         toNumSafe(carrierResp?.amount) ??
-        ((Number.isFinite(breakdown?.base) ? toNumSafe(breakdown.base) : 0) +
+        ((Number.isFinite(breakdown?.base) ? (toNumSafe(breakdown?.base) ?? 0) : 0) +
             (Number.isFinite(breakdown?.serviceOptions)
-                ? toNumSafe(breakdown.serviceOptions)
+                ? (toNumSafe(breakdown?.serviceOptions) ?? 0)
                 : 0) +
             (Array.isArray(breakdown?.itemized)
                 ? breakdown.itemized.reduce(
                     (a, b) => a + (toNumSafe(b.value) || 0),
                     0
                 )
-                : 0)) ??
-        upsBase;
+                : 0));
 
     const upsTaxesTotal = Math.max(0, upsTotal - upsBase);
 
@@ -384,6 +419,11 @@ async function agendarPickupCotacao(req, res) {
 
         const pickUpPayload = {
             PickupCreationRequest: {
+                Request: {
+                    TransactionReference: {
+                        CustomerContext: "Intrex Pickup",
+                    },
+                },
                 RatePickupIndicator: "N",
                 Shipper: {
                     Account: {

@@ -1,3 +1,4 @@
+// @ts-check
 const axios = require('axios')
 
 const UPS_BASE = process.env.UPS_BASE_URL_PROD || 'https://onlinetools.ups.com';
@@ -5,10 +6,26 @@ const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || '';
 const UPS_CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || '';
 const UPS_ACCOUNT_NUMBER = process.env.UPS_ACCOUNT_NUMBER || process.env.UPS_ACCOUNT || '';
 
+/**
+ * @typedef {Object} UpsCreds
+ * @property {string} [clientId]
+ * @property {string} [clientSecret]
+ * @property {string} [merchantId]
+ */
+
+/** @typedef {{ token: string, expTs: number }} CachedToken */
+
+/** @type {Record<string, CachedToken>} */
 // Cache por merchantId para suportar credenciais por cliente
 const _tokenCacheMap = {};
 
-// Aceita: getUpsToken() | getUpsToken(true) | getUpsToken(false, { clientId, clientSecret, merchantId })
+/**
+ * Busca (ou reusa do cache) um access token OAuth2 da UPS.
+ * Aceita: getUpsToken() | getUpsToken(true) | getUpsToken(false, { clientId, clientSecret, merchantId })
+ * @param {boolean} [force]
+ * @param {UpsCreds} [creds]
+ * @returns {Promise<string>}
+ */
 async function getUpsToken(force = false, creds = {}) {
     const clientId = creds.clientId || UPS_CLIENT_ID;
     const clientSecret = creds.clientSecret || UPS_CLIENT_SECRET;

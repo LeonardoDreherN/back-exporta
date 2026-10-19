@@ -84,6 +84,21 @@ const { applySecurity } = require('./bootstrap/security.js');
 const { applyLogging, errorHandler } = require('./bootstrap/loggin.js');
 
 const PORT = process.env.PORT || 3001;
+
+/*
+ * INTREX_LOCAL=1 quer dizer "este processo está rodando na máquina de
+ * alguém, não é o servidor de verdade".
+ *
+ * O banco é um só e o .env de desenvolvimento aponta para ele, então subir
+ * a API no notebook para testar uma tela tem dois efeitos que ninguém pede:
+ * o sync() publica tabela de model que ainda não foi para produção, e os
+ * cron disparam em paralelo com os do servidor real — o poolTracking
+ * escreve status de cotação, não é consulta.
+ *
+ * Sem a variável nada muda: em produção o boot segue igual.
+ */
+const MODO_LOCAL = process.env.INTREX_LOCAL === '1';
+
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY || '';
 const FRONT_URL = (process.env.FRONT_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
 
@@ -95,8 +110,12 @@ console.log('[FEDEX CFG][BOOT]', {
 });
 
 // cron
-cron.schedule('*/60 * * * *', pool);
-cron.schedule('*/10 * * * *', runIntegrationsHealthCheck);
+if (MODO_LOCAL) {
+  console.log('INTREX_LOCAL=1: cron de tracking e health check desligados.');
+} else {
+  cron.schedule('*/60 * * * *', pool);
+  cron.schedule('*/10 * * * *', runIntegrationsHealthCheck);
+}
 
 // polyfill fetch (Node < 18)
 if (typeof fetch === 'undefined') {
@@ -178,6 +197,7 @@ app.use('/api/admin/roadmap', autenticarAdmin, require('./routes/adminRoadmapRou
 app.use('/api/admin/equipe', autenticarAdmin, require('./routes/adminEquipeRoutes.js'));
 app.use('/api/admin/logs', autenticarAdmin, require('./routes/adminLogsRoutes.js'));
 app.use('/api/admin/relatorios', autenticarAdmin, require('./routes/adminRelatoriosRoutes.js'));
+app.use('/api/admin/regimes', autenticarAdmin, require('./routes/adminRegimeRoutes.js'));
 
 // Público — página de status e banner interno da plataforma
 app.use('/api/status', require('./routes/publicStatusRoutes.js'));
@@ -558,8 +578,13 @@ app.use((err, req, res, next) => {
 app.use((_req, res) => res.status(404).json({ error: 'Not Found' }));
 app.use(errorHandler);
 
-// start
-async function start() {
+/** Em modo local o schema fica como está; ver MODO_LOCAL lá em cima. */
+async function prepararSchema() {
+  if (MODO_LOCAL) {
+    console.log('INTREX_LOCAL=1: subindo sem sincronizar o schema.');
+    return;
+  }
+
   try {
     await db.sequelize.sync();
   } catch (err) {
@@ -580,7 +605,13 @@ async function start() {
     'ALTER TABLE "Clientes" ADD COLUMN IF NOT EXISTS "publicApiKey" VARCHAR(255) UNIQUE'
   );
 
-  console.log('Banco sincronizado:', PORT);
+  console.log('Banco sincronizado.');
+}
+
+// start
+async function start() {
+  await prepararSchema();
+
   app.listen(PORT, () => {
     console.log(`Servidor rodando na porta ${PORT}`);
   });

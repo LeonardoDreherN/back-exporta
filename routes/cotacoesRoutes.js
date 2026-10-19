@@ -27,6 +27,10 @@ async function attachClientePlano(req, _res, next) {
 
 router.use(attachClientePlano);
 
+// Acurácia das estimativas de imposto. Vem antes de '/:id' porque
+// 'impostos' cairia no parâmetro e nunca chegaria aqui.
+router.get('/impostos/acuracia', requireAuth, ctrl.acuraciaImpostos);
+
 // CRUD principal
 router.get('/', requireAuth, ctrl.listCotacoes);
 router.post('/', requireAuth, ctrl.createCotacaoReal);
@@ -34,6 +38,7 @@ router.get('/:id/details', requireAuth, ctrl.getCotacaoDetails);
 router.get('/status-por-pedido/:pedido_ref', requireAuth, ctrl.getCotacaoStatusByPedidoRef);
 router.get('/:id', requireAuth, ctrl.getCotacao);
 router.post('/:id/docs', requireAuth, ctrl.attachDocs);
+router.post('/:id/imposto-real', requireAuth, ctrl.registrarImpostoReal);
 router.get('/:id/etiqueta', requireAuth, ctrl.downloadEtiqueta);
 router.get('/:id/invoice', requireAuth, ctrl.downloadInvoice);
 router.get('/:id/remetente', requireAuth, ctrl.getCotacaoRemetente);

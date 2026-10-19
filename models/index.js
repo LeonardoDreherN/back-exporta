@@ -24,6 +24,8 @@ const RoadmapCardModel = require('./RoadmapCard.js');
 const ColetaAgendadaModel = require('./ColetaAgendada.js');
 const RegraFreteModel = require('./RegraFrete.js');
 const ImpostoEstimativaModel = require('./ImpostoEstimativa.js');
+const RegimeImportacaoModel = require('./RegimeImportacao.js');
+const ClassificacaoImpostoModel = require('./ClassificacaoImposto.js');
 
 require('dotenv/config');
 
@@ -60,10 +62,10 @@ const db = {
   Cotacao: CotacaoModel(sequelize),
   PedidoImport: PedidoImportModel(sequelize),
   AsaasBoletos: AsaasBoletosModel(sequelize),
-  Shipment: ShipmentModel(sequelize),
-  WorldeaseMaster: WorldeaseMasterModel(sequelize),
   CarteiraLancamento: CarteiraLancamentoModel(sequelize),
   Pagamento: PagamentoModel(sequelize),
+  Shipment: ShipmentModel(sequelize),
+  WorldeaseMaster: WorldeaseMasterModel(sequelize),
   InfoNuvemshop: InfoNuvemshopModel(sequelize),
   NuvemshopShop: NuvemshopShopModel(sequelize),
   AdminUser: AdminUserModel(sequelize),
@@ -77,6 +79,8 @@ const db = {
   ColetaAgendada: ColetaAgendadaModel(sequelize),
   RegraFrete: RegraFreteModel(sequelize),
   ImpostoEstimativa: ImpostoEstimativaModel(sequelize),
+  RegimeImportacao: RegimeImportacaoModel(sequelize),
+  ClassificacaoImposto: ClassificacaoImpostoModel(sequelize),
 };
 
 // Ativa apenas as associações necessárias para o admin (Cotacao já definia a sua,

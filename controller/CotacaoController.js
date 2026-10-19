@@ -16,6 +16,8 @@ const { toNumSafe, up, iso2Country } = require('../services/cotacoesHelpers');
 const { prepararCotacaoFedex } = require('../services/fedex/cotacaoFedex');
 const { id } = require('zod/v4/locales');
 const db = require('../models');
+const { registrarEstimativaDaCotacao } = require('../services/landedCost');
+const { valorConversao } = require('../utils/dolar');
 
 const supabase = createClient(
     process.env.SUPABASE_URL,
@@ -132,8 +134,8 @@ async function salvarEtiquetaNaStorage(cotacaoId, base64, mime = 'image/png') {
 
 /**
  * Salva a etiqueta de um envio de N volumes. Com mais de uma, junta tudo num
- * PDF (uma pagina por volume) e salva como etiqueta da cotacao - era aqui que
- * os volumes 2..N se perdiam, porque so a primeira etiqueta era guardada.
+ * PDF (uma página por volume) e salva como etiqueta da cotação — era aqui que
+ * os volumes 2..N se perdiam, porque só a primeira etiqueta era guardada.
  *
  * @param {number} cotacaoId
  * @param {Array<{ b64: string, mime?: string }>} partes
@@ -155,10 +157,10 @@ async function salvarEtiquetasNaStorage(cotacaoId, partes = []) {
         return;
     }
 
-    // Formato que o pdf-lib nao abre (ZPL): guarda a do primeiro volume, que e
-    // o comportamento antigo, e registra para nao sumir silenciosamente.
+    // Formato que o pdf-lib não abre (ZPL): guarda a do primeiro volume, que é
+    // o comportamento antigo, e registra para não sumir silenciosamente.
     console.error(
-        '[ETIQUETA][MERGE] formatos nao suportados, salvando so o volume 1:',
+        '[ETIQUETA][MERGE] formatos não suportados, salvando só o volume 1:',
         lista.map((p) => p.mime || 'sem-mime').join(', ')
     );
     await salvarEtiquetaNaStorage(cotacaoId, lista[0].b64, lista[0].mime || 'application/pdf');
@@ -694,7 +696,7 @@ async function attachDocs(req, res) {
         }
         // ===== LABEL -> Supabase Storage =====
         // Envio multi-volume manda `etiquetas` (uma por caixa); os campos
-        // antigos continuam valendo para quem manda uma so.
+        // antigos continuam valendo para quem manda uma só.
         const mimeDoCorpo = typeof etiqueta_mime === 'string' && etiqueta_mime.trim()
             ? etiqueta_mime.trim()
             : null;
@@ -729,8 +731,8 @@ async function attachDocs(req, res) {
                 }
 
                 // Falha num volume nao derruba a chamada: a rota de ship ja
-                // salvou as etiquetas no servidor, e o resto da chamada
-                // (tracking, invoice) ainda precisa acontecer.
+                // salvou as etiquetas no servidor, e o resto da chamada (tracking,
+                // invoice) ainda precisa acontecer.
                 try {
                     const fetched = await fetchUrlAsBase64(String(entrada.url).trim());
                     partes.push({
@@ -777,6 +779,16 @@ async function attachDocs(req, res) {
         // recarrega a cotacao pra pegar paths atualizados
         await cot.reload();
 
+        // ===== ESTIMATIVA DE IMPOSTOS =====
+        // Roda aqui porque é o momento em que a documentação sai: a partir da
+        // invoice a mercadoria declarada não muda mais. Solta sem await: a
+        // consulta com busca leva dezenas de segundos e o front está esperando
+        // a resposta do upload, não do imposto. Falha só vira log.
+        if (cot.invoice_path || cot.invoice_base64) {
+            registrarEstimativaDaCotacao({ cotacao: cot, db })
+                .catch((e) => console.error('[IMPOSTO][IA][HOOK]', cot.id, e?.message));
+        }
+
         return res.json({
             ok: true,
             cotacao_id: cot.id,
@@ -787,6 +799,177 @@ async function attachDocs(req, res) {
     } catch (err) {
         console.error('attachDocs error:', err);
         return res.status(500).json({ ok: false, error: 'Erro ao anexar documentos' });
+    }
+}
+
+/**
+ * Lança o imposto REALMENTE cobrado, quando a fatura do desembaraço chega.
+ * POST /cotacoes/:id/imposto-real  { valor, moeda?, fonte? }
+ *
+ * É o outro lado da estimativa: sem este número não dá para saber se a IA
+ * acerta, e a margem de segurança continua sendo definida por opinião.
+ */
+async function registrarImpostoReal(req, res) {
+    try {
+        const cliente_id = toInt(req.clienteId);
+        if (!cliente_id) return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
+
+        const { id } = req.params;
+        const { valor, moeda, fonte } = req.body || {};
+
+        const bruto = Number(String(valor ?? '').replace(',', '.'));
+        if (!Number.isFinite(bruto) || bruto < 0) {
+            return res.status(400).json({ ok: false, error: 'valor inválido' });
+        }
+
+        const cot = await Cotacao.findOne({ where: { id, cliente_id } });
+        if (!cot) return res.status(404).json({ ok: false, error: 'Cotação não encontrada' });
+
+        const moedaNorm = String(moeda || 'USD').trim().toUpperCase();
+        if (!['USD', 'BRL'].includes(moedaNorm)) {
+            return res.status(400).json({ ok: false, error: 'moeda deve ser USD ou BRL' });
+        }
+
+        // Guarda nas duas moedas: o USD é o que compara com a estimativa (que
+        // nasce em USD), o BRL é o que bate com o boleto.
+        let fx = Number(await valorConversao());
+        if (!Number.isFinite(fx) || fx <= 0) fx = 0;
+
+        const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
+        const realUsd = moedaNorm === 'USD' ? r2(bruto) : (fx ? r2(bruto / fx) : null);
+        const realBrl = moedaNorm === 'BRL' ? r2(bruto) : r2(bruto * fx);
+
+        await cot.update({
+            imposto_real_usd: realUsd,
+            imposto_real_brl: realBrl,
+            imposto_real_fonte: String(fonte || 'manual').trim().slice(0, 32),
+            imposto_real_em: new Date(),
+        });
+
+        let comparacao = null;
+        if (cot.imposto_estimativa_id) {
+            const snap = await db.ImpostoEstimativa.findByPk(cot.imposto_estimativa_id);
+            if (snap && realUsd != null) {
+                const base = Number(snap.imposto_usd_base);
+                const cobrado = Number(snap.imposto_usd_com_margem);
+                comparacao = {
+                    estimado_usd: base,
+                    cobrado_com_margem_usd: cobrado,
+                    real_usd: realUsd,
+                    erro_estimativa_pct: base > 0 ? r2(((realUsd - base) / base) * 100) : null,
+                    // Positivo = a margem cobriu. Negativo = a Intrex teve prejuízo.
+                    folga_usd: r2(cobrado - realUsd),
+                };
+            }
+        }
+
+        return res.json({
+            ok: true,
+            cotacao_id: cot.id,
+            imposto_real_usd: realUsd,
+            imposto_real_brl: realBrl,
+            comparacao,
+        });
+    } catch (err) {
+        console.error('registrarImpostoReal error:', err);
+        return res.status(500).json({ ok: false, error: 'Erro ao registrar imposto real' });
+    }
+}
+
+/**
+ * Acurácia das estimativas contra o imposto realmente cobrado.
+ * GET /cotacoes/impostos/acuracia
+ *
+ * É a tela que responde "a margem pode cair?" com número em vez de opinião.
+ */
+async function acuraciaImpostos(req, res) {
+    try {
+        const cliente_id = toInt(req.clienteId);
+        if (!cliente_id) return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
+
+        const linhas = await Cotacao.findAll({
+            where: {
+                cliente_id,
+                imposto_real_usd: { [Op.ne]: null },
+                imposto_estimativa_id: { [Op.ne]: null },
+            },
+            attributes: ['id', 'pais_dest', 'carrier', 'imposto_real_usd', 'imposto_estimativa_id', 'created_at'],
+            order: [['created_at', 'DESC']],
+            limit: 500,
+        });
+
+        if (!linhas.length) {
+            return res.json({
+                ok: true,
+                amostra: 0,
+                aviso: 'Nenhuma cotação com imposto real lançado ainda. A margem segue sem base medida.',
+                casos: [],
+            });
+        }
+
+        const snaps = await db.ImpostoEstimativa.findAll({
+            where: { id: linhas.map((l) => l.imposto_estimativa_id) },
+        });
+        const porId = new Map(snaps.map((s) => [s.id, s]));
+
+        const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
+        const casos = [];
+
+        for (const l of linhas) {
+            const s = porId.get(l.imposto_estimativa_id);
+            if (!s) continue;
+
+            const base = Number(s.imposto_usd_base);
+            const comMargem = Number(s.imposto_usd_com_margem);
+            const real = Number(l.imposto_real_usd);
+
+            casos.push({
+                cotacao_id: l.id,
+                pais_dest: l.pais_dest,
+                confianca: s.raw_response?.confianca || null,
+                margem_pct: Number(s.margem_pct),
+                estimado_usd: base,
+                cobrado_com_margem_usd: comMargem,
+                real_usd: real,
+                erro_pct: base > 0 ? r2(((real - base) / base) * 100) : null,
+                folga_usd: r2(comMargem - real),
+                cobriu: comMargem >= real,
+            });
+        }
+
+        const comErro = casos.filter((c) => c.erro_pct != null);
+        const media = (arr) => (arr.length ? r2(arr.reduce((a, b) => a + b, 0) / arr.length) : null);
+
+        // Agrupa por confiança: é assim que se descobre se os 8/15/25% estão
+        // calibrados, ou se algum nível está sistematicamente errado.
+        const porConfianca = {};
+        for (const c of comErro) {
+            const k = c.confianca || 'sem_nivel';
+            (porConfianca[k] ||= []).push(c);
+        }
+
+        const resumoConfianca = Object.fromEntries(
+            Object.entries(porConfianca).map(([k, v]) => [k, {
+                amostra: v.length,
+                erro_medio_pct: media(v.map((c) => c.erro_pct)),
+                erro_maximo_pct: r2(Math.max(...v.map((c) => c.erro_pct))),
+                margem_aplicada_pct: v[0].margem_pct,
+                cobriu_pct: r2((v.filter((c) => c.cobriu).length / v.length) * 100),
+            }])
+        );
+
+        return res.json({
+            ok: true,
+            amostra: casos.length,
+            erro_medio_pct: media(comErro.map((c) => c.erro_pct)),
+            descobertas: casos.filter((c) => !c.cobriu).length,
+            prejuizo_total_usd: r2(casos.filter((c) => !c.cobriu).reduce((a, c) => a + (c.real_usd - c.cobrado_com_margem_usd), 0)),
+            por_confianca: resumoConfianca,
+            casos,
+        });
+    } catch (err) {
+        console.error('acuraciaImpostos error:', err);
+        return res.status(500).json({ ok: false, error: 'Erro ao calcular acurácia' });
     }
 }
 
@@ -1255,7 +1438,9 @@ module.exports = {
     salvarEtiquetaNaStorage,
     salvarEtiquetasNaStorage,
     salvarInvoiceNaStorage,
-    getCotacaoRemetente
+    getCotacaoRemetente,
+    registrarImpostoReal,
+    acuraciaImpostos
 };
 
 

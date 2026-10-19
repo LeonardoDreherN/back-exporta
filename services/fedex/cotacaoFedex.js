@@ -1,10 +1,23 @@
+// @ts-check
 // backend/services/fedex/cotacaoFedex.js
 const { valorConversao } = require('../../utils/dolar');
 const { toNumSafe, up } = require('../cotacoesHelpers');
 
 /**
+ * @typedef {Object} FedexBreakdown
+ * @property {string} serviceType
+ * @property {string} currency
+ * @property {number} base
+ * @property {number} total
+ * @property {{ code: string, label: string, value: number }[]} itemized
+ */
+
+/**
  * Espera receber rate_payload no formato bruto da FedEx
  * (output de /rate/v1/rates/quotes, ou o pedaço escolhido).
+ * @param {any} rateRaw
+ * @param {string} [preferredServiceType]
+ * @returns {Promise<FedexBreakdown | null>}
  */
 async function extractFedexBreakdown(rateRaw, preferredServiceType) {
     if (!rateRaw) return null;
@@ -79,7 +92,7 @@ async function extractFedexBreakdown(rateRaw, preferredServiceType) {
         );
     const mapSurcharge = (s, fxRate) => {
         const raw = pickSurchargeAmount(s);
-        const val = Number.isFinite(raw) ? raw / fxRate : 0;
+        const val = typeof raw === 'number' && Number.isFinite(raw) ? raw / fxRate : 0;
         if (!(val > 0)) return null;
         const code = up(s?.surchargeType || s?.type || s?.code || s?.description || '');
         const label = s?.description || s?.surchargeDescription || s?.surchargeType || s?.type || 'Surcharge';
@@ -87,7 +100,7 @@ async function extractFedexBreakdown(rateRaw, preferredServiceType) {
     };
 
     const totalNet =
-        toNum(rated?.totalNetCharge) ?? null;
+        toNum(rated?.totalNetCharge) ?? 0;
 
     const totalSurcharges = toNum(rated?.shipmentRateDetail?.totalSurcharges) ?? 0;
 
@@ -113,7 +126,10 @@ async function extractFedexBreakdown(rateRaw, preferredServiceType) {
     const total = totalNet / fx
 
     const itemized = Array.isArray(surs)
-        ? surs.map((s) => mapSurcharge(s, fx)).filter(Boolean)
+        ? surs.map((s) => mapSurcharge(s, fx)).filter(
+            /** @type {(x: any) => x is { code: string, label: string, value: number }} */
+            (x) => x !== null
+        )
         : [];
 
     return {
@@ -125,19 +141,52 @@ async function extractFedexBreakdown(rateRaw, preferredServiceType) {
     };
 }
 
+/**
+ * @param {any} obj
+ * @returns {boolean}
+ */
 function isFedexRateRaw(obj) {
     if (!obj || typeof obj !== 'object') return false;
     return !!(obj.output?.rateReplyDetails || obj.RateReplyDetails || obj.transactionId);
 }
 
+/**
+ * @typedef {Object} PrepararCotacaoFedexInput
+ * @property {any} [req]
+ * @property {any} [rate_payload]
+ * @property {string | number} [preco_base]
+ * @property {number} [freightValueNum]
+ * @property {any} [plano]
+ */
+
+/**
+ * @typedef {Object} CotacaoFedexResult
+ * @property {'FEDEX'} carrier
+ * @property {string} serviceCode
+ * @property {number} base
+ * @property {number} total
+ * @property {number} taxesTotal
+ * @property {string} currency
+ * @property {any} surcharges
+ * @property {any} carrier_raw
+ * @property {'OVERRIDE' | 'FEDEX'} fonte_base
+ */
+
+/**
+ * @param {PrepararCotacaoFedexInput} input
+ * @returns {Promise<CotacaoFedexResult>}
+ */
 async function prepararCotacaoFedex({ req, rate_payload, preco_base, freightValueNum, plano }) {
+    /** @type {number | null} */
     let precoBase = null;
+    /** @type {FedexBreakdown | null} */
     let breakdown = null;
+    /** @type {any} */
     let carrier_raw = null;
 
     const precoBaseOverride = toNumSafe(preco_base ?? freightValueNum);
     // comentario informal: 0 nao vale como override, senao zera tudo
-    const overrideUsado = Number.isFinite(precoBaseOverride) && precoBaseOverride > 0;
+    const overrideUsado = typeof precoBaseOverride === 'number' && Number.isFinite(precoBaseOverride) && precoBaseOverride > 0;
 
     if (!rate_payload && !overrideUsado) {
         const err = new Error(
@@ -166,7 +215,7 @@ async function prepararCotacaoFedex({ req, rate_payload, preco_base, freightValu
     }
 
     if (overrideUsado) {
-        precoBase = precoBaseOverride;
+        precoBase = precoBaseOverride ?? null;
     } else {
         const baseFromBreakdown =
             breakdown && Number.isFinite(Number(breakdown.base))
@@ -175,7 +224,7 @@ async function prepararCotacaoFedex({ req, rate_payload, preco_base, freightValu
         precoBase = baseFromBreakdown ?? 0;
     }
 
-    if (!Number.isFinite(precoBase)) {
+    if (precoBase == null || !Number.isFinite(precoBase)) {
         const err = new Error('FedEx não retornou preço base');
         err.status = 400;
         throw err;
@@ -192,14 +241,14 @@ async function prepararCotacaoFedex({ req, rate_payload, preco_base, freightValu
         ? breakdown.itemized.map(it => ({
             code: up(it.code ?? ''),
             label: it.label ?? it.code ?? 'Surcharge',
-            value: Number(it.value ?? it.amount ?? 0) || 0,
+            value: Number(it.value ?? 0) || 0,
         }))
         : [];
 
     const itemsSum = items.reduce((a, b) => a + (b.value || 0), 0);
 
     let totalCalc = toNumSafe(breakdown?.total);
-    if (!Number.isFinite(totalCalc) || totalCalc <= 0) {
+    if (typeof totalCalc !== 'number' || !Number.isFinite(totalCalc) || totalCalc <= 0) {
         totalCalc = fedexBase + itemsSum;
     }
 
@@ -214,8 +263,8 @@ async function prepararCotacaoFedex({ req, rate_payload, preco_base, freightValu
     return {
         carrier: 'FEDEX',
         serviceCode: 'FEDEX_INTERNATIONAL_CONNECT_PLUS',
-        base: breakdown.base,
-        total: breakdown.total,
+        base: fedexBase,
+        total: fedexTotal,
         taxesTotal: fedexTaxesTotal,
         currency,
         surcharges: savedSurcharges,

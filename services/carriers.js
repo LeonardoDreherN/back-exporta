@@ -1,8 +1,38 @@
+// @ts-check
 // services/carriers.js
 // Adapter genérico de carrier (hoje UPS). Futuro: FedEx, Correios...
 const rating = require('./ups/rating'); // precisa expor rating.quote(payload)
 const ratingFedex = require('./fedex/ratingFedex')
 
+/**
+ * @typedef {'UPS' | 'FEDEX'} CarrierCode
+ */
+
+/**
+ * @typedef {Object} CotarCarrierArgs
+ * @property {CarrierCode | string} [carrier]
+ * @property {any} [payload]
+ * @property {any} [rate_payload]
+ * @property {any} [upsPayload]
+ */
+
+/**
+ * @typedef {Object} CotarCarrierResult
+ * @property {number} precoBase
+ * @property {number | null} negotiated
+ * @property {number | null} published
+ * @property {number} amount
+ * @property {CarrierCode | string} carrier
+ * @property {string} [currency]
+ * @property {any} [breakdown]
+ * @property {any} raw
+ */
+
+/**
+ * Cotação genérica de frete via carrier (UPS ou FedEx).
+ * @param {CotarCarrierArgs} [args]
+ * @returns {Promise<CotarCarrierResult>}
+ */
 async function cotarCarrier(args = {}) {
     const carrier = String(args.carrier || 'UPS').toUpperCase()
     // Stub para dev
@@ -25,10 +55,11 @@ async function cotarCarrier(args = {}) {
         throw err;
     }
 
+    /** @type {any} */
     let resp;
     try {
         if (carrier === "FEDEX") {
-            resp = await ratingFedex.quote(payload);
+            resp = await ratingFedex.quoteRates(payload);
         } else {
             resp = await rating.quote(payload);
         }
@@ -45,8 +76,11 @@ async function cotarCarrier(args = {}) {
         throw err;
     }
 
+    /** @type {number | null} */
     let negotiated = null;
+    /** @type {number | null} */
     let published = null;
+    /** @type {number} */
     let amount = NaN;
 
     if (carrier === "UPS") {
@@ -62,9 +96,9 @@ async function cotarCarrier(args = {}) {
             first?.TotalCharges?.MonetaryValue ??
             first?.totalCharges?.monetaryValue;
 
-        const negotiated = Number(negCharge);
-        const published = Number(pubCharge);
-        const amount = Number.isFinite(negotiated)
+        negotiated = Number(negCharge);
+        published = Number(pubCharge);
+        amount = Number.isFinite(negotiated)
             ? negotiated
             : (Number.isFinite(published) ? published : NaN);
 
@@ -75,9 +109,9 @@ async function cotarCarrier(args = {}) {
         }
     } else {
         if (carrier === "FEDEX") {
-            // ratingFedex.quote(payload) precisa retornar { rows, raw }
+            // ratingFedex.quoteRates(payload) retorna { rows, raw }
             const rows = resp?.rows || [];
-            const pick = rows.find(r => r.serviceType === 'FEDEX_INTERNATIONAL_CONNECT_PLUS') || rows[0];
+            const pick = rows.find(/** @type {(r: any) => boolean} */((r) => r.serviceType === 'FEDEX_INTERNATIONAL_CONNECT_PLUS')) || rows[0];
 
             if (!pick || !Number.isFinite(pick.total)) {
                 const err = new Error('FedEx não retornou total válido');
@@ -97,8 +131,8 @@ async function cotarCarrier(args = {}) {
                 carrier,
                 currency: 'USD',
                 breakdown: {
-                    freight: pick.freight,
-                    surcharges: pick.surcharges,
+                    freight: pick.base,
+                    surcharges: pick.itemized,
                     total: pick.total,
                     fx_used: pick.fx_used || null,
                     carrier_currency: pick.carrier_currency || null,

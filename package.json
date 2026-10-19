@@ -6,13 +6,15 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon server.js",
-    "dev:watch": "node --watch server.js"
+    "dev:watch": "node --watch server.js",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.126.0",
     "@ngrok/ngrok": "^1.5.2",
     "@shopify/shopify-api": "^11.14.1",
     "@shopify/shopify-app-session-storage-memory": "^4.0.20",
@@ -47,6 +49,8 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
-    "pino-pretty": "^13.1.2"
+    "@types/node": "^26.2.0",
+    "pino-pretty": "^13.1.2",
+    "typescript": "^7.0.2"
   }
 }
