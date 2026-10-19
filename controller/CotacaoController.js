@@ -1299,6 +1299,41 @@ async function listCotacoes(req, res) {
             }
         }
 
+        // Pago ou nao, para a lista poder travar o download sem precisar
+        // perguntar cotacao por cotacao. Duas consultas por pagina, com os ids
+        // que a pagina ja trouxe.
+        const idsPagina = itens.map((i) => i.id).filter(Boolean);
+
+        if (idsPagina.length) {
+            const [debitos, boletos] = await Promise.all([
+                db.CarteiraLancamento.findAll({
+                    where: { chave: idsPagina.map((id) => chaveDebito(id)) },
+                    attributes: ['chave'],
+                }),
+                db.AsaasBoletos.findAll({
+                    where: { cotacaoId: idsPagina },
+                    attributes: ['cotacaoId', 'status', 'bankSlipUrl'],
+                    order: [['id', 'ASC']],
+                }),
+            ]);
+
+            const pagosPorCarteira = new Set(debitos.map((d) => d.chave));
+            const PAGO = ['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'];
+            const porCotacao = new Map();
+            for (const b of boletos) porCotacao.set(b.cotacaoId, b);
+
+            for (const item of itens) {
+                const boleto = porCotacao.get(item.id);
+                const viaCarteira = pagosPorCarteira.has(chaveDebito(item.id));
+                const viaBoleto = !!boleto && PAGO.includes(String(boleto.status));
+
+                item.pago = viaCarteira || viaBoleto;
+                item.forma_pagamento = viaCarteira ? 'carteira' : (viaBoleto ? 'boleto' : null);
+                item.boleto_pendente = !!boleto && String(boleto.status) === 'PENDING' && !item.pago;
+                item.boleto_url = boleto?.bankSlipUrl || null;
+            }
+        }
+
         return res.json({ ok: true, cliente_id, page: pageNum, limit: lim, offset, total: count, itens });
     } catch (err) {
         console.error('listCotacoes error:', err);
