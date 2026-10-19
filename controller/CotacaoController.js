@@ -245,9 +245,19 @@ function inferFonteBase(carrierResp, overrideUsado) {
 
 async function downloadEtiqueta(req, res) {
     const id = req.params.id;
-    const row = await Cotacao.findByPk(id);
+
+    // Escopo por cliente: era findByPk(id) solto, entao qualquer usuario
+    // logado baixava a etiqueta de qualquer cotacao trocando o numero na URL.
+    const cliente_id = Number(
+        req.cliente?.id ?? req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId
+    );
+    if (!cliente_id) return res.status(401).json({ error: 'Cliente não autenticado' });
+
+    const row = await Cotacao.findOne({ where: { id, cliente_id } });
 
     if (!row) {
+        // Mesma resposta para "nao existe" e "nao e sua": nao vale dizer a um
+        // estranho que a cotacao existe.
         return res.status(404).json({ error: 'Etiqueta não disponível' });
     }
 
@@ -290,7 +300,15 @@ async function downloadEtiqueta(req, res) {
 
 async function downloadInvoice(req, res) {
     const id = req.params.id;
-    const row = await Cotacao.findByPk(id);
+
+    // Mesmo furo da etiqueta, e aqui e pior: a commercial invoice traz nome,
+    // endereco e valores da carga do cliente.
+    const cliente_id = Number(
+        req.cliente?.id ?? req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId
+    );
+    if (!cliente_id) return res.status(401).json({ error: 'Cliente não autenticado' });
+
+    const row = await Cotacao.findOne({ where: { id, cliente_id } });
 
     if (!row) {
         return res.status(404).json({ error: 'Invoice não disponível' });
