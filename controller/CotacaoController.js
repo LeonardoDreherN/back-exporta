@@ -18,6 +18,7 @@ const { id } = require('zod/v4/locales');
 const db = require('../models');
 const { registrarEstimativaDaCotacao } = require('../services/landedCost');
 const { valorConversao } = require('../utils/dolar');
+const { desembaracoUsd } = require('../services/taxasTransportadora');
 
 const supabase = createClient(
     process.env.SUPABASE_URL,
@@ -1037,6 +1038,10 @@ function cotacaoListDTO(c) {
         impostos_valor_brl: c.impostos_valor_brl != null ? Number(c.impostos_valor_brl) : null,
         impostos_modo: c.impostos_modo || null,
         imposto_estimativa_id: c.imposto_estimativa_id || null,
+        // Desembaraco da transportadora: nao vem no rate, e somado por fora e
+        // entra no boleto. Sem devolver aqui, a tela mostrava um total menor
+        // que o cobrado e a diferenca parecia cambio errado.
+        desembaraco_usd: desembaracoUsd(c.carrier),
         createdAt: c.createdAt,
     };
 }
