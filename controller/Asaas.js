@@ -18,11 +18,26 @@ const URL_ASAAS =
 
 const ASAAS_TOKEN = process.env.ASAAS_AMB === "production" ? process.env.ASAAS_TOKEN_PROD : process.env.ASAAS_TOKEN_SANDBOX
 
+/**
+ * Numero que pode chegar em dois formatos: "1.234,56" (digitado, pt-BR) ou
+ * "57.31" (DECIMAL do Postgres, que o pg entrega como string).
+ *
+ * A versao anterior removia o PRIMEIRO ponto sempre, assumindo separador de
+ * milhar: "57.31" virava "5731". Era por isso que o boleto por cotacao saiu
+ * 100x maior (R$ 29.100 num frete de US$ 57,31) e por isso o boleto em lote
+ * precisava daquele `/100` para compensar.
+ *
+ * Regra: so tem separador de milhar quem tem virgula decimal.
+ */
 function n(v) {
     if (v === null || v === undefined) return 0;
-    const num = Number(
-        String(v).replace(".", "").replace(",", ".") // aceita "1.234,56"
-    );
+
+    const texto = String(v).trim();
+    const normalizado = texto.includes(',')
+        ? texto.replace(/\./g, '').replace(',', '.')
+        : texto;
+
+    const num = Number(normalizado);
     return Number.isNaN(num) ? 0 : num;
 }
 
@@ -115,11 +130,12 @@ async function pegarValor({ from, to, clienteId }) {
             return 0;
         }
 
-        const converte_valor = total_final / 100 //o valor até aqui estava vindo em centavos
-
+        // O `/100` que existia aqui compensava o bug do n(), que inflava todo
+        // valor com ponto decimal em 100x. Com o n() consertado, dividir de
+        // novo deixaria o boleto do lote 100x menor.
         const dolar_para_real = await valorConversao() //pega o valor de dolar para real
 
-        const total_convertido = converte_valor * dolar_para_real
+        const total_convertido = total_final * dolar_para_real
 
         // linha de rodapé (só para referência; você pode deixar só o TOTAL_GERAL)
         return total_convertido + 2.00;
