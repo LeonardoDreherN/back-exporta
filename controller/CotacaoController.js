@@ -19,6 +19,8 @@ const db = require('../models');
 const { registrarEstimativaDaCotacao } = require('../services/landedCost');
 const { valorConversao } = require('../utils/dolar');
 const { desembaracoUsd } = require('../services/taxasTransportadora');
+const { composicaoCotacao, situacaoPagamento, chaveDebito } = require('../services/cobrancaCotacao');
+const carteira = require('../services/carteira');
 
 const supabase = createClient(
     process.env.SUPABASE_URL,
@@ -261,6 +263,20 @@ async function downloadEtiqueta(req, res) {
         return res.status(404).json({ error: 'Etiqueta não disponível' });
     }
 
+    // Documento so sai depois de pago: e a trava que faz a cobranca
+    // antecipada valer alguma coisa. 402 para o front saber que e falta de
+    // pagamento, e nao erro.
+    const pagamento = await situacaoPagamento(row);
+    if (!pagamento.pago) {
+        return res.status(402).json({
+            error: 'Documento liberado após o pagamento da remessa.',
+            pago: false,
+            boleto_pendente: pagamento.boleto_pendente || false,
+            boleto_url: pagamento.boleto_url || null,
+        });
+    }
+
+
     try {
         let buf;
         const mime = row.etiqueta_mime || 'image/png';
@@ -313,6 +329,20 @@ async function downloadInvoice(req, res) {
     if (!row) {
         return res.status(404).json({ error: 'Invoice não disponível' });
     }
+
+    // Documento so sai depois de pago: e a trava que faz a cobranca
+    // antecipada valer alguma coisa. 402 para o front saber que e falta de
+    // pagamento, e nao erro.
+    const pagamento = await situacaoPagamento(row);
+    if (!pagamento.pago) {
+        return res.status(402).json({
+            error: 'Documento liberado após o pagamento da remessa.',
+            pago: false,
+            boleto_pendente: pagamento.boleto_pendente || false,
+            boleto_url: pagamento.boleto_url || null,
+        });
+    }
+
 
     try {
         const cotacao = await db.Cotacao.findOne({
@@ -1479,7 +1509,118 @@ async function getCotacaoRemetente(req, res) {
     });
 }
 
+/** Cliente logado, do jeito que as rotas de cotacao resolvem em todo lugar. */
+function clienteDaRequisicao(req) {
+    return Number(
+        req.cliente?.id ?? req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId
+    );
+}
+
+async function cotacaoDoCliente(req, res) {
+    const cliente_id = clienteDaRequisicao(req);
+    if (!cliente_id) {
+        res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
+        return null;
+    }
+
+    const row = await Cotacao.findOne({ where: { id: req.params.id, cliente_id } });
+    if (!row) {
+        res.status(404).json({ ok: false, error: 'Cotação não encontrada' });
+        return null;
+    }
+    return row;
+}
+
+/**
+ * GET /cotacoes/:id/cobranca
+ * Quanto custa a remessa, como se compoe e se ja foi paga. E o que a tela do
+ * valor consome antes de oferecer carteira ou boleto.
+ */
+async function getCobranca(req, res) {
+    try {
+        const cot = await cotacaoDoCliente(req, res);
+        if (!cot) return;
+
+        const composicao = await composicaoCotacao(cot);
+        const pagamento = await situacaoPagamento(cot);
+        const saldo_centavos = await carteira.saldoCentavos(cot.cliente_id);
+
+        return res.json({
+            ok: true,
+            cotacao_id: cot.id,
+            carrier: cot.carrier,
+            ...composicao,
+            pagamento,
+            saldo_centavos,
+            saldo_suficiente: saldo_centavos >= composicao.total_centavos,
+            // Sem estimativa a tela nao pode dizer "total": falta uma parcela.
+            imposto_estimado: cot.imposto_estimativa_id != null,
+            impostos_modo: cot.impostos_modo || null,
+            breakdown: Array.isArray(cot.impostos_estimados) ? cot.impostos_estimados : [],
+        });
+    } catch (err) {
+        console.error('[COBRANCA][GET]', err);
+        return res.status(500).json({ ok: false, error: 'Erro ao calcular a cobrança' });
+    }
+}
+
+/**
+ * POST /cotacoes/:id/pagar-com-saldo
+ * Debita a remessa inteira da carteira. A chave do lancamento e unica por
+ * cotacao, entao clicar duas vezes nao cobra duas vezes.
+ */
+async function pagarComSaldo(req, res) {
+    try {
+        const cot = await cotacaoDoCliente(req, res);
+        if (!cot) return;
+
+        const jaPago = await situacaoPagamento(cot);
+        if (jaPago.pago) {
+            return res.json({ ok: true, ja_pago: true, pagamento: jaPago });
+        }
+
+        const composicao = await composicaoCotacao(cot);
+        if (composicao.total_centavos <= 0) {
+            return res.status(400).json({ ok: false, error: 'Cotação sem valor a cobrar.' });
+        }
+
+        const r = await carteira.debitar({
+            clienteId: cot.cliente_id,
+            valorCentavos: composicao.total_centavos,
+            tipo: 'debito_envio',
+            descricao: `Remessa ${cot.pedido_ref} (${cot.carrier})`.slice(0, 160),
+            referenciaTipo: 'cotacao',
+            referenciaId: cot.id,
+            chave: chaveDebito(cot.id),
+        });
+
+        // Fecha o ciclo com o boleto em lote: cotacao paga pela carteira nao
+        // pode ser varrida de novo para cobranca.
+        await cot.update({ status_pagamento: 'GERADO' });
+
+        return res.json({
+            ok: true,
+            pago: true,
+            cobrado_centavos: composicao.total_centavos,
+            saldo_centavos: r.saldo,
+            composicao,
+        });
+    } catch (err) {
+        if (err?.code === 'SALDO_INSUFICIENTE') {
+            return res.status(402).json({
+                ok: false,
+                error: 'Saldo insuficiente na carteira.',
+                saldo_centavos: err.saldo,
+            });
+        }
+        console.error('[COBRANCA][PAGAR]', err);
+        return res.status(500).json({ ok: false, error: 'Erro ao pagar com saldo' });
+    }
+}
+
 module.exports = {
+    getCobranca,
+    pagarComSaldo,
     createCotacaoReal,
     attachDocs,
     getCotacao,

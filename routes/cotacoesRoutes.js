@@ -39,6 +39,9 @@ router.get('/status-por-pedido/:pedido_ref', requireAuth, ctrl.getCotacaoStatusB
 router.get('/:id', requireAuth, ctrl.getCotacao);
 router.post('/:id/docs', requireAuth, ctrl.attachDocs);
 router.post('/:id/imposto-real', requireAuth, ctrl.registrarImpostoReal);
+router.get('/:id/cobranca', requireAuth, ctrl.getCobranca);
+router.post('/:id/pagar-com-saldo', requireAuth, ctrl.pagarComSaldo);
+
 router.get('/:id/etiqueta', requireAuth, ctrl.downloadEtiqueta);
 router.get('/:id/invoice', requireAuth, ctrl.downloadInvoice);
 router.get('/:id/remetente', requireAuth, ctrl.getCotacaoRemetente);
