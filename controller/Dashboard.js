@@ -1,14 +1,36 @@
 const { Op, literal, col, fn, where } = require("sequelize")
 const db = require("../models")
+const { desembaracoUsd } = require("../services/taxasTransportadora")
 
 const tz = "America/Sao_Paulo";
 
+// Frete (preco_final) + desembaraco da transportadora, somados por grupo.
+// O desembaraco nao fica gravado na cotacao: e fixo por transportadora e entra
+// no boleto por fora. Sem somar aqui o dashboard mostrava menos do que a
+// fatura e o cliente achava que estava sendo cobrado a mais.
+async function somaComDesembaraco(where, agruparPor = []) {
+    const rows = await db.Cotacao.findAll({
+        where: { ...where, preco_final: { [Op.ne]: null } },
+        attributes: [
+            ...agruparPor,
+            'carrier',
+            [fn('SUM', col('preco_final')), 'frete'],
+            [fn('COUNT', col('id')), 'qtd'],
+        ],
+        group: [...agruparPor, 'carrier'],
+        raw: true,
+    })
+
+    return rows.map((r) => ({
+        ...r,
+        total: Number(r.frete || 0) + Number(r.qtd || 0) * desembaracoUsd(r.carrier),
+    }))
+}
+
 const valorTotalCotacoes = async (req, res) => {
     try {
-        const total = await db.Cotacao.sum('preco_final', {
-            where: { cliente_id: req.clienteId }
-        })
-
+        const rows = await somaComDesembaraco({ cliente_id: req.clienteId })
+        const total = Math.round(rows.reduce((acc, r) => acc + r.total, 0) * 100) / 100
 
         return res.status(200).json({ ok: true, total })
     } catch (err) {
@@ -670,19 +692,17 @@ const dadosBreves = async (req, res) => {
 
 const valorTotalPaisDestinatario = async (req, res) => {
     try {
-        const rows = await db.Cotacao.findAll({
-            where: { cliente_id: req.clienteId },
-            attributes: ['pais_dest', [db.sequelize.fn('SUM', db.sequelize.col('preco_final')), 'valorTotal']],
-            group: ['pais_dest']
-        })
+        const rows = await somaComDesembaraco({ cliente_id: req.clienteId }, ['pais_dest'])
 
-        const data = rows.map(r => {
-            const data = r.toJSON()
-            return {
-                label: data.pais_dest,
-                value: Number(data.valorTotal)
-            }
-        })
+        const porPais = new Map()
+        for (const r of rows) {
+            porPais.set(r.pais_dest, (porPais.get(r.pais_dest) || 0) + r.total)
+        }
+
+        const data = [...porPais].map(([pais, valor]) => ({
+            label: pais,
+            value: Math.round(valor * 100) / 100
+        }))
 
         return res.status(200).json({
             ok: true,
