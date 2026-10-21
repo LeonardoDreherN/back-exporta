@@ -358,6 +358,11 @@ const verClienteAtual = async (req, res) => {
                 "enderecoCidade",
                 "enderecoEstado",
                 "plano",
+                // Bloqueio de operacao: a tela precisa saber ao ABRIR a
+                // cotacao, nao depois de a pessoa preencher tudo e tomar 403
+                // na hora de cotar.
+                "enviosBloqueados",
+                "enviosBloqueadosMotivo",
                 "descIOR",
                 "nomeIOR",
                 "emailIOR",
