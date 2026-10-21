@@ -6,6 +6,7 @@ const { requireAdminRole } = require('../middleware/adminAuth');
 router.get('/', ctrl.listClientes);
 router.get('/:id', ctrl.getClienteDetail);
 router.patch('/:id/status', requireAdminRole('admin', 'operations'), ctrl.updateClienteStatus);
+router.patch('/:id/envios', requireAdminRole('admin', 'operations'), ctrl.updateEnviosBloqueados);
 router.post('/:id/api-key/regenerate', requireAdminRole('admin', 'operations'), ctrl.regeneratePublicApiKey);
 
 module.exports = router;

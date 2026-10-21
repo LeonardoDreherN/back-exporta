@@ -4,6 +4,7 @@ const cors = require('cors');
 const ctrl = require('../controller/upsController');
 const { Cotacao } = require('../models');
 const { normalize } = require('../services/ups/tracking');
+const { bloquearEnvios } = require('../middleware/enviosBloqueados');
 
 const router = express.Router();
 
@@ -36,10 +37,10 @@ router.options('/shipments', corsOpts, (_req, res) => res.sendStatus(204));
 router.options('/pickup', corsOpts, (_req, res) => res.sendStatus(204));
 
 // Rotas
-router.post('/rating', corsOpts, ctrl.rate);
-router.post('/shipping', corsOpts, ctrl.ship);
+router.post('/rating', corsOpts, bloquearEnvios, ctrl.rate);
+router.post('/shipping', corsOpts, bloquearEnvios, ctrl.ship);
 router.get('/tracking/:tracking', corsOpts, ctrl.track);
-router.post('/pickup', corsOpts, ctrl.createPickup);
+router.post('/pickup', corsOpts, bloquearEnvios, ctrl.createPickup);
 
 router.post('/shipping', corsOpts, async (req, res, next) => {
     const b = req.body || {};

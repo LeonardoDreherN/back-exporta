@@ -4,6 +4,7 @@ const cors = require('cors');
 const { autenticarUsuario } = require('../middleware/auth');
 const ctrl = require('../controller/fedexController');
 const fedexCfg = require('../config/fedex')
+const { bloquearEnvios } = require('../middleware/enviosBloqueados');
 
 const router = express.Router();
 
@@ -31,10 +32,10 @@ router.options('/tracking/:tracking', corsOpts, (_req, res) => res.sendStatus(20
 router.options('/pickup', corsOpts, (_req, res) => res.sendStatus(204));
 
 // Rotas
-router.post('/rating', corsOpts, autenticarUsuario, ctrl.rate);
-router.post('/shipping', corsOpts, autenticarUsuario, ctrl.ship);
+router.post('/rating', corsOpts, autenticarUsuario, bloquearEnvios, ctrl.rate);
+router.post('/shipping', corsOpts, autenticarUsuario, bloquearEnvios, ctrl.ship);
 router.post('/tracking/:tracking', corsOpts, autenticarUsuario, ctrl.track);
-router.post('/pickup', corsOpts, autenticarUsuario, ctrl.pickUp);
+router.post('/pickup', corsOpts, autenticarUsuario, bloquearEnvios, ctrl.pickUp);
 
 router.get('/_debug/fedex', (req, res) => {
     res.json({

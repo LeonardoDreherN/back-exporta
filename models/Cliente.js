@@ -58,6 +58,15 @@ module.exports = (sequelize) => {
     },
     lastLoginAt: { type: DataTypes.DATE, allowNull: true },
 
+    // Bloqueio de operação, separado de `status`. `status` barra o login;
+    // este deixa entrar, ver os envios em andamento e baixar documento do que
+    // já foi despachado, mas impede criar cotação nova e despachar. Serve para
+    // pendência comercial, onde cortar o acesso inteiro é forte demais.
+    enviosBloqueados: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    // Texto mostrado ao cliente na tela — escrito para ele ler.
+    enviosBloqueadosMotivo: { type: DataTypes.STRING(200), allowNull: true, defaultValue: null },
+    enviosBloqueadosEm: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+
     // Se true (padrão), o endereço da empresa (enderecoPais/Rua/etc.) é usado
     // para pré-preencher o remetente nas cotações e coletas. Clientes que
     // coletam em endereços variados podem desativar para digitar manualmente

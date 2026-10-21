@@ -5,6 +5,9 @@ const db = require('../models');
 const CLIENTE_LIST_ATTRS = [
   'id', 'razaoSocial', 'emailPrincipal', 'telefoneCelular', 'plano', 'status',
   'tipoConta', 'cnpj', 'tipoDocumento', 'createdAt', 'lastLoginAt',
+  // Bloqueio de operacao: a lista precisa mostrar, senao o admin so descobre
+  // abrindo cliente por cliente.
+  'enviosBloqueados', 'enviosBloqueadosMotivo', 'enviosBloqueadosEm',
 ];
 
 const listClientes = async (req, res) => {
@@ -140,6 +143,60 @@ const getClienteDetail = async (req, res) => {
   }
 };
 
+/**
+ * PATCH /admin/clientes/:id/envios
+ * Liga ou desliga o bloqueio de operacao. Diferente de `status`: o cliente
+ * continua entrando na plataforma, vendo os envios em andamento e baixando
+ * documento do que ja despachou — so nao cria cotacao nem despacha.
+ */
+const updateEnviosBloqueados = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { bloqueado, motivo } = req.body || {};
+
+    if (typeof bloqueado !== 'boolean') {
+      return res.status(400).json({ ok: false, error: 'Informe bloqueado: true ou false' });
+    }
+
+    const cliente = await db.Cliente.findByPk(id);
+    if (!cliente) return res.status(404).json({ ok: false, error: 'Cliente nao encontrado' });
+
+    const anterior = cliente.enviosBloqueados;
+
+    await cliente.update({
+      enviosBloqueados: bloqueado,
+      // O motivo aparece para o cliente na tela, entao so faz sentido guardar
+      // enquanto o bloqueio existe.
+      enviosBloqueadosMotivo: bloqueado ? (String(motivo || '').trim().slice(0, 200) || null) : null,
+      enviosBloqueadosEm: bloqueado ? new Date() : null,
+    });
+
+    const { logAdminAction } = require('../services/audit');
+    await logAdminAction({
+      adminUserId: req.adminUser?.id,
+      action: bloqueado ? 'client.envios_bloqueados' : 'client.envios_liberados',
+      entityType: 'Cliente',
+      entityId: cliente.id,
+      clienteId: cliente.id,
+      metadata: { anterior, novo: bloqueado, motivo: cliente.enviosBloqueadosMotivo },
+      req,
+    });
+
+    return res.json({
+      ok: true,
+      data: {
+        id: cliente.id,
+        enviosBloqueados: cliente.enviosBloqueados,
+        enviosBloqueadosMotivo: cliente.enviosBloqueadosMotivo,
+        enviosBloqueadosEm: cliente.enviosBloqueadosEm,
+      },
+    });
+  } catch (err) {
+    console.error('[AdminClientes] updateEnviosBloqueados erro:', err);
+    return res.status(500).json({ ok: false, error: 'Erro ao atualizar o bloqueio de envios' });
+  }
+};
+
 const updateClienteStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -201,4 +258,5 @@ const regeneratePublicApiKey = async (req, res) => {
   }
 };
 
-module.exports = { listClientes, getClienteDetail, updateClienteStatus, regeneratePublicApiKey };
+module.exports = {
+  updateEnviosBloqueados, listClientes, getClienteDetail, updateClienteStatus, regeneratePublicApiKey };

@@ -8,6 +8,7 @@ const { Cliente, PlanoLogs } = db;
 
 const ctrl = require('../controller/CotacaoController'); // ← caminho atual
 const { agendarPickupCotacao } = require('../services/ups/cotacaoUps');
+const { bloquearEnvios } = require('../middleware/enviosBloqueados');
 
 function requireAuth(req, res, next) {
     const cid = req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId;
@@ -33,7 +34,7 @@ router.get('/impostos/acuracia', requireAuth, ctrl.acuraciaImpostos);
 
 // CRUD principal
 router.get('/', requireAuth, ctrl.listCotacoes);
-router.post('/', requireAuth, ctrl.createCotacaoReal);
+router.post('/', requireAuth, bloquearEnvios, ctrl.createCotacaoReal);
 router.get('/:id/details', requireAuth, ctrl.getCotacaoDetails);
 router.get('/status-por-pedido/:pedido_ref', requireAuth, ctrl.getCotacaoStatusByPedidoRef);
 router.get('/:id', requireAuth, ctrl.getCotacao);
@@ -46,7 +47,7 @@ router.get('/:id/etiqueta', requireAuth, ctrl.downloadEtiqueta);
 router.get('/:id/invoice', requireAuth, ctrl.downloadInvoice);
 router.get('/:id/remetente', requireAuth, ctrl.getCotacaoRemetente);
 
-router.post('/:id/pickup', requireAuth, agendarPickupCotacao)
+router.post('/:id/pickup', requireAuth, bloquearEnvios, agendarPickupCotacao)
 
 router.delete('/:id', requireAuth, ctrl.deleteCotacao)
 router.delete('/:id/deletar', requireAuth, ctrl.deleteCotacao)
