@@ -1619,6 +1619,21 @@ async function getCobranca(req, res) {
             : { pago: true, forma: 'fora_da_cobranca_antecipada' };
         const saldo_centavos = await carteira.saldoCentavos(cot.cliente_id);
 
+        // Em shadow `impostos_valor_brl` fica null, entao composicao.imposto_brl
+        // vem 0 — e a tela mostrava "R$ 0,00" no imposto com o valor real
+        // escondido atras de "ver detalhes". O snapshot tem o numero nos dois
+        // modos: devolvemos para a linha poder dizer quanto e, deixando claro
+        // que nao esta sendo cobrado.
+        let imposto_estimado_brl = null;
+        if (cot.imposto_estimativa_id) {
+            const snap = await db.ImpostoEstimativa.findByPk(cot.imposto_estimativa_id, {
+                attributes: ['imposto_valor_brl'],
+            });
+            if (snap?.imposto_valor_brl != null) {
+                imposto_estimado_brl = Number(snap.imposto_valor_brl);
+            }
+        }
+
         return res.json({
             ok: true,
             cotacao_id: cot.id,
@@ -1629,6 +1644,7 @@ async function getCobranca(req, res) {
             saldo_suficiente: saldo_centavos >= composicao.total_centavos,
             // Sem estimativa a tela nao pode dizer "total": falta uma parcela.
             imposto_estimado: cot.imposto_estimativa_id != null,
+            imposto_estimado_brl,
             imposto_habilitado,
             cobranca_habilitada,
             impostos_modo: cot.impostos_modo || null,
