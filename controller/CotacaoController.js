@@ -20,6 +20,7 @@ const { registrarEstimativaDaCotacao } = require('../services/landedCost');
 const { valorConversao } = require('../utils/dolar');
 const { desembaracoUsd } = require('../services/taxasTransportadora');
 const { composicaoCotacao, situacaoPagamento, chaveDebito } = require('../services/cobrancaCotacao');
+const { impostosBetaHabilitado } = require('../services/featureFlags');
 const carteira = require('../services/carteira');
 
 const supabase = createClient(
@@ -1605,7 +1606,17 @@ async function getCobranca(req, res) {
         if (!cot) return;
 
         const composicao = await composicaoCotacao(cot);
-        const pagamento = await situacaoPagamento(cot);
+        const dono = await Cliente.findByPk(cot.cliente_id);
+
+        // Fora das allowlists a estimativa nem comeca e a cobranca nao trava
+        // nada. Sem dizer isso, a tela ficava em "calculando..." para sempre
+        // esperando algo que nunca ia rodar.
+        const imposto_habilitado = impostosBetaHabilitado(dono);
+        const cobranca_habilitada = carteira.carteiraHabilitada(dono);
+
+        const pagamento = cobranca_habilitada
+            ? await situacaoPagamento(cot)
+            : { pago: true, forma: 'fora_da_cobranca_antecipada' };
         const saldo_centavos = await carteira.saldoCentavos(cot.cliente_id);
 
         return res.json({
@@ -1618,6 +1629,8 @@ async function getCobranca(req, res) {
             saldo_suficiente: saldo_centavos >= composicao.total_centavos,
             // Sem estimativa a tela nao pode dizer "total": falta uma parcela.
             imposto_estimado: cot.imposto_estimativa_id != null,
+            imposto_habilitado,
+            cobranca_habilitada,
             impostos_modo: cot.impostos_modo || null,
             breakdown: Array.isArray(cot.impostos_estimados) ? cot.impostos_estimados : [],
         });
