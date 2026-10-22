@@ -32,6 +32,10 @@ router.use(attachClientePlano);
 // 'impostos' cairia no parâmetro e nunca chegaria aqui.
 router.get('/impostos/acuracia', requireAuth, ctrl.acuraciaImpostos);
 
+// Contagem por status e soma de frete + desembaraco, para as abas e o
+// cabecalho da tela. Tambem vem antes de '/:id', pelo mesmo motivo acima.
+router.get('/resumo', requireAuth, ctrl.resumoCotacoes);
+
 // CRUD principal
 router.get('/', requireAuth, ctrl.listCotacoes);
 router.post('/', requireAuth, bloquearEnvios, ctrl.createCotacaoReal);

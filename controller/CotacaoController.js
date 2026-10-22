@@ -1,5 +1,5 @@
 // controllers/cotacoes.controller.js
-const { Op, literal, Transaction, Sequelize } = require('sequelize');
+const { Op, literal, fn, col, Transaction, Sequelize } = require('sequelize');
 const { Cotacao, Cliente, PedidoImport, sequelize } = require('../models');
 const { keepFirstPageFromPdfB64, mesclarEtiquetasEmPdfB64 } = require('../utils/pdfTools');
 const { getStatusOnly } = require('../services/trackingStatus');
@@ -1111,76 +1111,154 @@ function cotacaoListDTO(c) {
     };
 }
 
+/**
+ * Monta o `where` da listagem a partir da query.
+ *
+ * Extraido de listCotacoes para o resumo das abas usar exatamente os mesmos
+ * filtros. Se os dois montassem o filtro por conta propria, o contador da aba
+ * diria um numero e a lista mostraria outro assim que um deles mudasse.
+ *
+ * `incluirStatus: false` e o que o resumo usa: ele precisa contar TODOS os
+ * status para desenhar as abas, inclusive o que nao esta selecionado.
+ */
+function montarWhereCotacoes(cliente_id, query, { incluirStatus = true } = {}) {
+    const {
+        pedido_ref, tracking_number, date_from, date_to,
+        only_with_tracking,
+        search, start_day, end_day,
+        status, carrier,
+    } = query;
+    const tzOffset = "-03:00";
+
+    const where = { cliente_id };
+
+    // Filtro por status_norm. Aceita lista separada por virgula
+    // ("EXCECAO,EM_TRANSITO") para a tela de ocorrencias poder crescer sem
+    // precisar de outro endpoint.
+    if (incluirStatus && status) {
+        const lista = String(status)
+            .split(',')
+            .map((s) => s.trim().toUpperCase())
+            .filter(Boolean);
+
+        if (lista.length === 1) where.status_norm = lista[0];
+        else if (lista.length > 1) where.status_norm = { [Op.in]: lista };
+    }
+
+    // Transportadora como filtro proprio. `search` ja olhava `carrier`, mas
+    // por ali nao da para combinar "FEDEX" com uma busca por comprador: as
+    // duas condicoes cairiam no mesmo OR.
+    if (carrier && String(carrier).trim()) {
+        where.carrier = String(carrier).trim().toUpperCase();
+    }
+
+    if (search && String(search).trim()) {
+        const q = `%${String(search).trim()}%`;
+
+        where[Op.or] = [
+            { pedido_ref: { [Op.iLike]: q } },
+            { tracking_number: { [Op.iLike]: q } },
+            { carrier: { [Op.iLike]: q } },
+
+            Sequelize.where(Sequelize.json("pedido.nomeComprador"), { [Op.iLike]: q }),
+            Sequelize.where(Sequelize.json("pedido.emailComprador"), { [Op.iLike]: q }),
+        ];
+    }
+
+    // ✅ INTERVALO opcional (start_day / end_day) no createdAt
+    if ((start_day && String(start_day).trim()) || (end_day && String(end_day).trim())) {
+        const range = {};
+
+        if (start_day && String(start_day).trim()) {
+            range[Op.gte] = new Date(`${String(start_day).trim()}T00:00:00${tzOffset}`);
+        }
+
+        if (end_day && String(end_day).trim()) {
+            range[Op.lte] = new Date(`${String(end_day).trim()}T23:59:59.999${tzOffset}`);
+        }
+
+        where.createdAt = range; // (createdAt -> created_at)
+    }
+
+    if (pedido_ref && String(pedido_ref).trim()) {
+        where.pedido_ref = { [Op.iLike]: `%${String(pedido_ref).trim()}%` };
+    }
+    if (tracking_number && String(tracking_number).trim()) {
+        where.tracking_number = { [Op.iLike]: `%${String(tracking_number).trim()}%` };
+    }
+    if (only_with_tracking === '1') where.tracking_number = { [Op.ne]: null };
+
+    if (date_from || date_to) {
+        where.createdAt = {};
+        if (date_from) where.createdAt[Op.gte] = new Date(`${date_from}T00:00:00.000Z`);
+        if (date_to) where.createdAt[Op.lte] = new Date(`${date_to}T23:59:59.999Z`);
+    }
+
+    return where;
+}
+
+/**
+ * Contagem por status e soma de frete + desembaraco, para o cabecalho e as
+ * abas da tela de cotacoes.
+ *
+ * Existe porque a listagem e paginada: somar ou contar no front daria o
+ * numero da pagina aberta, nao o do filtro inteiro. Agrupa por carrier
+ * tambem porque o desembaraco e um valor fixo por transportadora, que nao
+ * esta gravado na linha — vem de `desembaracoUsd`.
+ */
+async function resumoCotacoes(req, res) {
+    try {
+        const cliente_id = toInt(req.clienteId);
+        if (!cliente_id) return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
+
+        const where = montarWhereCotacoes(cliente_id, req.query, { incluirStatus: false });
+
+        const linhas = await Cotacao.findAll({
+            where,
+            attributes: [
+                'status_norm',
+                'carrier',
+                [fn('COUNT', col('id')), 'qtd'],
+                [fn('SUM', col('preco_final')), 'frete_usd'],
+            ],
+            group: ['status_norm', 'carrier'],
+            raw: true,
+        });
+
+        let total = 0;
+        let freteDesembaracoUsd = 0;
+        const porStatus = {};
+
+        for (const linha of linhas) {
+            const qtd = Number(linha.qtd) || 0;
+            const status = String(linha.status_norm || '').toUpperCase() || 'DESCONHECIDO';
+
+            total += qtd;
+            porStatus[status] = (porStatus[status] || 0) + qtd;
+            freteDesembaracoUsd +=
+                (Number(linha.frete_usd) || 0) + qtd * desembaracoUsd(linha.carrier);
+        }
+
+        return res.json({
+            ok: true,
+            total,
+            por_status: porStatus,
+            frete_desembaraco_usd: Number(freteDesembaracoUsd.toFixed(2)),
+        });
+    } catch (err) {
+        console.error('❌ resumoCotacoes:', err);
+        return res.status(500).json({ ok: false, error: 'Erro ao resumir cotações', detalhes: err.message });
+    }
+}
+
 async function listCotacoes(req, res) {
     try {
         const cliente_id = toInt(req.clienteId);
         if (!cliente_id) return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
 
-        const {
-            pedido_ref, tracking_number, date_from, date_to,
-            page = 1, limit = 10,
-            only_with_tracking,
-            refresh, search, start_day, end_day,
-            status,
-        } = req.query;
-        const tzOffset = "-03:00";
+        const { page = 1, limit = 10, refresh } = req.query;
 
-        const where = { cliente_id };
-
-        // Filtro por status_norm. Aceita lista separada por virgula
-        // ("EXCECAO,EM_TRANSITO") para a tela de ocorrencias poder crescer sem
-        // precisar de outro endpoint.
-        if (status) {
-            const lista = String(status)
-                .split(',')
-                .map((s) => s.trim().toUpperCase())
-                .filter(Boolean);
-
-            if (lista.length === 1) where.status_norm = lista[0];
-            else if (lista.length > 1) where.status_norm = { [Op.in]: lista };
-        }
-
-        if (search && String(search).trim()) {
-            const q = `%${String(search).trim()}%`;
-
-            where[Op.or] = [
-                { pedido_ref: { [Op.iLike]: q } },
-                { tracking_number: { [Op.iLike]: q } },
-                { carrier: { [Op.iLike]: q } },
-
-                Sequelize.where(Sequelize.json("pedido.nomeComprador"), { [Op.iLike]: q }),
-                Sequelize.where(Sequelize.json("pedido.emailComprador"), { [Op.iLike]: q }),
-            ];
-        }
-
-        // ✅ INTERVALO opcional (start_day / end_day) no createdAt
-        if ((start_day && String(start_day).trim()) || (end_day && String(end_day).trim())) {
-            const range = {};
-
-            if (start_day && String(start_day).trim()) {
-                range[Op.gte] = new Date(`${String(start_day).trim()}T00:00:00${tzOffset}`);
-            }
-
-            if (end_day && String(end_day).trim()) {
-                range[Op.lte] = new Date(`${String(end_day).trim()}T23:59:59.999${tzOffset}`);
-            }
-
-            where.createdAt = range; // (createdAt -> created_at)
-        }
-
-        if (pedido_ref && String(pedido_ref).trim()) {
-            where.pedido_ref = { [Op.iLike]: `%${String(pedido_ref).trim()}%` };
-        }
-        if (tracking_number && String(tracking_number).trim()) {
-            where.tracking_number = { [Op.iLike]: `%${String(tracking_number).trim()}%` };
-        }
-        if (only_with_tracking === '1') where.tracking_number = { [Op.ne]: null };
-
-        if (date_from || date_to) {
-            where.createdAt = {};
-            if (date_from) where.createdAt[Op.gte] = new Date(`${date_from}T00:00:00.000Z`);
-            if (date_to) where.createdAt[Op.lte] = new Date(`${date_to}T23:59:59.999Z`);
-        }
+        const where = montarWhereCotacoes(cliente_id, req.query);
 
         const pageNum = Math.max(1, Number(page) || 1);
         const lim = Math.min(100, Math.max(1, Number(limit) || 20));
@@ -1717,6 +1795,7 @@ module.exports = {
     attachDocs,
     getCotacao,
     listCotacoes,
+    resumoCotacoes,
     updateCotacao,
     deleteCotacao,
     downloadEtiqueta,
