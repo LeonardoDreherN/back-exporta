@@ -179,6 +179,7 @@ app.use('/dashboard', autenticarUsuario, vincularCliente, dashboardModule);
 app.use('/api/cotacoes', autenticarUsuario, vincularCliente, require('./routes/cotacoesRoutes.js'));
 app.use('/api/coletas', autenticarUsuario, vincularCliente, require('./routes/coletasRoutes.js'));
 app.use('/api/chamados', autenticarUsuario, vincularCliente, require('./routes/chamadosRoutes.js'));
+app.use('/api/importacao', autenticarUsuario, vincularCliente, require('./routes/importacaoRoutes.js'));
 app.use('/api/carteira', autenticarUsuario, vincularCliente, require('./routes/carteiraRoutes.js'));
 app.use('/api/relatorio', autenticarUsuario, vincularCliente, require('./routes/relatorioPagamentos.js'));
 app.use('/api/rate', require('./routes/rateMulti.js'));

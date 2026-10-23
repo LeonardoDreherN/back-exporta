@@ -595,4 +595,4 @@ async function listPedidosShopify(req, res) {
 }
 
 
-module.exports = { importPedidos, listPedidos, importPedidosInternal, listPedidosShopify, publicCreateOrder };
+module.exports = { importPedidos, listPedidos, importPedidosInternal, listPedidosShopify, publicCreateOrder, groupRowsByOrder, enrichPedidosWithProdutos };
