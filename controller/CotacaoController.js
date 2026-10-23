@@ -19,7 +19,7 @@ const db = require('../models');
 const { registrarEstimativaDaCotacao } = require('../services/landedCost');
 const { valorConversao } = require('../utils/dolar');
 const { desembaracoUsd } = require('../services/taxasTransportadora');
-const { composicaoCotacao, situacaoPagamento, chaveDebito } = require('../services/cobrancaCotacao');
+const { composicaoCotacao, situacaoPagamento, chaveDebito, chaveEstorno } = require('../services/cobrancaCotacao');
 const { impostosBetaHabilitado } = require('../services/featureFlags');
 const carteira = require('../services/carteira');
 
@@ -1478,14 +1478,54 @@ async function deleteCotacao(req, res) {
         if (!cot) return res.status(404).json({ ok: false, error: 'Cotação não encontrada' });
 
         const pedidoRef = cot.pedido_ref;
-        await cot.destroy();
+
+        // Estorno: o que foi pago volta como saldo na carteira, tanto para
+        // quem pagou com saldo quanto para quem pagou boleto — decisão de
+        // 2026-10-23, para nao ter devolucao de dinheiro por fora.
+        //
+        // A chave unica do livro faz o estorno ser idempotente: cancelar duas
+        // vezes nao devolve o dinheiro duas vezes.
+        const pagamento = await situacaoPagamento(cot);
+        let estorno_centavos = 0;
+
+        if (pagamento.pago && Number(pagamento.valor_centavos) > 0) {
+            const r = await carteira.lancar({
+                clienteId: cliente_id,
+                tipo: 'estorno_envio',
+                valorCentavos: Number(pagamento.valor_centavos),
+                descricao: `Estorno do envio ${pedidoRef} (${cot.carrier})`,
+                referenciaTipo: 'cotacao',
+                referenciaId: cot.id,
+                chave: chaveEstorno(cot.id),
+            });
+
+            if (r.criado) estorno_centavos = Number(pagamento.valor_centavos);
+        }
+
+        // Marca em vez de apagar. Com estorno no livro, destruir a linha
+        // deixaria um lancamento apontando para uma cotacao inexistente e sem
+        // rastro do que foi cancelado.
+        //
+        // ATENCAO: nao cancela a etiqueta na transportadora. Nao existe Cancel
+        // Shipment (FedEx) nem Void Shipment (UPS) no sistema, entao a
+        // etiqueta emitida continua valida e pode ser despachada mesmo depois
+        // do estorno. A tela avisa quem cancela. Quando o void existir, entra
+        // aqui, antes do estorno.
+        await cot.update({ status_norm: 'CANCELADO' });
 
         await db.PedidoImport.update(
             { status: false },
             { where: { cliente_id, pedido_ref: pedidoRef } }
         );
 
-        return res.json({ ok: true, deleted: true });
+        return res.json({
+            ok: true,
+            cancelada: true,
+            // Mantido por compatibilidade: o front antigo lia `deleted`.
+            deleted: true,
+            estorno_centavos,
+            forma_pagamento: pagamento.forma ?? null,
+        });
     } catch (err) {
         console.error('deleteCotacao error:', err);
         return res.status(500).json({ ok: false, error: 'Erro ao excluir cotação' });

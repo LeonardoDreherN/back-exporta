@@ -24,6 +24,14 @@ function chaveDebito(cotacaoId) {
 }
 
 /**
+ * Chave do estorno. Mesma ideia da chave do débito: o índice único do livro
+ * impede devolver o dinheiro duas vezes se o cancelamento for repetido.
+ */
+function chaveEstorno(cotacaoId) {
+    return `estorno:cotacao:${cotacaoId}`;
+}
+
+/**
  * Composição do valor da remessa, em USD e em BRL.
  *
  * O imposto entra pelo campo que a cotação carrega (`impostos_valor_brl`), que
@@ -97,4 +105,4 @@ async function situacaoPagamento(cotacao) {
     };
 }
 
-module.exports = { composicaoCotacao, situacaoPagamento, chaveDebito };
+module.exports = { composicaoCotacao, situacaoPagamento, chaveDebito, chaveEstorno };
