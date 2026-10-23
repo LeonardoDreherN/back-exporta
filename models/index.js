@@ -26,6 +26,8 @@ const RegraFreteModel = require('./RegraFrete.js');
 const ImpostoEstimativaModel = require('./ImpostoEstimativa.js');
 const RegimeImportacaoModel = require('./RegimeImportacao.js');
 const ClassificacaoImpostoModel = require('./ClassificacaoImposto.js');
+const ChamadoModel = require('./Chamado.js');
+const ChamadoMensagemModel = require('./ChamadoMensagem.js');
 
 require('dotenv/config');
 
@@ -81,6 +83,8 @@ const db = {
   ImpostoEstimativa: ImpostoEstimativaModel(sequelize),
   RegimeImportacao: RegimeImportacaoModel(sequelize),
   ClassificacaoImposto: ClassificacaoImpostoModel(sequelize),
+  Chamado: ChamadoModel(sequelize),
+  ChamadoMensagem: ChamadoMensagemModel(sequelize),
 };
 
 // Ativa apenas as associações necessárias para o admin (Cotacao já definia a sua,
