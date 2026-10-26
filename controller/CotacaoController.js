@@ -246,6 +246,60 @@ function inferFonteBase(carrierResp, overrideUsado) {
     return 'total';
 }
 
+/*
+ * Quando a etiqueta e a invoice podem ser baixadas.
+ *
+ * A trava de pagamento existe para a cobranca antecipada valer alguma coisa,
+ * mas ela so faz sentido ANTES do despacho. Depois que a transportadora
+ * coletou, a etiqueta ja esta em uso e o pacote esta voando: negar o
+ * documento nesse ponto nao segura dinheiro nenhum, so impede o cliente de
+ * reimprimir a invoice que a alfandega esta pedindo.
+ *
+ * Por isso:
+ * - CANCELADO  -> bloqueado, e pagar nao muda isso.
+ * - CRIADO     -> exige pagamento (so para quem esta na allowlist da carteira).
+ * - demais     -> liberado: ja saiu, o documento acompanha a carga.
+ */
+async function liberacaoDocumento(row) {
+    const status = String(row.status_norm || '').toUpperCase();
+
+    if (status === 'CANCELADO') {
+        return {
+            liberado: false,
+            http: 409,
+            corpo: {
+                error: 'Cotação cancelada: a documentação não fica mais disponível.',
+                cancelada: true,
+            },
+        };
+    }
+
+    if (status && status !== 'CRIADO') {
+        return { liberado: true };
+    }
+
+    // So vale para quem esta na allowlist da carteira. As cotacoes que ja
+    // existiam nunca passaram por este pagamento — ligar a trava para todo
+    // mundo deixaria centenas de clientes sem baixar a propria etiqueta.
+    const donoDaCotacao = await db.Cliente.findByPk(row.cliente_id);
+    const pagamento = carteira.carteiraHabilitada(donoDaCotacao)
+        ? await situacaoPagamento(row)
+        : { pago: true, forma: 'fora_da_cobranca_antecipada' };
+
+    if (pagamento.pago) return { liberado: true };
+
+    return {
+        liberado: false,
+        http: 402,
+        corpo: {
+            error: 'Documento liberado após o pagamento da remessa.',
+            pago: false,
+            boleto_pendente: pagamento.boleto_pendente || false,
+            boleto_url: pagamento.boleto_url || null,
+        },
+    };
+}
+
 async function downloadEtiqueta(req, res) {
     const id = req.params.id;
 
@@ -264,25 +318,9 @@ async function downloadEtiqueta(req, res) {
         return res.status(404).json({ error: 'Etiqueta não disponível' });
     }
 
-    // Documento so sai depois de pago: e a trava que faz a cobranca
-    // antecipada valer alguma coisa. 402 para o front saber que e falta de
-    // pagamento, e nao erro.
-    //
-    // So vale para quem esta na allowlist da carteira. As cotacoes que ja
-    // existiam nunca passaram por este pagamento — ligar a trava para todo
-    // mundo deixaria centenas de clientes sem baixar a propria etiqueta.
-    const donoDaCotacao = await db.Cliente.findByPk(row.cliente_id);
-    const pagamento = carteira.carteiraHabilitada(donoDaCotacao)
-        ? await situacaoPagamento(row)
-        : { pago: true, forma: 'fora_da_cobranca_antecipada' };
-
-    if (!pagamento.pago) {
-        return res.status(402).json({
-            error: 'Documento liberado após o pagamento da remessa.',
-            pago: false,
-            boleto_pendente: pagamento.boleto_pendente || false,
-            boleto_url: pagamento.boleto_url || null,
-        });
+    const liberacao = await liberacaoDocumento(row);
+    if (!liberacao.liberado) {
+        return res.status(liberacao.http).json(liberacao.corpo);
     }
 
 
@@ -339,25 +377,9 @@ async function downloadInvoice(req, res) {
         return res.status(404).json({ error: 'Invoice não disponível' });
     }
 
-    // Documento so sai depois de pago: e a trava que faz a cobranca
-    // antecipada valer alguma coisa. 402 para o front saber que e falta de
-    // pagamento, e nao erro.
-    //
-    // So vale para quem esta na allowlist da carteira. As cotacoes que ja
-    // existiam nunca passaram por este pagamento — ligar a trava para todo
-    // mundo deixaria centenas de clientes sem baixar a propria etiqueta.
-    const donoDaCotacao = await db.Cliente.findByPk(row.cliente_id);
-    const pagamento = carteira.carteiraHabilitada(donoDaCotacao)
-        ? await situacaoPagamento(row)
-        : { pago: true, forma: 'fora_da_cobranca_antecipada' };
-
-    if (!pagamento.pago) {
-        return res.status(402).json({
-            error: 'Documento liberado após o pagamento da remessa.',
-            pago: false,
-            boleto_pendente: pagamento.boleto_pendente || false,
-            boleto_url: pagamento.boleto_url || null,
-        });
+    const liberacao = await liberacaoDocumento(row);
+    if (!liberacao.liberado) {
+        return res.status(liberacao.http).json(liberacao.corpo);
     }
 
 

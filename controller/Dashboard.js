@@ -8,9 +8,20 @@ const tz = "America/Sao_Paulo";
 // O desembaraco nao fica gravado na cotacao: e fixo por transportadora e entra
 // no boleto por fora. Sem somar aqui o dashboard mostrava menos do que a
 // fatura e o cliente achava que estava sendo cobrado a mais.
+/*
+ * Cotacao cancelada nao entra em nenhum agregado do painel.
+ *
+ * Ate o cancelamento virar estorno, a linha era destruida e sumia sozinha.
+ * Agora ela fica no banco marcada como CANCELADO — o estorno precisa de uma
+ * referencia que continue existindo —, entao quem soma precisa exclui-la na
+ * mao. Sem isso o painel conta um envio que nao vai acontecer e soma um
+ * frete que foi devolvido.
+ */
+const NAO_CANCELADA = { status_norm: { [Op.ne]: 'CANCELADO' } };
+
 async function somaComDesembaraco(where, agruparPor = []) {
     const rows = await db.Cotacao.findAll({
-        where: { ...where, preco_final: { [Op.ne]: null } },
+        where: { ...where, ...NAO_CANCELADA, preco_final: { [Op.ne]: null } },
         attributes: [
             ...agruparPor,
             'carrier',
