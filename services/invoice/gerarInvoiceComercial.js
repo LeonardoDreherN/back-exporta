@@ -262,9 +262,15 @@ async function gerarInvoiceComercial({ cotacao, cliente }) {
     txtCentro('Commercial Invoice', X0, X1, y, { size: 13, fonte: forte });
     y -= 11;
     txt('This invoice must be completed in English.', X0, y, { size: 6.5, fonte: forte });
-    txtDir('Page _____ of _____', X1, y, { size: 6.5 });
-    txt('1', X1 - 62, y + 3, { size: 6.5 });
-    txt('1', X1 - 18, y + 3, { size: 6.5 });
+
+    // "Page __ of __": o numero vai acima do tracinho, nao em cima do texto.
+    const xPage = X1 - 86;
+    txt('Page', xPage, y, { size: 6.5 });
+    txt('of', xPage + 46, y, { size: 6.5 });
+    [xPage + 22, xPage + 60].forEach((xTraco, i) => {
+        linhaH(xTraco, xTraco + 20, y - 1.5);
+        txtCentro(String(i === 0 ? 1 : 1), xTraco, xTraco + 20, y + 1, { size: 6.5 });
+    });
 
     y -= 5;
     const TOPO = y;
@@ -274,20 +280,28 @@ async function gerarInvoiceComercial({ cotacao, cliente }) {
     const XM = X0 + 268;           // divisor das colunas de cima
     const XR = X0 + 398;           // coluna de valores do rodape
 
-    const H_PARTES = 122;          // EXPORTER / dados do envio
+    const H_PARTES = 132;          // EXPORTER / dados do envio
     const H_CONSIG = 118;          // CONSIGNEE / SOLD TO
-    const H_BROKER = 15;
-    const H_DUTIES = 15;
+    const H_AVISO_BROKER = 13;     // "If there is a designated broker..."
+    const H_BROKER = 15;           // Name of Broker / Tel. No. / Contact Name
+    const H_DUTIES = 15;           // Duties and Taxes Payable by
     const H_CAB_TAB = 20;
-    const H_TOT = 26;              // linha de totais
-    const H_ESPECIAL = 36;
-    const H_DECLARACAO = 36;
-    const H_DECLARO = 16;
-    const H_ORIGEM = 26;
-    const H_ASSINA = 26;
+    const H_TOT = 32;              // faixa de totais da tabela
+    const H_ASSINA = 26;           // Signature / Title / Date
 
-    const fixo = H_PARTES + H_CONSIG + H_BROKER + H_DUTIES + H_CAB_TAB
-        + H_TOT + H_ESPECIAL + H_DECLARACAO + H_DECLARO + H_ORIGEM + H_ASSINA;
+    /*
+     * O rodape e a coluna de valores tem a MESMA altura de proposito: a
+     * coluna da direita e dividida em 8 celulas iguais (Subtotal ate Currency
+     * Code) e os blocos de texto da esquerda preenchem o mesmo trecho. Sem
+     * isso a coluna de valores passava por baixo da faixa de assinatura e a
+     * data caia dentro da celula do Invoice Total.
+     */
+    const CELULAS_VALOR = 8;
+    const H_CELULA = 20;
+    const H_RODAPE = CELULAS_VALOR * H_CELULA;
+
+    const fixo = H_PARTES + H_CONSIG + H_AVISO_BROKER + H_BROKER + H_DUTIES
+        + H_CAB_TAB + H_TOT + H_RODAPE + H_ASSINA;
 
     // O corpo da tabela fica com o que sobra da pagina, como no formulario.
     const H_CORPO = (TOPO - MARGEM) - fixo;
@@ -296,15 +310,13 @@ async function gerarInvoiceComercial({ cotacao, cliente }) {
     const yParteTopo = TOPO;
     const yParteBase = yParteTopo - H_PARTES;
     const yConsigBase = yParteBase - H_CONSIG;
-    const yBrokerBase = yConsigBase - H_BROKER;
+    const yAvisoBase = yConsigBase - H_AVISO_BROKER;
+    const yBrokerBase = yAvisoBase - H_BROKER;
     const yDutiesBase = yBrokerBase - H_DUTIES;
     const yCabBase = yDutiesBase - H_CAB_TAB;
     const yCorpoBase = yCabBase - H_CORPO;
     const yTotBase = yCorpoBase - H_TOT;
-    const yEspecialBase = yTotBase - H_ESPECIAL;
-    const yDeclaracaoBase = yEspecialBase - H_DECLARACAO;
-    const yDeclaroBase = yDeclaracaoBase - H_DECLARO;
-    const yOrigemBase = yDeclaroBase - H_ORIGEM;
+    const yRodapeBase = BASE + H_ASSINA;
 
     // moldura externa
     pagina.drawRectangle({
@@ -312,8 +324,8 @@ async function gerarInvoiceComercial({ cotacao, cliente }) {
         borderWidth: 0.9, borderColor: BORDA,
     });
 
-    [yParteBase, yConsigBase, yBrokerBase, yDutiesBase, yCabBase,
-        yCorpoBase, yTotBase].forEach((yy) => linhaH(X0, X1, yy));
+    [yParteBase, yConsigBase, yAvisoBase, yBrokerBase, yDutiesBase, yCabBase,
+        yCorpoBase, yTotBase, yRodapeBase].forEach((yy) => linhaH(X0, X1, yy));
 
     // divisor vertical das duas caixas de cima
     linhaV(XM, yConsigBase, yParteTopo);
@@ -349,15 +361,20 @@ async function gerarInvoiceComercial({ cotacao, cliente }) {
             });
         });
 
-    // cidade/estado/CEP e pais ficam colados no pe da caixa, como no modelo
-    txt(exportador.cidadeLinha, L, yParteBase + 24, { size: 6.5, max: XM - L - 6 });
-    rotulo('Country/Territory:', L, yParteBase + 15);
-    txt(exportador.pais, L + 62, yParteBase + 15, { size: 6.5, max: XM - L - 68 });
-    rotulo('Parties to Transaction:', L, yParteBase + 7);
-    marcar(L + 6, yParteBase - 4, false);
-    txt('Related', L + 16, yParteBase - 2.5, { size: 6, fonte: forte });
-    marcar(L + 80, yParteBase - 4, true);
-    txt('Non-Related', L + 90, yParteBase - 2.5, { size: 6, fonte: forte });
+    /*
+     * Cidade, pais e as caixinhas de Related ficam ancorados no pe do quadro,
+     * como no formulario. Todos os deslocamentos sao POSITIVOS a partir de
+     * yParteBase: com valor negativo as caixinhas eram desenhadas abaixo da
+     * borda, caindo dentro do quadro do CONSIGNEE.
+     */
+    txt(exportador.cidadeLinha, L, yParteBase + 36, { size: 6.5, max: XM - L - 6 });
+    rotulo('Country/Territory:', L, yParteBase + 27);
+    txt(exportador.pais, L + 62, yParteBase + 27, { size: 6.5, max: XM - L - 68 });
+    rotulo('Parties to Transaction:', L, yParteBase + 18);
+    marcar(L + 6, yParteBase + 6, false);
+    txt('Related', L + 16, yParteBase + 7.5, { size: 6, fonte: forte });
+    marcar(L + 80, yParteBase + 6, true);
+    txt('Non-Related', L + 90, yParteBase + 7.5, { size: 6, fonte: forte });
 
     // ---------------- dados do envio (direita) ----------------
 
@@ -445,23 +462,25 @@ async function gerarInvoiceComercial({ cotacao, cliente }) {
 
     // ---------------- broker / duties ----------------
 
+    // Cada faixa desenha dentro do proprio trecho: o texto fica abaixo da
+    // linha que abre a faixa, nunca abaixo da que a fecha.
     txt('If there is a designated broker for this shipment, please provide contact information.',
-        L, yConsigBase - 10, { size: 6, fonte: forte });
+        L, yConsigBase - 9, { size: 6, fonte: forte });
 
-    rotulo('Name of Broker', L, yBrokerBase - 10);
-    rotulo('Tel. No.', X0 + 180, yBrokerBase - 10);
-    rotulo('Contact Name', X0 + 330, yBrokerBase - 10);
+    rotulo('Name of Broker', L, yAvisoBase - 10);
+    rotulo('Tel. No.', X0 + 180, yAvisoBase - 10);
+    rotulo('Contact Name', X0 + 330, yAvisoBase - 10);
 
-    rotulo('Duties and Taxes Payable by', L, yDutiesBase - 10.5);
+    rotulo('Duties and Taxes Payable by', L, yBrokerBase - 10.5);
     // DDP: quem paga e o exportador. Qualquer outro incoterm, o consignatario.
     const pagaExportador = termos.toUpperCase() === 'DDP';
-    marcar(L + 100, yDutiesBase - 12, pagaExportador);
-    txt('Exporter', L + 110, yDutiesBase - 10.5, { size: 6, fonte: forte });
-    marcar(L + 148, yDutiesBase - 12, !pagaExportador);
-    txt('Consignee', L + 158, yDutiesBase - 10.5, { size: 6, fonte: forte });
-    marcar(L + 200, yDutiesBase - 12, false);
-    txt('Other', L + 210, yDutiesBase - 10.5, { size: 6, fonte: forte });
-    txt('If Other, please specify', L + 240, yDutiesBase - 10.5, { size: 6, fonte: forte });
+    marcar(L + 100, yBrokerBase - 12, pagaExportador);
+    txt('Exporter', L + 110, yBrokerBase - 10.5, { size: 6, fonte: forte });
+    marcar(L + 148, yBrokerBase - 12, !pagaExportador);
+    txt('Consignee', L + 158, yBrokerBase - 10.5, { size: 6, fonte: forte });
+    marcar(L + 200, yBrokerBase - 12, false);
+    txt('Other', L + 210, yBrokerBase - 10.5, { size: 6, fonte: forte });
+    txt('If Other, please specify', L + 240, yBrokerBase - 10.5, { size: 6, fonte: forte });
 
     // ---------------- tabela ----------------
 
@@ -529,67 +548,81 @@ async function gerarInvoiceComercial({ cotacao, cliente }) {
 
     // ---------------- linha de totais ----------------
 
+    /*
+     * As celulas de peso tem que caber "Total Net Weight" e "(Indicate
+     * LBS/KGS)" lado a lado — no formulario sao dois textos na mesma celula.
+     * Com as larguras antigas um escrevia por cima do outro. A ultima celula
+     * (Terms of Sale) termina onde comeca a coluna de valores.
+     */
     const totCols = [
-        { t: ['Total', 'Pkgs'], x: X0, w: 42 },
-        { t: ['Total', 'Units'], x: X0 + 42, w: 36 },
-        { t: ['Total Net', 'Weight'], x: X0 + 78, w: 48 },
-        { t: ['Total Gross', 'Weight'], x: X0 + 126, w: 60 },
-        { t: ['Terms', 'of Sale:'], x: X0 + 186, w: 80 },
+        { t: ['Total', 'Pkgs'], x: X0, w: 46 },
+        { t: ['Total', 'Units'], x: X0 + 46, w: 42 },
+        { t: ['Total Net', 'Weight'], x: X0 + 88, w: 84, indica: 44 },
+        { t: ['Total Gross', 'Weight'], x: X0 + 172, w: 92, indica: 48 },
+        { t: ['Terms', 'of Sale:'], x: X0 + 264, w: XR - (X0 + 264) },
     ];
     totCols.forEach((c, i) => {
         if (i > 0) linhaV(c.x, yTotBase, yCorpoBase);
-        c.t.forEach((t, n) => txt(t, c.x + 3, yCorpoBase - 8 - n * 7, { size: 5.6, fonte: forte }));
+        c.t.forEach((t, n) => txt(t, c.x + 3, yCorpoBase - 9 - n * 7.5,
+            { size: 5.6, fonte: forte }));
+        if (c.indica) {
+            txt('(Indicate', c.x + c.indica, yCorpoBase - 9, { size: 5.2, fonte: forte });
+            txt('LBS/KGS)', c.x + c.indica, yCorpoBase - 16.5, { size: 5.2, fonte: forte });
+        }
     });
-    txt('(Indicate', X0 + 78 + 30, yCorpoBase - 8, { size: 5.2, fonte: forte });
-    txt('LBS/KGS)', X0 + 78 + 30, yCorpoBase - 15, { size: 5.2, fonte: forte });
-    txt('(Indicate', X0 + 126 + 32, yCorpoBase - 8, { size: 5.2, fonte: forte });
-    txt('LBS/KGS)', X0 + 126 + 32, yCorpoBase - 15, { size: 5.2, fonte: forte });
 
-    txt(termos, X0 + 186 + 32, yCorpoBase - 8, { size: 6.5 });
+    txt(termos, X0 + 264 + 34, yCorpoBase - 9, { size: 6.5 });
 
-    const yValTot = yTotBase + 7;
-    txt(String(caixas.length || 1), X0 + 6, yValTot, { size: 6.5 });
-    txt(numero(somaUnidades), X0 + 46, yValTot, { size: 6.5 });
-    txt(somaPesoLiquido ? `${numero(somaPesoLiquido)} KG` : '', X0 + 86, yValTot, { size: 6.5 });
+    // Os valores ficam na metade de baixo da faixa, abaixo dos dois rotulos.
+    const yValTot = yTotBase + 8;
+    txt(String(caixas.length || 1), X0 + 8, yValTot, { size: 6.5 });
+    txt(numero(somaUnidades), X0 + 50, yValTot, { size: 6.5 });
+    txt(somaPesoLiquido ? `${numero(somaPesoLiquido)} KG` : '', X0 + 92, yValTot, { size: 6.5 });
 
     // ---------------- coluna de valores ----------------
 
-    linhaV(XR, BASE, yTotBase);
+    // Termina no rodape, nao na base: abaixo disso e a faixa de assinatura,
+    // que atravessa a pagina inteira.
+    linhaV(XR, yRodapeBase, yTotBase);
 
     const frete = Number(cotacao?.preco_final) || 0;
     const valores = [
-        ['Subtotal:', numero(somaValor), yTotBase],
-        ['Insurance:', numero(0), yTotBase - 20],
-        ['Freight:', numero(frete), yTotBase - 40],
-        ['Packing:', numero(0), yTotBase - 60],
-        ['Handling:', numero(0), yTotBase - 80],
-        ['Other:', numero(0), yTotBase - 100],
-        ['Invoice Total:', numero(somaValor + frete), yTotBase - 120],
-        ['Currency Code:', moeda, yTotBase - 140],
+        ['Subtotal:', numero(somaValor)],
+        ['Insurance:', numero(0)],
+        ['Freight:', numero(frete)],
+        ['Packing:', numero(0)],
+        ['Handling:', numero(0)],
+        ['Other:', numero(0)],
+        ['Invoice Total:', numero(somaValor + frete)],
+        ['Currency Code:', moeda],
     ];
-    valores.forEach(([rot, val, yTopoCel]) => {
-        linhaH(XR, X1, yTopoCel - 20);
+    valores.forEach(([rot, val], i) => {
+        const yTopoCel = yTotBase - i * H_CELULA;
+        if (i > 0) linhaH(XR, X1, yTopoCel);
         txt(rot, XR + 4, yTopoCel - 13, { size: 6.5, fonte: forte });
         txtDir(val, X1 - 5, yTopoCel - 13, { size: 6.5 });
     });
 
     // ---------------- blocos de texto do rodape ----------------
 
-    linhaH(X0, XR, yEspecialBase);
-    linhaH(X0, XR, yDeclaracaoBase);
-    linhaH(X0, XR, yDeclaroBase);
-    linhaH(X0, XR, yOrigemBase);
+    // Mesmas alturas somadas da coluna de valores, para os dois lados
+    // fecharem juntos na faixa de assinatura.
+    const yEspecialBase = yTotBase - 50;
+    const yDeclaracaoBase = yEspecialBase - 50;
+    const yDeclaroBase = yDeclaracaoBase - 20;
+
+    [yEspecialBase, yDeclaracaoBase, yDeclaroBase].forEach((yy) => linhaH(X0, XR, yy));
 
     txt('Special Instructions:', L, yTotBase - 10, { size: 6, fonte: forte });
     txt('Declaration Statement(s):', L, yEspecialBase - 10, { size: 6, fonte: forte });
     txt('I declare that all the information contained in this invoice to be true and correct.',
-        L, yDeclaracaoBase - 11, { size: 6, fonte: forte });
+        L, yDeclaracaoBase - 13, { size: 6, fonte: forte });
     txt('Originator or Name of Company Representative if the invoice is being completed on behalf of a company or individual:',
         L, yDeclaroBase - 9, { size: 6, fonte: forte });
     txt(exportador.nome, L, yDeclaroBase - 19, { size: 6.5, max: XR - L - 6 });
 
     txt('Signature / Title / Date:', L, BASE + 8, { size: 6, fonte: forte });
-    txtDir(dataFormulario(cotacao?.created_at), X1 - 5, BASE + 18, { size: 6.5 });
+    txtDir(dataFormulario(cotacao?.created_at), X1 - 5, BASE + 8, { size: 6.5 });
     txtDir('REV. 08-23-22', X1, BASE - 9, { size: 6, fonte: forte });
 
     const bytes = await doc.save();
