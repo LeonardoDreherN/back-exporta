@@ -1201,6 +1201,9 @@ module.exports = {
 
             // ===== SALVAR TRACKING + DOCS SE vier cotacaoId =====
             const cotacaoId = req.body?.cotacaoId || req.query?.cotacaoId || null;
+            // Vai na resposta para o front poder dizer o que faltou. A remessa
+            // em si deu certo, entao isto e aviso, nao erro.
+            const avisos = [];
             if (cotacaoId) {
                 try {
                     const row = await Cotacao.findByPk(cotacaoId);
@@ -1228,9 +1231,45 @@ module.exports = {
                             // Multi-volume vira um PDF com uma pagina por caixa.
                             await salvarEtiquetasNaStorage(row.id, partes);
                         }
+                        /*
+                         * A invoice tem try/catch proprio e fora do bloco das
+                         * etiquetas. Antes as duas estavam no mesmo try: a
+                         * etiqueta era salva primeiro, e se a invoice falhasse
+                         * o catch de fora so logava "falha ao salvar docs" —
+                         * o envio ficava com etiqueta e sem invoice, sem
+                         * ninguem saber. Foi o que houve na cotacao 761
+                         * (tracking 879231977738): 1 caso em 364 envios.
+                         *
+                         * Falhar aqui nao pode derrubar a resposta: a etiqueta
+                         * ja existe e a remessa ja foi criada na FedEx. O que
+                         * se faz e avisar, para o front mostrar e a invoice
+                         * poder ser anexada depois em POST /cotacoes/:id/docs.
+                         */
                         if (invoiceUrl) {
-                            const invoiceB64 = await fetchUrlAsBase64(invoiceUrl);
-                            if (invoiceB64) await salvarInvoiceNaStorage(row.id, invoiceB64, 'application/pdf');
+                            try {
+                                const invoiceB64 = await fetchUrlAsBase64(invoiceUrl);
+                                if (invoiceB64) {
+                                    await salvarInvoiceNaStorage(row.id, invoiceB64, 'application/pdf');
+                                } else {
+                                    avisos.push('A invoice voltou vazia da FedEx.');
+                                }
+                            } catch (errInvoice) {
+                                console.error('[FEDEX/SHIP] invoice nao baixou', {
+                                    cotacaoId: row.id,
+                                    url: String(invoiceUrl).slice(0, 120),
+                                    err: errInvoice?.message,
+                                });
+                                avisos.push('A invoice nao pode ser baixada da FedEx.');
+                            }
+                        } else {
+                            console.error('[FEDEX/SHIP] FedEx nao devolveu COMMERCIAL_INVOICE', {
+                                cotacaoId: row.id,
+                                tracking: patch.tracking_number || null,
+                                docs: (data?.output?.transactionShipments?.[0]?.shipmentDocuments || [])
+                                    .map(d => d?.type || d?.docType || d?.contentType),
+                                alerts: data?.output?.alerts || data?.alerts || null,
+                            });
+                            avisos.push('A FedEx nao devolveu a invoice comercial deste envio.');
                         }
 
                         // ===== AUTO-FULFILL SHOPIFY =====
@@ -1257,7 +1296,7 @@ module.exports = {
             // (CotacaoController.attachDocs), que e o momento em que a
             // documentacao sai e vale para FedEx e UPS igual.
 
-            return res.json({ ok: true, raw: data });
+            return res.json({ ok: true, raw: data, avisos });
         } catch (err) {
             return res.status(err.status || 500).json({
                 ok: false,

@@ -864,12 +864,26 @@ async function attachDocs(req, res) {
 
             await salvarInvoiceNaStorage(cot.id, invoice_base64, mime);
         } else if (typeof invoice_url === 'string' && invoice_url.trim()) {
-            // comentario informal: mesma coisa pra invoice via URL
-            const fetched = await fetchUrlAsBase64(invoice_url.trim());
-            const mime = typeof invoice_mime === 'string' && invoice_mime.trim()
-                ? invoice_mime.trim()
-                : (fetched.mime || 'application/pdf');
-            await salvarInvoiceNaStorage(cot.id, fetched.b64, mime);
+            // Mesma coisa pra invoice via URL (FedEx manda URL, nao base64).
+            //
+            // Em try/catch pelo mesmo motivo das etiquetas: a URL da FedEx e
+            // temporaria. Se ela expirar ou dar 404, o throw subia ate o catch
+            // do attachDocs e a chamada virava 500 — derrubando o tracking e a
+            // estimativa de imposto junto, por causa de um documento. Melhor
+            // responder ok com has_invoice false: o front avisa e a invoice
+            // pode ser anexada depois.
+            try {
+                const fetched = await fetchUrlAsBase64(invoice_url.trim());
+                const mime = typeof invoice_mime === 'string' && invoice_mime.trim()
+                    ? invoice_mime.trim()
+                    : (fetched.mime || 'application/pdf');
+                await salvarInvoiceNaStorage(cot.id, fetched.b64, mime);
+            } catch (errInvoice) {
+                console.error(
+                    '[INVOICE][DOWNLOAD] falhou para a cotacao', cot.id,
+                    String(invoice_url).slice(0, 120), errInvoice?.message
+                );
+            }
         }
 
         // recarrega a cotacao pra pegar paths atualizados
@@ -1549,16 +1563,26 @@ async function deleteCotacao(req, res) {
             if (r.criado) estorno_centavos = Number(pagamento.valor_centavos);
         }
 
-        // Marca em vez de apagar. Com estorno no livro, destruir a linha
-        // deixaria um lancamento apontando para uma cotacao inexistente e sem
-        // rastro do que foi cancelado.
-        //
-        // ATENCAO: nao cancela a etiqueta na transportadora. Nao existe Cancel
-        // Shipment (FedEx) nem Void Shipment (UPS) no sistema, entao a
-        // etiqueta emitida continua valida e pode ser despachada mesmo depois
-        // do estorno. A tela avisa quem cancela. Quando o void existir, entra
-        // aqui, antes do estorno.
-        await cot.update({ status_norm: 'CANCELADO' });
+        /*
+         * Apaga a linha.
+         *
+         * Houve uma tentativa de so marcar como CANCELADO, para o estorno ter
+         * uma referencia que continuasse existindo. Nao funciona: ha UNIQUE em
+         * (cliente_id, pedido_ref) — um pedido so pode ter UMA cotacao na
+         * vida. A linha cancelada ocupava essa vaga e o cliente nao conseguia
+         * cotar o mesmo pedido de novo ("ja existe"), nem com o filtro de
+         * aplicacao ignorando canceladas: a barreira e o indice.
+         *
+         * O rastro do dinheiro nao se perde: o estorno ja foi lancado no livro
+         * da carteira acima, com o pedido_ref na descricao. O livro e
+         * imutavel e sobrevive a esta linha.
+         *
+         * ATENCAO: nao cancela a etiqueta na transportadora. Nao existe Cancel
+         * Shipment (FedEx) nem Void Shipment (UPS) no sistema, entao a
+         * etiqueta emitida continua valida e pode ser despachada mesmo depois
+         * do estorno. A tela avisa quem cancela.
+         */
+        await cot.destroy();
 
         await db.PedidoImport.update(
             { status: false },
