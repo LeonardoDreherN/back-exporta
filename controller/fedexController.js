@@ -524,7 +524,28 @@ function mergePedidoItemOverrides(pedido, pedidoManual) {
         };
     });
 
-    return { ...basePedido, itens: merged };
+    /*
+     * A moeda vem junto quando a tela mandou uma.
+     *
+     * Antes so os itens eram mesclados e a moeda ficava sendo a da
+     * importacao. Pedido vindo da Shopify em BRL era despachado declarando
+     * real mesmo com dolar escolhido no passo 1 — o seletor nao chegava na
+     * transportadora. Alem de declarar na moeda errada, a FedEx nao emite
+     * invoice comercial em BRL saindo do Brasil: o envio saia com etiqueta e
+     * sem invoice (223 envios em USD e 3 em EUR vieram com invoice; o unico
+     * em BRL, nao).
+     *
+     * O valor nao e convertido aqui: quem cota digita o valor ja na moeda
+     * escolhida. Converter sozinho seria chutar uma cotacao de cambio dentro
+     * de um documento de alfandega.
+     */
+    const moeda = String(pedidoManual.moeda || '').trim().toUpperCase();
+
+    return {
+        ...basePedido,
+        ...(moeda ? { moeda } : {}),
+        itens: merged,
+    };
 }
 
 /**
