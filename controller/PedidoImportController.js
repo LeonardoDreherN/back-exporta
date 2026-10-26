@@ -540,12 +540,19 @@ async function listPedidos(req, res) {
                 // `status` vira true assim que a cotacao e criada, antes da etiqueta
                 // sair: quando a emissao falhava, o pedido sumia da tela de cotacao e
                 // so voltava apagando a cotacao. Aqui a tela filtra por despacho real.
+                //
+                // Cancelada nao conta. Quando o cancelamento virou estorno, a
+                // linha deixou de ser destruida e passou a ficar no banco com
+                // o rastreio que ja tinha — e esse EXISTS continuava achando
+                // ela, entao o pedido cancelado nunca voltava para a tela de
+                // realizar cotacao.
                 [
                     literal(`EXISTS (
                         SELECT 1 FROM cotacoes c
                         WHERE c.cliente_id = "PedidoImport"."cliente_id"
                           AND c.pedido_ref = "PedidoImport"."pedido_ref"
                           AND COALESCE(c.tracking_number, '') <> ''
+                          AND c.status_norm <> 'CANCELADO'
                     )`),
                     'despachado'
                 ],

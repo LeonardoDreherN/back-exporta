@@ -236,10 +236,13 @@ async function confirmRate(req, res) {
                 return res.status(409).json({ ok: false, error: `Shipment não está em COMPARE (status atual: ${shipment.status})` });
             }
 
+            // Cancelada nao prende o pedido: ela fica no banco por causa do
+            // estorno, mas o envio nao vai acontecer.
             const jaDespachada = await Cotacao.findOne({
                 where: {
                     cliente_id,
                     pedido_ref,
+                    status_norm: { [Op.ne]: 'CANCELADO' },
                     tracking_number: { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }] },
                 },
                 attributes: ['id', 'carrier', 'tracking_number'],
@@ -262,9 +265,16 @@ async function confirmRate(req, res) {
             return res.status(400).json({ ok: false, error: `Cotação ${chosen} não disponível nesse shipment` });
         }
 
-        // Idempotência: se já existe cotação desse pedido_ref + carrier, retorna ela
+        // Idempotência: se já existe cotação desse pedido_ref + carrier, retorna ela.
+        // Cancelada fica de fora, senão cotar de novo o mesmo pedido devolveria
+        // a cotação que acabou de ser cancelada, em vez de criar uma nova.
         const existente = await Cotacao.findOne({
-            where: { cliente_id, pedido_ref, carrier: chosen },
+            where: {
+                cliente_id,
+                pedido_ref,
+                carrier: chosen,
+                status_norm: { [Op.ne]: 'CANCELADO' },
+            },
             attributes: ['id', 'pedido_ref', 'carrier', 'createdAt'],
             transaction: t,
             lock: Transaction.LOCK.UPDATE,

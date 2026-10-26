@@ -247,19 +247,25 @@ function inferFonteBase(carrierResp, overrideUsado) {
 }
 
 /*
- * Quando a etiqueta e a invoice podem ser baixadas.
+ * A trava de pagamento no download esta DESLIGADA.
  *
- * A trava de pagamento existe para a cobranca antecipada valer alguma coisa,
- * mas ela so faz sentido ANTES do despacho. Depois que a transportadora
- * coletou, a etiqueta ja esta em uso e o pacote esta voando: negar o
- * documento nesse ponto nao segura dinheiro nenhum, so impede o cliente de
- * reimprimir a invoice que a alfandega esta pedindo.
+ * Decisao de 2026-10-26: bloquear a etiqueta e a invoice ate a remessa ser
+ * paga deixava o cliente sem o documento que a alfandega pede, inclusive
+ * depois de o pacote ja estar a caminho. O pagamento continua existindo e
+ * pode ser feito pela carteira ou por boleto — so nao prende mais o
+ * documento.
  *
- * Por isso:
- * - CANCELADO  -> bloqueado, e pagar nao muda isso.
- * - CRIADO     -> exige pagamento (so para quem esta na allowlist da carteira).
- * - demais     -> liberado: ja saiu, o documento acompanha a carga.
+ * Para religar sem novo deploy: TRAVA_DOCUMENTO_POR_PAGAMENTO=1. Com ela
+ * ligada vale a regra antiga, que ja era mais branda que a original:
+ * - CANCELADO -> bloqueado, e pagar nao muda isso;
+ * - CRIADO    -> exige pagamento (so na allowlist da carteira);
+ * - demais    -> liberado, o documento acompanha a carga.
+ *
+ * Cancelada segue bloqueada em qualquer caso: nao ha envio para documentar.
  */
+const TRAVA_DOC_POR_PAGAMENTO =
+    String(process.env.TRAVA_DOCUMENTO_POR_PAGAMENTO || '').trim() === '1';
+
 async function liberacaoDocumento(row) {
     const status = String(row.status_norm || '').toUpperCase();
 
@@ -273,6 +279,8 @@ async function liberacaoDocumento(row) {
             },
         };
     }
+
+    if (!TRAVA_DOC_POR_PAGAMENTO) return { liberado: true };
 
     if (status && status !== 'CRIADO') {
         return { liberado: true };
@@ -1165,6 +1173,19 @@ function montarWhereCotacoes(cliente_id, query, { incluirStatus = true } = {}) {
 
         if (lista.length === 1) where.status_norm = lista[0];
         else if (lista.length > 1) where.status_norm = { [Op.in]: lista };
+    } else if (incluirStatus) {
+        /*
+         * Sem filtro explicito, cancelada nao aparece.
+         *
+         * Antes de o cancelamento virar estorno, a linha era destruida e
+         * sumia sozinha da lista. Agora ela fica no banco — o estorno precisa
+         * de uma referencia que continue existindo — e passou a aparecer na
+         * listagem como se o envio ainda valesse. Quem cancela espera que
+         * suma; o registro continua no banco, so nao na tela.
+         *
+         * Quem quiser ve-la pede explicitamente: ?status=CANCELADO.
+         */
+        where.status_norm = { [Op.ne]: 'CANCELADO' };
     }
 
     // Transportadora como filtro proprio. `search` ja olhava `carrier`, mas
@@ -1234,6 +1255,10 @@ async function resumoCotacoes(req, res) {
         if (!cliente_id) return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
 
         const where = montarWhereCotacoes(cliente_id, req.query, { incluirStatus: false });
+
+        // Mesma regra da listagem: cancelada nao conta nas abas, senao o
+        // numero de "Todas" ficaria maior que a lista que a aba mostra.
+        where.status_norm = { [Op.ne]: 'CANCELADO' };
 
         const linhas = await Cotacao.findAll({
             where,
