@@ -629,6 +629,11 @@ const DESC_POR_POSICAO_HS = {
     '5703': 'tufted carpets and textile floor coverings',
     '6305': 'sacks and bags for packing of goods, of textile materials',
     '6307': 'other made-up articles of textile materials',
+    // 7116 e artigo de pedra preciosa/semipreciosa de verdade; sem esta
+    // linha caia no capitulo 71 e virava 'imitation jewellery articles',
+    // que descreve bijuteria (7117) e e declaracao errada.
+    '7116': 'articles of natural or cultured pearls, precious or semi-precious stones',
+    '7117': 'imitation jewellery articles',
     '9403': 'furniture and parts thereof',
 };
 

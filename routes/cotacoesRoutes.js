@@ -43,6 +43,8 @@ router.get('/:id/details', requireAuth, ctrl.getCotacaoDetails);
 router.get('/status-por-pedido/:pedido_ref', requireAuth, ctrl.getCotacaoStatusByPedidoRef);
 router.get('/:id', requireAuth, ctrl.getCotacao);
 router.post('/:id/docs', requireAuth, ctrl.attachDocs);
+// Invoice emitida pela Intrex, para envio que a transportadora nao documentou.
+router.post('/:id/invoice/gerar', requireAuth, ctrl.gerarInvoice);
 router.post('/:id/imposto-real', requireAuth, ctrl.registrarImpostoReal);
 router.get('/:id/cobranca', requireAuth, ctrl.getCobranca);
 router.post('/:id/pagar-com-saldo', requireAuth, ctrl.pagarComSaldo);

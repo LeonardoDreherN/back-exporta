@@ -16,6 +16,7 @@ const { toNumSafe, up, iso2Country } = require('../services/cotacoesHelpers');
 const { prepararCotacaoFedex } = require('../services/fedex/cotacaoFedex');
 const { id } = require('zod/v4/locales');
 const db = require('../models');
+const { gerarInvoiceComercial } = require('../services/invoice/gerarInvoiceComercial');
 const { registrarEstimativaDaCotacao } = require('../services/landedCost');
 const { valorConversao } = require('../utils/dolar');
 const { desembaracoUsd } = require('../services/taxasTransportadora');
@@ -747,6 +748,62 @@ async function createCotacaoReal(req, res) {
             ok: false,
             error: err?.message || 'Erro ao criar cotação',
         });
+    }
+}
+
+/*
+ * Gera a invoice comercial pela Intrex e guarda como a invoice da cotacao.
+ *
+ * Existe porque a transportadora nem sempre devolve o documento: nos envios
+ * para a Colombia a FedEx criou a etiqueta e devolveu shipmentDocuments
+ * vazio, sem alerta, quatro vezes. Nesses casos nao ha de onde baixar — nem
+ * o portal dela tem o que ela nao gerou.
+ *
+ * So gera quando nao ha invoice. A invoice da transportadora, quando existe,
+ * e a que a alfandega ja recebeu por via eletronica: sobrescrever criaria
+ * divergencia entre o papel e o que foi transmitido.
+ */
+async function gerarInvoice(req, res) {
+    try {
+        const { id } = req.params;
+
+        const cot = await Cotacao.findByPk(id);
+        if (!cot) {
+            return res.status(404).json({ ok: false, error: 'Cotação não encontrada' });
+        }
+
+        if (cot.invoice_path || cot.invoice_base64) {
+            return res.status(409).json({
+                ok: false,
+                error: 'Esta cotação já tem invoice.',
+            });
+        }
+
+        if (!Array.isArray(cot.pedido?.itens) || !cot.pedido.itens.length) {
+            return res.status(422).json({
+                ok: false,
+                error: 'Pedido sem itens: não há o que declarar na invoice.',
+            });
+        }
+
+        const cliente = await db.Cliente.findByPk(cot.cliente_id);
+
+        const base64 = await gerarInvoiceComercial({
+            cotacao: cot.toJSON(),
+            cliente: cliente ? cliente.toJSON() : {},
+        });
+
+        await salvarInvoiceNaStorage(cot.id, base64, 'application/pdf');
+        await cot.reload();
+
+        return res.json({
+            ok: true,
+            cotacao_id: cot.id,
+            has_invoice: !!cot.invoice_path || !!cot.invoice_base64,
+        });
+    } catch (err) {
+        console.error('[INVOICE][GERAR] falhou', req.params?.id, err?.message);
+        return res.status(500).json({ ok: false, error: 'Erro ao gerar a invoice' });
     }
 }
 
@@ -1904,6 +1961,7 @@ module.exports = {
     pagarComSaldo,
     createCotacaoReal,
     attachDocs,
+    gerarInvoice,
     getCotacao,
     listCotacoes,
     resumoCotacoes,
