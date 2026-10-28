@@ -2,9 +2,12 @@
 // Regras da carteira Intrex: saldo, crédito, débito e a ponte com o Asaas.
 //
 // Decisões (2026-10-14): saldo em real; a taxa do cartão é paga pelo cliente
-// (PIX e saldo sem taxa); liberado só para a allowlist CARTEIRA_BETA_EMAILS.
+// (PIX e saldo sem taxa). A liberação, que era só a allowlist
+// CARTEIRA_BETA_EMAILS, hoje é a coluna Cliente.carteiraHabilitada OU a env var
+// — ver carteiraHabilitada() abaixo.
 
 const axios = require('axios');
+const crypto = require('crypto');
 const db = require('../../models');
 const { verificaCustomer } = require('../../controller/Asaas.js');
 
@@ -46,7 +49,18 @@ function emailsBeta() {
         .filter(Boolean);
 }
 
+/**
+ * Carteira liberada para a conta?
+ *
+ * Duas fontes, em OU: a coluna `carteiraHabilitada` (liberada pelo admin, sem
+ * deploy) e a allowlist CARTEIRA_BETA_EMAILS (como era antes). A env var
+ * continua valendo porque quem já estava nela não pode perder a carteira — e o
+ * saldo — só porque a coluna nasceu `false` para todo mundo. Quando a lista
+ * estiver migrada para o banco, a env var pode sair.
+ */
 function carteiraHabilitada(cliente) {
+    if (cliente?.carteiraHabilitada === true) return true;
+
     const email = String(cliente?.emailPrincipal || '').trim().toLowerCase();
     return !!email && emailsBeta().includes(email);
 }
@@ -132,6 +146,63 @@ async function debitar({ clienteId, valorCentavos, tipo = 'debito_envio', descri
 
         return { ...r, saldo: saldo - (r.criado ? valorCentavos : 0) };
     });
+}
+
+/**
+ * Ajuste manual lançado pelo admin: crédito de cortesia, correção de recarga
+ * que não caiu, baixa de valor cobrado por fora.
+ *
+ * Crédito usa `lancar`; débito usa `debitar`, que trava a linha do cliente e
+ * recusa deixar o saldo negativo — um ajuste para baixo não pode criar dívida
+ * sem alguém decidir isso explicitamente.
+ *
+ * A `chave` é derivada do próprio ajuste mais o minuto corrente. Dois cliques
+ * no mesmo botão caem na mesma chave e o segundo não entra; um ajuste idêntico
+ * de verdade (mesmo cliente, mesmo valor, mesmo motivo, mesmo admin) passa no
+ * minuto seguinte. Sem isso, clique duplo em tela de dinheiro lança duas vezes.
+ */
+async function ajustar({ clienteId, valorCentavos, motivo, adminUserId }) {
+    if (!Number.isInteger(valorCentavos) || valorCentavos === 0) {
+        const e = new Error('Informe um valor diferente de zero.'); e.status = 400; throw e;
+    }
+
+    const descricao = String(motivo || '').trim();
+    if (descricao.length < 3) {
+        const e = new Error('Descreva o motivo do ajuste.'); e.status = 400; throw e;
+    }
+
+    const minuto = new Date().toISOString().slice(0, 16); // AAAA-MM-DDTHH:MM
+    const impressao = crypto
+        .createHash('sha256')
+        .update(`${clienteId}|${valorCentavos}|${descricao}|${adminUserId || 0}|${minuto}`)
+        .digest('hex')
+        .slice(0, 24);
+    const chave = `ajuste:admin:${impressao}`;
+
+    if (valorCentavos < 0) {
+        const r = await debitar({
+            clienteId,
+            valorCentavos: Math.abs(valorCentavos),
+            tipo: 'ajuste',
+            descricao: descricao.slice(0, 160),
+            referenciaTipo: 'admin',
+            referenciaId: adminUserId || null,
+            chave,
+        });
+        return { ...r, saldo: await saldoCentavos(clienteId) };
+    }
+
+    const r = await lancar({
+        clienteId,
+        tipo: 'ajuste',
+        valorCentavos,
+        descricao: descricao.slice(0, 160),
+        referenciaTipo: 'admin',
+        referenciaId: adminUserId || null,
+        chave,
+    });
+
+    return { ...r, saldo: await saldoCentavos(clienteId) };
 }
 
 // ---------- cobranças no Asaas ----------
@@ -280,6 +351,33 @@ async function sincronizarPagamento(pagamento) {
     return pagamento;
 }
 
+/**
+ * Relê o status de um boleto (AsaasBoletos) no Asaas e grava.
+ *
+ * O `status` do boleto era escrito uma única vez, na criação, com o que o Asaas
+ * devolveu na hora — sempre PENDING. Nada no sistema o atualizava depois: o
+ * webhook só procurava em `Pagamento` e devolvia "ignorado" para boleto. O
+ * efeito era que a condição de pago em cobrancaCotacao.situacaoPagamento
+ * (RECEIVED / CONFIRMED / RECEIVED_IN_CASH) nunca podia ser verdadeira — quem
+ * pagava boleto ficava eternamente "aguardando compensar", e o cancelamento
+ * não estornava porque o sistema achava que nada tinha sido pago.
+ *
+ * Mesma regra do pagamento: o status não vem do corpo do evento, vem de uma
+ * consulta à API do Asaas.
+ */
+async function sincronizarBoleto(boleto) {
+    if (!boleto?.asaasPaymentId) return boleto;
+
+    const { data } = await asaas().get(`/payments/${boleto.asaasPaymentId}`);
+    const st = String(data?.status || '');
+
+    if (st && st !== String(boleto.status)) {
+        await boleto.update({ status: st });
+    }
+
+    return boleto;
+}
+
 function pagamentoPublico(p, extra = {}) {
     return {
         id: p.id,
@@ -301,6 +399,7 @@ function pagamentoPublico(p, extra = {}) {
 module.exports = {
     carteiraHabilitada,
     taxaCartao,
+    ajustar,
     LIMITES,
     reais,
     saldoCentavos,
@@ -308,5 +407,6 @@ module.exports = {
     debitar,
     criarRecarga,
     sincronizarPagamento,
+    sincronizarBoleto,
     pagamentoPublico,
 };

@@ -1,10 +1,10 @@
 const { Op } = require("sequelize");
 const db = require("../models/index.js");
 const Cotacao = db.Cotacao;
-const { fromSurcharges } = require("../utils/fromSurcharges.js");
 const { valorConversao } = require("../utils/dolar.js");
 const { impostosBetaHabilitado } = require("../services/featureFlags.js");
 const { desembaracoUsd } = require("../services/taxasTransportadora.js");
+const { composicaoCotacao } = require("../services/cobrancaCotacao.js");
 const axios = require("axios");
 
 function round2(v) {
@@ -87,61 +87,72 @@ async function verificaCustomer(cliente) {
     return data.id;
 }
 
+/**
+ * Soma o que ainda nao foi cobrado no periodo e devolve o total em BRL junto
+ * com os ids das cotacoes que entraram na conta.
+ *
+ * Duas correcoes em relacao a versao anterior:
+ *
+ * 1. Nao marca mais nada. Antes esta funcao rodava um
+ *    `UPDATE status_pagamento='GERADO'` logo depois do SELECT — antes de somar
+ *    e antes de o boleto existir no Asaas. Se o total saisse zero, ou se a
+ *    chamada ao Asaas falhasse, as cotacoes ja tinham saido de NAOGERADO e
+ *    nunca mais eram varridas: o frete nao era cobrado e ninguem era avisado.
+ *    Alem disso o UPDATE reaplicava o mesmo `where`, entao cotacao criada entre
+ *    o SELECT e o UPDATE era marcada sem entrar no total. Quem marca agora e
+ *    gerarBoleto, dentro da transacao, depois do boleto criado, e so nos ids
+ *    que entraram.
+ *
+ * 2. Soma a remessa inteira (frete + desembaraco + imposto), pela mesma
+ *    composicaoCotacao que a carteira e o boleto por cotacao usam. Antes somava
+ *    so `preco_final`: a mesma remessa custava um valor no boleto em lote e
+ *    outro no saldo, e o desembaraco da transportadora ficava no prejuizo da
+ *    Intrex.
+ *
+ * @returns {Promise<{ total: number, cotacaoIds: number[] }>} total em BRL
+ */
 async function pegarValor({ from, to, clienteId }) {
-    try {
-        const where = {};
-        if (clienteId) where.cliente_id = Number(clienteId);
-        if (from || to) {
-            where.createdAt = {
-                [Op.between]: [
-                    new Date((from || "1970-01-01") + "T00:00:00Z"),
-                    new Date((to || "2999-12-31") + "T23:59:59Z"),
-                ],
-            };
-        }
-        where.carrier = 'FEDEX';
-        where.status_pagamento = 'NAOGERADO';
-
-        const cotacoes = await Cotacao.findAll({
-            where,
-            order: [["createdAt", "DESC"]],
-            raw: true
-        });
-
-        const [updated] = await Cotacao.update(
-            { status_pagamento: "GERADO" },
-            { where }
-        );
-
-        const linhas = cotacoes.map(c => {
-            const sur = fromSurcharges(c);
-            // usa SEMPRE o preço final já salvo no seu banco (ajuste o nome do campo abaixo)
-            const precoFinal = n(c.preco_final) || n(c.total_cliente) || n(c.valor_frete_cliente);
-            return {
-                preco_final: precoFinal,         // o que entra no total geral
-                moeda: sur.currency,
-                taxas_itens: sur.taxas_itens
-            };
-        });
-
-        // totais (somamos o que você precisa)
-        const total_final = linhas.reduce((acc, l) => acc + (l.preco_final || 0), 0);
-        if (!total_final || total_final <= 0) {
-            return 0;
-        }
-
-        // O `/100` que existia aqui compensava o bug do n(), que inflava todo
-        // valor com ponto decimal em 100x. Com o n() consertado, dividir de
-        // novo deixaria o boleto do lote 100x menor.
-        const dolar_para_real = await valorConversao() //pega o valor de dolar para real
-
-        const total_convertido = total_final * dolar_para_real
-
-        // linha de rodapé (só para referência; você pode deixar só o TOTAL_GERAL)
-        return total_convertido + 2.00;
-    } catch (e) {
-        console.error(e);
+    const where = {};
+    if (clienteId) where.cliente_id = Number(clienteId);
+    if (from || to) {
+        where.createdAt = {
+            [Op.between]: [
+                new Date((from || "1970-01-01") + "T00:00:00Z"),
+                new Date((to || "2999-12-31") + "T23:59:59Z"),
+            ],
+        };
     }
+    where.carrier = 'FEDEX';
+    where.status_pagamento = 'NAOGERADO';
+
+    const cotacoes = await Cotacao.findAll({
+        where,
+        order: [["createdAt", "DESC"]],
+        attributes: ['id', 'pedido_ref', 'carrier', 'preco_final', 'impostos_valor_brl'],
+    });
+
+    if (!cotacoes.length) return { total: 0, cotacaoIds: [] };
+
+    // composicaoCotacao chama valorConversao(), que tem cache de uma hora:
+    // somar cotacao por cotacao nao vira uma chamada externa por linha.
+    let somaBrl = 0;
+    const cotacaoIds = [];
+    for (const cot of cotacoes) {
+        const c = await composicaoCotacao(cot);
+        // Cotacao sem valor nao entra: cobrar zero nao faz sentido e marca-la
+        // como cobrada a esconderia para sempre.
+        if (c.total_brl <= 0) continue;
+        somaBrl += c.total_brl;
+        cotacaoIds.push(cot.id);
+    }
+
+    if (!cotacaoIds.length) return { total: 0, cotacaoIds: [] };
+
+    // Tarifa do boleto, que ja era somada aqui como 2.00 fixo.
+    const tarifaEnv = Number(process.env.TARIFA_BOLETO_BRL);
+    const tarifa = Number.isFinite(tarifaEnv) && tarifaEnv >= 0 ? tarifaEnv : 2.0;
+
+    return { total: round2(somaBrl + tarifa), cotacaoIds };
 }
 
 
@@ -183,7 +194,7 @@ const gerarBoleto = async (req, res) => {
                 .json({ ok: false, error: "dueDate é obrigatório (YYYY-MM-DD)" });
         }
 
-        const valor_total = await pegarValor({ from, to, clienteId });
+        const { total: valor_total, cotacaoIds } = await pegarValor({ from, to, clienteId });
 
         if (!valor_total || valor_total <= 0) {
             await t.rollback();
@@ -221,6 +232,15 @@ const gerarBoleto = async (req, res) => {
             dueDate: data.dueDate,
             status: data.status,
         }, { transaction: t });
+
+        // Fecha o ciclo aqui, e nao dentro de pegarValor: so sai de NAOGERADO o
+        // que entrou neste boleto, e so depois de o boleto existir no Asaas. Se
+        // qualquer passo acima falhar, o rollback devolve as cotacoes para a
+        // proxima varredura em vez de some-las para sempre.
+        await Cotacao.update(
+            { status_pagamento: 'GERADO' },
+            { where: { id: cotacaoIds }, transaction: t },
+        );
 
         await t.commit();
 

@@ -8,7 +8,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const db = require('../models');
-const { sincronizarPagamento } = require('../services/carteira');
+const { sincronizarPagamento, sincronizarBoleto } = require('../services/carteira');
 
 const router = express.Router();
 
@@ -34,14 +34,34 @@ router.post('/', async (req, res) => {
 
     try {
         const pagamento = await db.Pagamento.findOne({ where: { asaas_payment_id: String(paymentId) } });
-        if (!pagamento) {
-            // Boletos antigos (AsaasBoletos) também disparam eventos aqui.
-            return res.json({ ok: true, ignorado: true });
+        if (pagamento) {
+            await sincronizarPagamento(pagamento);
+            console.log('[ASAAS][WEBHOOK]', { evento, pagamentoId: pagamento.id, status: pagamento.status });
+            return res.json({ ok: true });
         }
 
-        await sincronizarPagamento(pagamento);
-        console.log('[ASAAS][WEBHOOK]', { evento, pagamentoId: pagamento.id, status: pagamento.status });
-        return res.json({ ok: true });
+        // Boleto (AsaasBoletos) dispara evento no mesmo webhook. Antes caía
+        // aqui como "ignorado" e o status do boleto ficava PENDING para sempre:
+        // o frete era pago e o sistema nunca sabia, então a remessa seguia como
+        // não paga e o cancelamento não estornava. Ver sincronizarBoleto.
+        const boleto = await db.AsaasBoletos.findOne({
+            where: { asaasPaymentId: String(paymentId) },
+        });
+        if (boleto) {
+            const anterior = boleto.status;
+            await sincronizarBoleto(boleto);
+            console.log('[ASAAS][WEBHOOK][BOLETO]', {
+                evento,
+                boletoId: boleto.id,
+                cotacaoId: boleto.cotacaoId,
+                de: anterior,
+                para: boleto.status,
+            });
+            return res.json({ ok: true });
+        }
+
+        // Cobrança criada fora deste sistema (ou de outro ambiente do Asaas).
+        return res.json({ ok: true, ignorado: true });
     } catch (err) {
         // 500 faz o Asaas tentar de novo, que é o que queremos se a consulta
         // à API dele falhou agora.
