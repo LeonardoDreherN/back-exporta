@@ -67,6 +67,13 @@ module.exports = (sequelize) => {
     enviosBloqueadosMotivo: { type: DataTypes.STRING(200), allowNull: true, defaultValue: null },
     enviosBloqueadosEm: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
 
+    // Carteira Intrex liberada para esta conta (recarga por PIX/cartão, saldo e
+    // pagamento antecipado da remessa). Substitui a allowlist por env var
+    // CARTEIRA_BETA_EMAILS, que exigia redeploy para liberar um cliente; a env
+    // var segue valendo como OU, para ninguém perder a carteira no deploy.
+    carteiraHabilitada: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    carteiraHabilitadaEm: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+
     // Se true (padrão), o endereço da empresa (enderecoPais/Rua/etc.) é usado
     // para pré-preencher o remetente nas cotações e coletas. Clientes que
     // coletam em endereços variados podem desativar para digitar manualmente

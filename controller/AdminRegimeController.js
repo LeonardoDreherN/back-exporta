@@ -92,6 +92,8 @@ async function pesquisar(req, res) {
         pesquisarRegime({ paisDestino: pais, db })
             .then((linha) => {
                 logAdminAction({
+                    adminUserId: req.adminUser?.id,
+                    req,
                     action: 'REGIME_APURADO',
                     entityType: 'regime_importacao',
                     entityId: linha.id,
@@ -137,6 +139,8 @@ async function aprovar(req, res) {
         await aprovarRegime({ id: linha.id, quem, db });
 
         logAdminAction({
+            adminUserId: req.adminUser?.id,
+            req,
             action: 'REGIME_APROVADO',
             entityType: 'regime_importacao',
             entityId: linha.id,
@@ -160,6 +164,8 @@ async function rejeitar(req, res) {
         await rejeitarRegime({ id: linha.id, quem, db });
 
         logAdminAction({
+            adminUserId: req.adminUser?.id,
+            req,
             action: 'REGIME_REJEITADO',
             entityType: 'regime_importacao',
             entityId: linha.id,

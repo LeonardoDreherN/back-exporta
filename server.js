@@ -200,6 +200,8 @@ app.use('/api/admin/equipe', autenticarAdmin, require('./routes/adminEquipeRoute
 app.use('/api/admin/logs', autenticarAdmin, require('./routes/adminLogsRoutes.js'));
 app.use('/api/admin/relatorios', autenticarAdmin, require('./routes/adminRelatoriosRoutes.js'));
 app.use('/api/admin/regimes', autenticarAdmin, require('./routes/adminRegimeRoutes.js'));
+app.use('/api/admin/chamados', autenticarAdmin, require('./routes/adminChamadosRoutes.js'));
+app.use('/api/admin/carteira', autenticarAdmin, require('./routes/adminCarteiraRoutes.js'));
 
 // Público — página de status e banner interno da plataforma
 app.use('/api/status', require('./routes/publicStatusRoutes.js'));
