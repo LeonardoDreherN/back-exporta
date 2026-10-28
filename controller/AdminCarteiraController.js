@@ -47,7 +47,7 @@ async function verCliente(req, res) {
         });
         if (!cliente) return res.status(404).json({ ok: false, error: 'Cliente não encontrado.' });
 
-        const [saldo, lancamentos, pagamentos] = await Promise.all([
+        const [saldo, lancamentos, pagamentos, boletos] = await Promise.all([
             carteira.saldoCentavos(clienteId),
             db.CarteiraLancamento.findAll({
                 where: { cliente_id: clienteId },
@@ -56,6 +56,14 @@ async function verCliente(req, res) {
             }),
             db.Pagamento.findAll({
                 where: { cliente_id: clienteId },
+                order: [['id', 'DESC']],
+                limit: 50,
+            }),
+            // Boleto nao passa pela carteira — paga a remessa direto —, mas e a
+            // outra metade do "este cliente ja pagou?". Sem ele aqui, o
+            // atendente teria que procurar em outra tela.
+            db.AsaasBoletos.findAll({
+                where: { clienteId },
                 order: [['id', 'DESC']],
                 limit: 50,
             }),
@@ -95,6 +103,7 @@ async function verCliente(req, res) {
             pagamentos: pagamentos.map((p) =>
                 carteira.pagamentoPublico(p, { asaas_payment_id: p.asaas_payment_id }),
             ),
+            boletos: boletos.map((b) => boletoDTO(b)),
         });
     } catch (err) {
         console.error('[ADMIN][CARTEIRA][CLIENTE]', err?.message);
@@ -350,10 +359,164 @@ async function definirHabilitada(req, res) {
     }
 }
 
+function boletoDTO(b, { cliente, cotacao } = {}) {
+    return {
+        id: b.id,
+        cliente_id: b.clienteId,
+        cotacao_id: b.cotacaoId,
+        // DECIMAL volta do Postgres como string ("57.31").
+        valor: Number(b.value) || 0,
+        vencimento: b.dueDate,
+        status: b.status,
+        asaas_payment_id: b.asaasPaymentId,
+        bank_slip_url: b.bankSlipUrl,
+        criado_em: b.createdAt,
+        atualizado_em: b.updatedAt,
+        // Em lote o boleto cobre varias cotacoes e nao guarda vinculo; a tela
+        // precisa diferenciar isso de "boleto de uma cotacao so".
+        em_lote: b.cotacaoId == null,
+        cliente: cliente
+            ? { id: cliente.id, razaoSocial: cliente.razaoSocial, emailPrincipal: cliente.emailPrincipal }
+            : null,
+        envio: cotacao
+            ? { pedido_ref: cotacao.pedido_ref, carrier: cotacao.carrier, status_norm: cotacao.status_norm }
+            : null,
+    };
+}
+
+const BOLETO_PAGO = ['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'];
+
+/**
+ * Boletos de todos os clientes. GET /admin/carteira/boletos
+ *
+ * Boleto vencido e ainda PENDING e o que precisa de olho: ou o cliente nao
+ * pagou, ou pagou e a baixa nao chegou.
+ */
+async function listarBoletos(req, res) {
+    try {
+        const page = Math.max(1, Number(req.query.page) || 1);
+        const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize) || 25));
+
+        const where = {};
+        const status = String(req.query.status || '').trim().toUpperCase();
+        if (status) where.status = status;
+        // AsaasBoletos nasceu do sync() e ficou em camelCase, diferente das
+        // outras tabelas: aqui e clienteId/cotacaoId, nao cliente_id.
+        if (req.query.cliente_id) where.clienteId = Number(req.query.cliente_id);
+        if (req.query.cotacao_id) where.cotacaoId = Number(req.query.cotacao_id);
+
+        const { rows, count } = await db.AsaasBoletos.findAndCountAll({
+            where,
+            order: [['id', 'DESC']],
+            limit: pageSize,
+            offset: (page - 1) * pageSize,
+        });
+
+        const clienteIds = [...new Set(rows.map((b) => b.clienteId).filter(Boolean))];
+        const cotacaoIds = [...new Set(rows.map((b) => b.cotacaoId).filter(Boolean))];
+
+        const [clientes, cotacoes, vencidos] = await Promise.all([
+            clienteIds.length
+                ? db.Cliente.findAll({
+                      where: { id: clienteIds },
+                      attributes: ['id', 'razaoSocial', 'emailPrincipal'],
+                  })
+                : [],
+            cotacaoIds.length
+                ? db.Cotacao.findAll({
+                      where: { id: cotacaoIds },
+                      attributes: ['id', 'pedido_ref', 'carrier', 'status_norm'],
+                  })
+                : [],
+            db.AsaasBoletos.count({
+                where: {
+                    status: 'PENDING',
+                    dueDate: { [Op.lt]: new Date().toISOString().slice(0, 10) },
+                },
+            }),
+        ]);
+
+        const porCliente = new Map(clientes.map((c) => [c.id, c]));
+        const porCotacao = new Map(cotacoes.map((c) => [c.id, c]));
+
+        return res.json({
+            ok: true,
+            page,
+            pageSize,
+            total: count,
+            pendentes_vencidos: vencidos,
+            boletos: rows.map((b) =>
+                boletoDTO(b, {
+                    cliente: porCliente.get(b.clienteId),
+                    cotacao: porCotacao.get(b.cotacaoId),
+                }),
+            ),
+        });
+    } catch (err) {
+        console.error('[ADMIN][CARTEIRA][BOLETOS]', err?.message);
+        return res.status(500).json({ ok: false, error: 'Falha ao carregar os boletos.' });
+    }
+}
+
+/**
+ * Forca a baixa de um boleto pelo Asaas.
+ * POST /admin/carteira/boletos/:id/sincronizar
+ *
+ * O status do boleto so era atualizado pelo webhook. Se o webhook nao esta
+ * cadastrado no painel do Asaas, falha ou e perdido, nao havia nenhuma forma
+ * de reconciliar: a remessa ficava como nao paga para sempre, sem saida manual.
+ * Esta rota chama a mesma funcao do webhook — le o status na API do Asaas e
+ * grava. Nao inventa pagamento: so copia o que o Asaas diz.
+ */
+async function sincronizarBoleto(req, res) {
+    try {
+        const boleto = await db.AsaasBoletos.findByPk(Number(req.params.id));
+        if (!boleto) return res.status(404).json({ ok: false, error: 'Boleto não encontrado.' });
+        if (!boleto.asaasPaymentId) {
+            return res.status(400).json({
+                ok: false,
+                error: 'Este boleto não tem cobrança correspondente no Asaas.',
+            });
+        }
+
+        const statusAnterior = boleto.status;
+        await carteira.sincronizarBoleto(boleto);
+
+        await logAdminAction({
+            adminUserId: req.adminUser?.id,
+            action: 'carteira.boleto_sincronizado',
+            entityType: 'AsaasBoleto',
+            entityId: boleto.id,
+            clienteId: boleto.clienteId,
+            metadata: {
+                statusAnterior,
+                statusNovo: boleto.status,
+                cotacaoId: boleto.cotacaoId,
+            },
+            req,
+        });
+
+        return res.json({
+            ok: true,
+            mudou: statusAnterior !== boleto.status,
+            status_anterior: statusAnterior,
+            boleto: boletoDTO(boleto),
+            // O que o atendente quer saber: a remessa foi liberada?
+            remessa_paga: BOLETO_PAGO.includes(String(boleto.status)) && boleto.cotacaoId != null,
+        });
+    } catch (err) {
+        console.error('[ADMIN][CARTEIRA][BOLETO][SYNC]', err?.message);
+        const msg = err?.response?.data?.errors?.[0]?.description || err?.message;
+        return res.status(502).json({ ok: false, error: `Falha ao consultar o Asaas: ${msg}` });
+    }
+}
+
 module.exports = {
     verCliente,
     listarRecargas,
     sincronizarRecarga,
+    listarBoletos,
+    sincronizarBoleto,
     ajustar,
     definirHabilitada,
 };
