@@ -45,12 +45,16 @@ router.get('/:id', requireAuth, ctrl.getCotacao);
 router.post('/:id/docs', requireAuth, ctrl.attachDocs);
 // Invoice emitida pela Intrex, para envio que a transportadora nao documentou.
 router.post('/:id/invoice/gerar', requireAuth, ctrl.gerarInvoice);
+// Formulario CPSC pedido pelo despachante no desembaraco. Regera por cima do
+// anterior: as respostas do formulario vem no corpo e podem ser corrigidas.
+router.post('/:id/cpsc/gerar', requireAuth, ctrl.gerarCPSC);
 router.post('/:id/imposto-real', requireAuth, ctrl.registrarImpostoReal);
 router.get('/:id/cobranca', requireAuth, ctrl.getCobranca);
 router.post('/:id/pagar-com-saldo', requireAuth, ctrl.pagarComSaldo);
 
 router.get('/:id/etiqueta', requireAuth, ctrl.downloadEtiqueta);
 router.get('/:id/invoice', requireAuth, ctrl.downloadInvoice);
+router.get('/:id/cpsc', requireAuth, ctrl.downloadCPSC);
 router.get('/:id/remetente', requireAuth, ctrl.getCotacaoRemetente);
 
 router.post('/:id/pickup', requireAuth, bloquearEnvios, agendarPickupCotacao)

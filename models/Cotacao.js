@@ -28,6 +28,14 @@ module.exports = (sequelize) => {
         invoice_path: { type: DataTypes.STRING, allowNull: true },  // ex: 'cotacoes/123/invoice-yyy.pdf'
         invoice_created_at: { type: DataTypes.DATE, allowNull: true },
 
+        // Formulário CPSC "Goods Not Registered / Certificate of Compliance",
+        // pedido pelo despachante no desembaraço. Fica no mesmo bucket da
+        // invoice, com prefixo próprio: ex 'cotacoes/123/cpsc-zzz.pdf'.
+        // Regerável, então o path muda a cada emissão.
+        cpsc_path: { type: DataTypes.STRING, allowNull: true },
+        cpsc_created_at: { type: DataTypes.DATE, allowNull: true },
+        cpsc_mime: { type: DataTypes.STRING(32), allowNull: true },
+
         // um tracking principal por cotação (se tiver multi-pacote, você pode guardar o master)
         tracking_number: { type: DataTypes.STRING(64), allowNull: true },
         status_norm: {

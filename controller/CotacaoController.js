@@ -17,6 +17,7 @@ const { prepararCotacaoFedex } = require('../services/fedex/cotacaoFedex');
 const { id } = require('zod/v4/locales');
 const db = require('../models');
 const { gerarInvoiceComercial } = require('../services/invoice/gerarInvoiceComercial');
+const { gerarFormularioCPSC } = require('../services/cpsc/gerarFormularioCPSC');
 const { registrarEstimativaDaCotacao } = require('../services/landedCost');
 const { valorConversao } = require('../utils/dolar');
 const { desembaracoUsd } = require('../services/taxasTransportadora');
@@ -807,6 +808,180 @@ async function gerarInvoice(req, res) {
     }
 }
 
+/* ===================== Formulario CPSC ===================== */
+
+// As tres opcoes de disclaim do campo 2. Qualquer outra coisa e recusada:
+// disclaim invalido no formulario para a entrada nos EUA. `null` e valido e
+// significa nao disclamar, o que abre as Partes II a IV do formulario.
+const DISCLAIMERS_CPSC = new Set(['A', 'B', 'NAO_COMERCIAL']);
+
+function guessCpscFilename(pedido_ref, nomeCliente) {
+    const ref = sanitizeForStorageKey(pedido_ref) || 'pedido';
+    const nome = sanitizeForStorageKey(nomeCliente) || 'cliente';
+    return `${ref}-CPSC-${nome}.pdf`;
+}
+
+/*
+ * Sim/nao/nao-respondido. O campo 3 ("Certification exists?") sem resposta
+ * sai sem marcacao nenhuma, que e diferente de sair marcado "No".
+ * Converter ausencia em `false` marcaria uma declaracao que ninguem fez.
+ */
+function triEstado(v) {
+    if (v === true || v === 'true') return true;
+    if (v === false || v === 'false') return false;
+    return undefined;
+}
+
+/*
+ * Guarda no mesmo bucket da invoice, com prefixo proprio no nome do arquivo.
+ *
+ * Bucket novo teria que ser criado na mao no Supabase antes do deploy, e
+ * upload para bucket inexistente volta erro que so apareceria no log — o
+ * operador veria "gerado" e nao teria PDF nenhum. Reaproveitar o bucket que
+ * ja existe tira essa etapa manual do caminho.
+ *
+ * Diferente de salvarInvoiceNaStorage, o erro sobe: quem chamou precisa
+ * responder 500, nao "ok" com a cotacao sem documento.
+ */
+async function salvarCpscNaStorage(cotacaoId, base64, mime = 'application/pdf') {
+    const buf = Buffer.from(base64, 'base64');
+    const path = `cotacoes/${cotacaoId}/cpsc-${Date.now()}.pdf`;
+
+    const { error } = await supabase
+        .storage
+        .from(INVOICES_BUCKET)
+        .upload(path, buf, { contentType: mime, upsert: false });
+
+    if (error) throw error;
+
+    await Cotacao.update(
+        { cpsc_path: path, cpsc_created_at: new Date(), cpsc_mime: mime },
+        { where: { id: cotacaoId } }
+    );
+
+    return path;
+}
+
+/*
+ * Emite o formulario CPSC "Goods Not Registered / Certificate of Compliance"
+ * da cotacao.
+ *
+ * O despachante passou a pedir o papel no desembaraco e ele era preenchido a
+ * mao, um por item, copiando tracking e descricao da invoice. Tudo o que era
+ * copiado ja esta na cotacao; o que nao esta — codigo de disclaim, intended
+ * use code, laboratorio — vem em `opcoes`, porque e declaracao de quem
+ * assina e nao dado derivavel do pedido.
+ *
+ * Ao contrario da invoice, regerar e permitido e sobrescreve: a invoice
+ * concorre com a que a transportadora ja transmitiu a alfandega, este
+ * formulario e sempre nosso, e corrigir o campo 11 depois de gerar tem que
+ * ser possivel sem criar uma segunda cotacao.
+ */
+async function gerarCPSC(req, res) {
+    try {
+        const { id } = req.params;
+
+        const cliente_id = Number(
+            req.cliente?.id ?? req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId
+        );
+        if (!cliente_id) return res.status(401).json({ ok: false, error: 'Cliente não autenticado' });
+
+        const cot = await Cotacao.findOne({ where: { id, cliente_id } });
+        if (!cot) {
+            return res.status(404).json({ ok: false, error: 'Cotação não encontrada' });
+        }
+
+        const opcoes = { ...(req.body?.opcoes || req.body || {}) };
+
+        if (opcoes.disclaimer != null && !DISCLAIMERS_CPSC.has(opcoes.disclaimer)) {
+            return res.status(422).json({
+                ok: false,
+                error: 'Código de disclaim inválido: use A, B ou NAO_COMERCIAL.',
+            });
+        }
+        if (opcoes.tipoCertificado != null
+            && !['CPC', 'GCC'].includes(opcoes.tipoCertificado)) {
+            return res.status(422).json({
+                ok: false,
+                error: 'Tipo de certificado inválido: use CPC ou GCC.',
+            });
+        }
+
+        opcoes.certificacaoExiste = triEstado(opcoes.certificacaoExiste);
+
+        const cliente = await db.Cliente.findByPk(cot.cliente_id);
+
+        const base64 = await gerarFormularioCPSC({
+            cotacao: cot.toJSON(),
+            cliente: cliente ? cliente.toJSON() : {},
+            opcoes,
+        });
+
+        await salvarCpscNaStorage(cot.id, base64, 'application/pdf');
+        await cot.reload();
+
+        const itens = Array.isArray(cot.pedido?.itens) ? cot.pedido.itens : [];
+
+        return res.json({
+            ok: true,
+            cotacao_id: cot.id,
+            has_cpsc: !!cot.cpsc_path,
+            // Um formulario por item: quem confere a capa precisa saber
+            // quantos papeis esperar.
+            formularios: itens.length || 1,
+        });
+    } catch (err) {
+        console.error('[CPSC][GERAR] falhou', req.params?.id, err?.message);
+        return res.status(500).json({ ok: false, error: 'Erro ao gerar o formulário CPSC' });
+    }
+}
+
+async function downloadCPSC(req, res) {
+    const id = req.params.id;
+
+    const cliente_id = Number(
+        req.cliente?.id ?? req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId
+    );
+    if (!cliente_id) return res.status(401).json({ error: 'Cliente não autenticado' });
+
+    const row = await Cotacao.findOne({ where: { id, cliente_id } });
+    if (!row) {
+        return res.status(404).json({ error: 'Formulário CPSC não disponível' });
+    }
+
+    // Mesma trava da etiqueta e da invoice: documento de remessa não paga
+    // não sai.
+    const liberacao = await liberacaoDocumento(row);
+    if (!liberacao.liberado) {
+        return res.status(liberacao.http).json(liberacao.corpo);
+    }
+
+    try {
+        if (!row.cpsc_path) {
+            return res.status(404).json({ error: 'Formulário CPSC não disponível' });
+        }
+
+        const nomeCliente = await db.Cliente.findOne({
+            where: { id: row.cliente_id },
+            attributes: ['razaoSocial'],
+        });
+        const razaoSocial = nomeCliente?.razaoSocial || 'cliente';
+
+        const mime = row.cpsc_mime || 'application/pdf';
+        const buf = await downloadFromBucket(INVOICES_BUCKET, row.cpsc_path);
+        const filename = guessCpscFilename(row.pedido_ref, razaoSocial);
+
+        res.setHeader('Content-Type', mime);
+        res.setHeader('Content-Length', buf.length);
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        return res.send(buf);
+    } catch (err) {
+        console.error('[DOWNLOAD CPSC][ERROR]', err);
+        return res.status(500).json({ error: 'Erro ao baixar o formulário CPSC' });
+    }
+}
+
 async function attachDocs(req, res) {
     try {
         const { id } = req.params;
@@ -1188,6 +1363,9 @@ function cotacaoListDTO(c) {
         caixa: c.caixa,
         etiqueta_path: c.etiqueta_path || null,
         invoice_path: c.invoice_path || null,
+        // Sem isto a tela nao tem como saber se o formulario CPSC ja foi
+        // emitido, e o botao de baixar ficaria sempre cinza.
+        cpsc_path: c.cpsc_path || null,
         tracking_number: c.tracking_number || null,
         status_norm: c.status_norm || 'CRIADO',
         tracking_raw: c.tracking_raw || null,
@@ -1962,6 +2140,9 @@ module.exports = {
     createCotacaoReal,
     attachDocs,
     gerarInvoice,
+    gerarCPSC,
+    downloadCPSC,
+    salvarCpscNaStorage,
     getCotacao,
     listCotacoes,
     resumoCotacoes,
