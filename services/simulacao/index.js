@@ -690,6 +690,7 @@ async function simular(entrada = {}) {
 
 module.exports = {
     simular,
+    estimarImpostosSimulacao,
     listarOrigens,
     listarDestinos,
     LIMITES,

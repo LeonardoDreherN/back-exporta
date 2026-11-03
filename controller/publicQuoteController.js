@@ -1,5 +1,7 @@
 const { quote: upsQuote } = require('../services/ups/rating');
 const { quoteRates: fedexRates } = require('../services/fedex/ratingFedex');
+const { estimarImpostoPublico, ImpostoPublicoInputError } = require('../services/impostosPublicos');
+const { desembaracoUsd } = require('../services/taxasTransportadora');
 
 // Mesma origem usada pela integracao Shopify (routes/shopifyCarrier.js). A UPS
 // recusa cotacao saindo de Florianopolis 88036003 com erro 111217 ("service
@@ -242,6 +244,9 @@ function buildOption(carrier, rates) {
         // campos auxiliares para debug/transparência
         base: rates.base,
         surcharges: rates.surcharges,
+        // Fora do price de proposito (checkouts ja somam price), mas cobrado
+        // na fatura: quem mostra o total precisa somar.
+        desembaraco_usd: desembaracoUsd(carrier),
         // labels prontos para renderizar no checkout
         label: `${carrier} - ${rates.currency} ${total.toFixed(2)}`,
         sla_label: `${rates.slaDays} dias úteis`,
@@ -430,4 +435,21 @@ async function publicQuote(req, res) {
     return res.json({ ok: true, options, ...(Object.keys(errors).length ? { errors } : {}) });
 }
 
-module.exports = { publicQuote };
+// Imposto estimado do destino para o simulador da pagina Sobre. Separado da
+// cotacao de frete porque a primeira estimativa de uma categoria pode levar
+// perto de um minuto (classificacao por IA); o frete nao espera por ela.
+async function publicImpostos(req, res) {
+    const { destino, categoria, valor } = req.body || {};
+    try {
+        const resultado = await estimarImpostoPublico({ destino, categoria, valor });
+        return res.json({ ok: true, ...resultado });
+    } catch (err) {
+        if (err instanceof ImpostoPublicoInputError) {
+            return res.status(400).json({ ok: false, error: err.message });
+        }
+        console.error('[PUBLIC QUOTE][IMPOSTOS]', err?.message);
+        return res.status(502).json({ ok: false, error: 'Não foi possível estimar os impostos agora.' });
+    }
+}
+
+module.exports = { publicQuote, publicImpostos };
