@@ -277,7 +277,7 @@ async function registrarEstimativaDaCotacao({ cotacao, db }) {
             breakdown: est.breakdown,
             de_minimis: est.de_minimis,
             is_estimate: est.is_estimate,
-            modo: impostosModo(),
+            modo: impostosModo(cliente),
             raw_request: est.raw_request,
             raw_response: est.raw_response,
             hash: crypto.createHash('sha256')
@@ -289,13 +289,13 @@ async function registrarEstimativaDaCotacao({ cotacao, db }) {
         // campo que o boleto cobra: é assim que se roda em produção contra
         // envios reais sem arriscar cobrar errado de um cliente. O flag
         // existia desde o início e até aqui só rotulava o snapshot.
-        const enforce = impostosModo() === 'enforce';
+        const enforce = impostosModo(cliente) === 'enforce';
         const cobravel = enforce && est.sanidade?.ok !== false;
 
         if (!cobravel) {
             console.warn('[IMPOSTO][IA][NAO_COBRADO]', {
                 cotacao_id: cotacao.id,
-                modo: impostosModo(),
+                modo: impostosModo(cliente),
                 sanidade: est.sanidade?.motivo || null,
                 brl_estimado: est.imposto_valor_brl,
             });
@@ -306,7 +306,7 @@ async function registrarEstimativaDaCotacao({ cotacao, db }) {
             impostos_moeda: 'BRL',
             impostos_estimados: est.breakdown,
             imposto_estimativa_id: snap.id,
-            impostos_modo: impostosModo(),
+            impostos_modo: impostosModo(cliente),
         }, { where: { id: cotacao.id } });
 
         if (est.divergencias?.length) {

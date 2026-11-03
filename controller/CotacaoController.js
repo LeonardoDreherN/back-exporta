@@ -2095,6 +2095,18 @@ async function pagarComSaldo(req, res) {
             return res.json({ ok: true, ja_pago: true, pagamento: jaPago });
         }
 
+        // Mesma trava do boleto: pagar antes da estimativa chegar cobrava so
+        // frete + desembaraco, e o imposto nunca mais entrava (o debito e
+        // unico por cotacao).
+        const dono = await Cliente.findByPk(cot.cliente_id);
+        if (impostosBetaHabilitado(dono) && !cot.imposto_estimativa_id && cot.impostos_valor_brl == null) {
+            return res.status(409).json({
+                ok: false,
+                aguardando_imposto: true,
+                error: 'O imposto do destino ainda está sendo calculado. Tente de novo em instantes.',
+            });
+        }
+
         const composicao = await composicaoCotacao(cot);
         if (composicao.total_centavos <= 0) {
             return res.status(400).json({ ok: false, error: 'Cotação sem valor a cobrar.' });

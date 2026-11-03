@@ -11,21 +11,35 @@ function parseEmails(csv) {
 }
 
 /**
- * Retorna true se o cliente está na allowlist IMPOSTOS_BETA_EMAILS.
- * @param {{ emailPrincipal?: string } | null | undefined} cliente
+ * Retorna true se o cliente teve a carteira ligada pelo admin ou está na
+ * allowlist IMPOSTOS_BETA_EMAILS.
+ *
+ * Ligar a carteira no admin liga a cobrança antecipada, e a cobrança é frete +
+ * desembaraço + imposto: sem estimar aqui, a conta liberada pelo painel pagava
+ * a remessa sem o imposto.
+ * @param {{ emailPrincipal?: string, carteiraHabilitada?: boolean } | null | undefined} cliente
  */
 function impostosBetaHabilitado(cliente) {
+    if (cliente?.carteiraHabilitada === true) return true;
+
     const email = String(cliente?.emailPrincipal || '').trim().toLowerCase();
     if (!email) return false;
     return parseEmails(process.env.IMPOSTOS_BETA_EMAILS).includes(email);
 }
 
 /**
- * Modo de operação da feature: 'shadow' (só calcula e registra) ou 'enforce'.
- * Nesta fatia só rotula o snapshot; não altera comportamento.
+ * Modo de operação da feature: 'shadow' (só calcula e registra) ou 'enforce'
+ * (o imposto entra no valor cobrado).
+ *
+ * Conta com a carteira ligada pelo admin é sempre 'enforce': o admin liberou a
+ * cobrança antecipada dela, e em shadow o imposto ficaria fora do total. As
+ * demais seguem IMPOSTOS_MODO.
+ * @param {{ carteiraHabilitada?: boolean } | null | undefined} [cliente]
  * @returns {'shadow' | 'enforce'}
  */
-function impostosModo() {
+function impostosModo(cliente) {
+    if (cliente?.carteiraHabilitada === true) return 'enforce';
+
     const m = String(process.env.IMPOSTOS_MODO || 'shadow').trim().toLowerCase();
     return m === 'enforce' ? 'enforce' : 'shadow';
 }
