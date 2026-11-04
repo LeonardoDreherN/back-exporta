@@ -28,6 +28,14 @@ module.exports = (sequelize) => {
         invoice_path: { type: DataTypes.STRING, allowNull: true },  // ex: 'cotacoes/123/invoice-yyy.pdf'
         invoice_created_at: { type: DataTypes.DATE, allowNull: true },
 
+        // Correção da invoice que vale só no papel: preço, descrição e
+        // quantidade reemitidos sem tocar em `pedido`, que alimenta imposto,
+        // cotação e CPSC. Ver services/invoice/ajustesInvoice.js.
+        invoice_ajustes: { type: DataTypes.JSONB, allowNull: true, defaultValue: null },
+        // 'INTREX' quando o PDF salvo foi gerado por nós. Null para invoice
+        // da transportadora, anexada à mão, ou anterior a este campo.
+        invoice_origem: { type: DataTypes.STRING(16), allowNull: true, defaultValue: null },
+
         // Formulário CPSC "Goods Not Registered / Certificate of Compliance",
         // pedido pelo despachante no desembaraço. Fica no mesmo bucket da
         // invoice, com prefixo próprio: ex 'cotacoes/123/cpsc-zzz.pdf'.

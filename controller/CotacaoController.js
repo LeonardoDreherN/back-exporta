@@ -172,7 +172,14 @@ async function salvarEtiquetasNaStorage(cotacaoId, partes = []) {
     await salvarEtiquetaNaStorage(cotacaoId, lista[0].b64, lista[0].mime || 'application/pdf');
 }
 
-async function salvarInvoiceNaStorage(cotacaoId, base64, mime = 'application/pdf') {
+/*
+ * `origem` marca quem emitiu o PDF que fica salvo: 'INTREX' quando fomos
+ * nos. Invoice vinda da transportadora ou anexada a mao nao passa origem e
+ * grava null, que e tambem o valor das invoices anteriores a este campo —
+ * delas nao da para saber a origem depois do fato. Serve para o admin ver o
+ * que esta substituindo antes de reemitir.
+ */
+async function salvarInvoiceNaStorage(cotacaoId, base64, mime = 'application/pdf', origem = null) {
     try {
         const cotacao = await db.Cotacao.findOne({
             where: { id: cotacaoId },
@@ -198,6 +205,7 @@ async function salvarInvoiceNaStorage(cotacaoId, base64, mime = 'application/pdf
                 invoice_path: path,
                 invoice_created_at: new Date(),
                 invoice_mime: mime,
+                invoice_origem: origem,
                 // se quiser já ir limpando:
                 // invoice_base64: null,
             },
@@ -794,7 +802,7 @@ async function gerarInvoice(req, res) {
             cliente: cliente ? cliente.toJSON() : {},
         });
 
-        await salvarInvoiceNaStorage(cot.id, base64, 'application/pdf');
+        await salvarInvoiceNaStorage(cot.id, base64, 'application/pdf', 'INTREX');
         await cot.reload();
 
         return res.json({
@@ -2168,6 +2176,11 @@ module.exports = {
     salvarEtiquetaNaStorage,
     salvarEtiquetasNaStorage,
     salvarInvoiceNaStorage,
+    // O admin reemite e baixa a invoice pelas rotas dele, que não passam
+    // pelo requireAuth de cliente. Exportados para não duplicar o client do
+    // Supabase nem o nome do bucket num segundo lugar.
+    downloadFromBucket,
+    INVOICES_BUCKET,
     getCotacaoRemetente,
     registrarImpostoReal,
     acuraciaImpostos
