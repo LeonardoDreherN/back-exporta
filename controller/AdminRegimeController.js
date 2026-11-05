@@ -7,14 +7,11 @@
 const db = require('../models');
 const {
     pesquisarRegime,
-    pesquisarRegimesEmLote,
-    PAISES_PRIORITARIOS,
     aprovarRegime,
     rejeitarRegime,
     sobretaxaTotalPct,
     VALIDADE_DIAS,
 } = require('../services/regimeImportacao');
-const { listarDemandas } = require('../services/impostosCheckout');
 const { logAdminAction } = require('../services/audit');
 
 function quemEstaLogado(req) {
@@ -120,76 +117,6 @@ async function pesquisar(req, res) {
     }
 }
 
-/**
- * Apura vários destinos de uma vez. POST /admin/regimes/pesquisar-lote
- * body: { paises?: ['US','PT'] } — sem paises, usa a lista prioritária.
- *
- * Igual ao /pesquisar: solta sem await e responde 202. Um lote de doze países
- * passa de meia hora, muito além de qualquer timeout de proxy.
- */
-async function pesquisarLote(req, res) {
-    try {
-        const bruto = req.body?.paises;
-        const paises = Array.isArray(bruto) && bruto.length
-            ? bruto.map((p) => String(p || '').trim().toUpperCase()).filter((p) => /^[A-Z]{2}$/.test(p))
-            : PAISES_PRIORITARIOS;
-
-        if (!paises.length) {
-            return res.status(400).json({ ok: false, error: 'Informe países em ISO-2, ex.: ["US","PT"]' });
-        }
-
-        pesquisarRegimesEmLote({ paises, db })
-            .then((resultados) => {
-                logAdminAction({
-                    adminUserId: req.adminUser?.id,
-                    req,
-                    action: 'REGIME_LOTE_APURADO',
-                    entityType: 'regime_importacao',
-                    entityId: null,
-                    metadata: {
-                        paises,
-                        ok: resultados.filter((r) => r.ok).length,
-                        falhas: resultados.filter((r) => !r.ok).length,
-                    },
-                });
-            })
-            .catch((e) => console.error('[ADMIN/REGIME] lote falhou:', e?.message));
-
-        return res.status(202).json({
-            ok: true,
-            paises,
-            aviso: `Apuração iniciada para ${paises.length} destino(s), um por vez. `
-                + 'São duas rodadas com busca em fonte primária por país, então leva dezenas de minutos. '
-                + 'Cada um aparece na lista como pendente e ainda precisa da sua aprovação para valer no checkout.',
-        });
-    } catch (err) {
-        console.error('[ADMIN/REGIME] pesquisarLote:', err);
-        return res.status(500).json({ ok: false, error: 'Erro ao iniciar apuração em lote' });
-    }
-}
-
-/**
- * Destinos que o checkout pediu e não tinham regime aprovado.
- * GET /admin/regimes/demandas
- *
- * É a fila de prioridade real: cada linha é uma venda que saiu (ou quase saiu)
- * sem imposto no preço. Fica em memória do processo, então zera no deploy — o
- * que a tela diz, para ninguém ler ausência como "não aconteceu".
- */
-async function demandas(req, res) {
-    try {
-        return res.json({
-            ok: true,
-            volatil: true,
-            observacao: 'Contagem desde o último deploy deste serviço; não é histórico.',
-            demandas: listarDemandas(),
-        });
-    } catch (err) {
-        console.error('[ADMIN/REGIME] demandas:', err);
-        return res.status(500).json({ ok: false, error: 'Erro ao listar demandas' });
-    }
-}
-
 /** POST /admin/regimes/:id/aprovar */
 async function aprovar(req, res) {
     try {
@@ -252,4 +179,4 @@ async function rejeitar(req, res) {
     }
 }
 
-module.exports = { listar, detalhe, pesquisar, pesquisarLote, demandas, aprovar, rejeitar };
+module.exports = { listar, detalhe, pesquisar, aprovar, rejeitar };
