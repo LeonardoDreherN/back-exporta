@@ -211,14 +211,19 @@ async function obterClassificacao({ regime, ncm, descricao, valorUsd, db }) {
  * Aplica uma classificação a um valor concreto. Aritmética pura: é o que
  * permite reaproveitar a mesma classificação para valores diferentes.
  */
-function aplicarClassificacao({ classificacao, valorUsd }) {
+function aplicarClassificacao({ classificacao, valorUsd, freteUsd = 0 }) {
     const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
     const v = Number(valorUsd) || 0;
+    // Frete entra SO na base do imposto sobre consumo, nunca na do imposto de
+    // importacao: na UE, no Reino Unido e na maior parte dos destinos com VAT a
+    // base e CIF + direito aduaneiro, e sem o frete a estimativa para a Europa
+    // sai curta. Default 0 preserva o simulador, que chama sem frete.
+    const f = Math.max(0, Number(freteUsd) || 0);
 
     const impImportacao = r2(v * (Number(classificacao.aliquota_importacao_pct) / 100));
-    // O imposto sobre consumo costuma incidir sobre valor + imposto de
+    // O imposto sobre consumo costuma incidir sobre valor + frete + imposto de
     // importação, não só sobre a mercadoria.
-    const impConsumo = r2((v + impImportacao) * (Number(classificacao.aliquota_consumo_pct) / 100));
+    const impConsumo = r2((v + f + impImportacao) * (Number(classificacao.aliquota_consumo_pct) / 100));
     const taxasFixas = r2(classificacao.taxas_fixas_usd);
 
     return {
@@ -235,4 +240,65 @@ function aplicarClassificacao({ classificacao, valorUsd }) {
     };
 }
 
-module.exports = { obterClassificacao, aplicarClassificacao, chaveDoItem, faixaDeValor };
+/**
+ * Classificacao que JA esta na cache, sem nunca chamar o modelo.
+ *
+ * O checkout da Shopify nao pode chamar IA: o callback de carrier service tem
+ * cerca de 10s de teto e uma classificacao nova leva dezenas de segundos, alem
+ * de custar por requisicao. Entao o caminho do checkout le a cache e, no miss,
+ * aquece em background para o proximo comprador ja achar.
+ *
+ * @param {{ regime:object, ncm?:string, descricao?:string, valorUsd:number, db:any }} args
+ * @returns {Promise<object|null>}
+ */
+async function buscarClassificacaoCache({ regime, ncm, descricao, valorUsd, db }) {
+    if (!regime?.id) return null;
+
+    return db.ClassificacaoImposto.findOne({
+        where: {
+            regime_id: regime.id,
+            chave_item: chaveDoItem({ ncm, descricao }),
+            faixa: faixaDeValor(valorUsd, regime),
+        },
+    });
+}
+
+/**
+ * Fallback de destino: a classificacao de MAIOR aliquota ja apurada naquele
+ * regime, para usar quando o item especifico ainda nao esta na cache.
+ *
+ * Por que a maior e nao a media: o proprio prompt de classificacao manda usar
+ * a aliquota maior na duvida, porque subestimar cobra menos do que a alfandega
+ * vai cobrar e o prejuizo sobra para quem adiantou. Aqui a duvida e total — nao
+ * se sabe nem o NCM —, entao vale a mesma regra. Fica marcado como fallback
+ * para o checkout avisar que e estimativa grossa.
+ *
+ * @param {{ regime:object, valorUsd:number, db:any }} args
+ */
+async function classificacaoFallbackDestino({ regime, valorUsd, db }) {
+    if (!regime?.id) return null;
+
+    const faixa = faixaDeValor(valorUsd, regime);
+
+    // Primeiro na mesma faixa de valor: de minimis e entrada formal mudam o que
+    // e cobrado, e uma aliquota de outra faixa pode nao valer aqui.
+    const naFaixa = await db.ClassificacaoImposto.findOne({
+        where: { regime_id: regime.id, faixa },
+        order: [['aliquota_importacao_pct', 'DESC']],
+    });
+    if (naFaixa) return naFaixa;
+
+    return db.ClassificacaoImposto.findOne({
+        where: { regime_id: regime.id },
+        order: [['aliquota_importacao_pct', 'DESC']],
+    });
+}
+
+module.exports = {
+    obterClassificacao,
+    buscarClassificacaoCache,
+    classificacaoFallbackDestino,
+    aplicarClassificacao,
+    chaveDoItem,
+    faixaDeValor,
+};

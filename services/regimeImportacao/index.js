@@ -202,6 +202,17 @@ function sobretaxaTotalPct(regime) {
 }
 
 /**
+ * Destinos que respondem pela maior parte do volume de e-commerce brasileiro
+ * para o exterior. É a lista que a apuração em lote usa quando ninguém informa
+ * países.
+ *
+ * Ordem importa: a apuração roda sequencial e cada país são duas rodadas com
+ * busca em fonte primária, então se o lote for interrompido o que ficou pronto
+ * é o que cobre mais venda.
+ */
+const PAISES_PRIORITARIOS = ['US', 'PT', 'CA', 'GB', 'ES', 'FR', 'DE', 'IT', 'NL', 'AU', 'MX', 'AE'];
+
+/**
  * Apura o regime e grava como 'pendente'. Não aprova nada sozinho: cobrar
  * contra número não conferido é o que este módulo inteiro existe para evitar.
  *
@@ -335,8 +346,68 @@ async function rejeitarRegime({ id, quem, db }) {
     return linha;
 }
 
+/**
+ * Apura vários destinos, um a um.
+ *
+ * Sequencial de propósito: são duas rodadas de busca pesada por país, e
+ * disparar doze em paralelo estoura o rate limit da API do modelo — o lote
+ * voltaria metade falhado, consumindo o orçamento das chamadas que falharam.
+ *
+ * Nunca lança: o resultado de cada país vem separado, para um destino que
+ * falhou não derrubar os que já ficaram prontos.
+ *
+ * @param {{ paises?: string[], paisOrigem?: string, db: any }} args
+ * @returns {Promise<{ pais:string, ok:boolean, id?:number, confianca?:string,
+ *                     divergencias?:number, erro?:string }[]>}
+ */
+async function pesquisarRegimesEmLote({ paises, paisOrigem = 'BR', db }) {
+    const lista = (Array.isArray(paises) && paises.length ? paises : PAISES_PRIORITARIOS)
+        .map((p) => String(p || '').trim().toUpperCase())
+        .filter((p) => /^[A-Z]{2}$/.test(p));
+
+    const unicos = [...new Set(lista)];
+    const resultados = [];
+
+    console.log('[REGIME][LOTE] iniciando', { paises: unicos, total: unicos.length });
+
+    for (const pais of unicos) {
+        try {
+            // Já apurado e dentro da validade não se repete: o lote costuma ser
+            // rodado de novo para completar o que faltou, e repetir o que está
+            // bom é gastar duas rodadas de busca por nada.
+            const vigente = await obterRegimeAprovado({ paisDestino: pais, db });
+            if (vigente) {
+                console.log('[REGIME][LOTE] já aprovado e vigente, pulando:', pais);
+                resultados.push({ pais, ok: true, id: vigente.id, pulado: true });
+                continue;
+            }
+
+            const linha = await pesquisarRegime({ paisDestino: pais, paisOrigem, db });
+            resultados.push({
+                pais,
+                ok: true,
+                id: linha.id,
+                confianca: linha.confianca,
+                divergencias: (linha.divergencias || []).length,
+            });
+        } catch (e) {
+            console.error('[REGIME][LOTE] falhou:', pais, e?.message);
+            resultados.push({ pais, ok: false, erro: e?.message || 'erro desconhecido' });
+        }
+    }
+
+    console.log('[REGIME][LOTE] fim', {
+        ok: resultados.filter((r) => r.ok).length,
+        falhas: resultados.filter((r) => !r.ok).length,
+    });
+
+    return resultados;
+}
+
 module.exports = {
     pesquisarRegime,
+    pesquisarRegimesEmLote,
+    PAISES_PRIORITARIOS,
     obterRegimeAprovado,
     aprovarRegime,
     rejeitarRegime,

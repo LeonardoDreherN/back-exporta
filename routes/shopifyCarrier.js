@@ -4,8 +4,15 @@ const router = express.Router();
 const upsRating = require('../services/ups/rating');
 const normUps = require('../utils/normalize/upsRate');
 const { quoteRates } = require('../services/fedex/ratingFedex');
+const { prepararImpostoCheckout } = require('../services/impostosCheckout');
+const db = require('../models');
 
 const toKg = (grams) => Number(grams || 0) / 1000;
+
+// Teto para a parte de imposto. O callback inteiro tem cerca de 10s na
+// Shopify: imposto que nao chegou a tempo vira frete sem imposto com aviso,
+// nunca checkout sem frete.
+const IMPOSTO_TIMEOUT_MS = Number(process.env.CHECKOUT_IMPOSTO_TIMEOUT_MS) || 3000;
 
 // ORIGEM FIXA PARA TODOS OS CÁLCULOS
 const DEFAULT_ORIGIN = {
@@ -27,6 +34,16 @@ function normalizeFedexState(state) {
     if (raw.length <= 2) return raw;
 
     return undefined;
+}
+
+/** Promessa com teto de tempo. O timer e unref para nao segurar o processo. */
+function comTeto(promessa, ms, rotulo) {
+    let timer;
+    const limite = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timeout ${rotulo} (${ms}ms)`)), ms);
+        if (typeof timer.unref === 'function') timer.unref();
+    });
+    return Promise.race([promessa, limite]).finally(() => clearTimeout(timer));
 }
 
 function buildPackages(items = []) {
@@ -70,8 +87,13 @@ function buildCommodities(items = [], currency = 'USD') {
 
     return validItems.map((item) => {
         const qty = Number(item.quantity || 1) || 1;
-        const totalPrice = Number(item.price || 0) / 100 || 1;
-        const unitPrice = totalPrice / qty;
+        // `price` no callback da Shopify e o preco UNITARIO em centavos, com
+        // `quantity` em campo separado. Antes isto era tratado como total da
+        // linha e dividido pela quantidade: 3 pecas de US$ 50 declaravam
+        // US$ 50 em vez de US$ 150, subdeclarando a invoice e, agora que o
+        // imposto entra no preco, subestimando o imposto na mesma proporcao.
+        const unitPrice = Number(item.price || 0) / 100 || 1;
+        const totalPrice = unitPrice * qty;
         const weightKg = toKg(item.grams || 1000) || 1;
 
         return {
@@ -84,6 +106,27 @@ function buildCommodities(items = [], currency = 'USD') {
             countryOfManufacture: 'BR',
         };
     });
+}
+
+/**
+ * Cliente Intrex dono da loja que esta pedindo o frete.
+ *
+ * Serve so para achar o NCM do produto cadastrado e melhorar a classificacao
+ * do imposto. Loja nao identificada nao impede nada: a chave de cache cai na
+ * descricao do item.
+ */
+async function resolverClienteDaLoja(shopDomain) {
+    if (!shopDomain) return null;
+    try {
+        const info = await db.InfoShopify.findOne({
+            where: { shopDomain },
+            attributes: ['id_cliente'],
+        });
+        return info?.id_cliente || null;
+    } catch (e) {
+        console.error('[SHOPIFY CARRIER] falha ao resolver loja:', shopDomain, e?.message);
+        return null;
+    }
 }
 
 router.get('/carrier-test', (req, res) => {
@@ -110,6 +153,8 @@ router.post('/carrier', async (req, res) => {
         const dest = rate.destination || {};
         const items = Array.isArray(rate.items) ? rate.items : [];
         const currency = rate.currency || 'USD';
+
+        const shopDomain = String(req.get('x-shopify-shop-domain') || '').trim().toLowerCase();
 
         const packages = buildPackages(items);
         const commodities = buildCommodities(items, currency);
@@ -199,10 +244,30 @@ router.post('/carrier', async (req, res) => {
             currency,
         };
 
+        // O imposto entra junto na paralela: ele nao depende do frete para ser
+        // preparado (regime + aliquota do item), so para fechar a conta. Assim
+        // nao soma latencia nenhuma ao callback.
+        const prepararImposto = (async () => {
+            const clienteId = await resolverClienteDaLoja(shopDomain);
+            return prepararImpostoCheckout({
+                destino: dest.country,
+                itens: items,
+                moeda: currency,
+                clienteId,
+                db,
+            });
+        })();
+
+        // O teto abaixo descarta a promessa, mas ela segue viva: sem este
+        // handler extra, uma falha que chega DEPOIS do teto vira
+        // unhandledRejection e derruba o processo em Node moderno.
+        prepararImposto.catch(() => { });
+
         // UPS e FedEx em paralelo — evita estourar o timeout de ~10s da Shopify
-        const [upsResult, fedexResult] = await Promise.allSettled([
+        const [upsResult, fedexResult, impostoResult] = await Promise.allSettled([
             upsRating.quote(upsPayload),
             quoteRates(fedexPayload),
+            comTeto(prepararImposto, IMPOSTO_TIMEOUT_MS, 'imposto'),
         ]);
 
         let upsQuotes = [];
@@ -218,6 +283,22 @@ router.post('/carrier', async (req, res) => {
         } else {
             console.error('[SHOPIFY CARRIER][FEDEX ERROR]', fedexResult.reason?.response?.data || fedexResult.reason);
         }
+
+        let imposto = { disponivel: false, motivo: 'erro' };
+        if (impostoResult.status === 'fulfilled') {
+            imposto = impostoResult.value;
+        } else {
+            console.error('[SHOPIFY CARRIER][IMPOSTO ERROR]', impostoResult.reason?.message);
+        }
+
+        console.log('[SHOPIFY CARRIER][IMPOSTO]', {
+            pais: dest.country,
+            disponivel: imposto.disponivel,
+            motivo: imposto.motivo || null,
+            confianca: imposto.confianca || null,
+            fallback: imposto.tem_fallback || false,
+            mercadoria_usd: imposto.valor_mercadoria_usd || null,
+        });
 
         const rates = [];
 
@@ -239,12 +320,87 @@ const fedexNameMap = {
     INTERNATIONAL_ECONOMY: 'FedEx Economy (4-7 business days)',
 };
 
-function buildDescription(base, total) {
-    const cur = 'USD';
-    const taxes = Number((total - base).toFixed(2));
-    const parts = [`Base: ${cur} ${Number(base).toFixed(2)}`];
-    if (taxes > 0) parts.push(`Taxas: ${cur} ${taxes.toFixed(2)}`);
-    return `- ${parts.join(' | ')} ⓘ`;
+/**
+ * Fator moeda do frete -> USD, SEM nova chamada de rede.
+ *
+ * O cambio ja foi resolvido no preparo do imposto. Buscar outro aqui dentro do
+ * callback arriscaria 8s de timeout da API de cotacao em cima dos 10s da
+ * Shopify. Moeda que nao da para converter com o que esta em maos devolve null,
+ * e aquele servico sai como DDU com aviso em vez de sair com imposto errado.
+ */
+function fatorFreteParaUsd(moedaFrete) {
+    const m = String(moedaFrete || 'USD').trim().toUpperCase();
+    if (m === 'USD') return 1;
+    if (!imposto.disponivel) return null;
+    if (m === imposto.moeda_origem) return imposto.para_usd;
+    // A UPS devolve a tarifa negociada em BRL mesmo quando a loja vende em
+    // dolar, por ser conta brasileira.
+    if (m === 'BRL' && imposto.brl_para_usd) return imposto.brl_para_usd;
+    return null;
+}
+
+const money = (v) => Number(v).toFixed(2);
+
+/**
+ * Monta o rate final de um servico, ja com imposto embutido quando ha.
+ *
+ * DDP por decisao de produto: o comprador paga frete + imposto no checkout e
+ * nao e surpreendido na entrega. A description e o unico texto que a Shopify
+ * mostra junto do servico, entao ela e que diz o que esta dentro do preco.
+ */
+function montarRate({ service_name, service_code, freteTotal, moedaFrete }) {
+    const moeda = moedaFrete || 'USD';
+    const frete = Number(freteTotal);
+
+    if (!imposto.disponivel) {
+        // Sem regime aprovado (ou sem cambio/classificacao): vende, mas avisa.
+        // Silenciar aqui e exatamente onde o cliente leva prejuizo.
+        return {
+            service_name,
+            service_code,
+            description: `Shipping ${money(frete)} ${moeda} · Import duties & taxes NOT included — customs charges them on delivery`,
+            currency: moeda,
+            total_price: String(Math.round(frete * 100)),
+        };
+    }
+
+    const fator = fatorFreteParaUsd(moeda);
+    if (fator === null) {
+        return {
+            service_name,
+            service_code,
+            description: `Shipping ${money(frete)} ${moeda} · Import duties & taxes NOT included — customs charges them on delivery`,
+            currency: moeda,
+            total_price: String(Math.round(frete * 100)),
+        };
+    }
+
+    const conta = imposto.calcular(frete * fator);
+    // De volta para a moeda do frete, que e a moeda do rate.
+    const impostoMoeda = Math.round((conta.total_usd / fator) * 100) / 100;
+
+    if (conta.isento) {
+        return {
+            service_name,
+            service_code,
+            // Zero pode vir do de minimis do destino ou de aliquota zero para a
+            // mercadoria. Daqui nao se sabe qual dos dois, entao o texto diz o
+            // resultado e nao afirma o motivo.
+            description: `Shipping ${money(frete)} ${moeda} · No import duties or taxes due for this order`,
+            currency: moeda,
+            total_price: String(Math.round(frete * 100)),
+        };
+    }
+
+    const total = Math.round((frete + impostoMoeda) * 100) / 100;
+
+    return {
+        service_name,
+        service_code,
+        description: `Shipping ${money(frete)} ${moeda} + import duties & taxes ${money(impostoMoeda)} ${moeda} — included, nothing to pay on delivery`,
+        currency: moeda,
+        total_price: String(Math.round(total * 100)),
+    };
 }
 
 // UPS real
@@ -253,13 +409,12 @@ upsQuotes.forEach((q) => {
 
     const code = String(q.serviceCode || '').trim();
 
-    rates.push({
+    rates.push(montarRate({
         service_name: upsNameMap[code] || `UPS ${q.serviceLabel || 'International'}`,
         service_code: `UPS_${code || 'STD'}`,
-        description: buildDescription(q.base, q.total, q.itemized),
-        currency: q.currency || 'USD',
-        total_price: String(Math.round(Number(q.total) * 100)),
-    });
+        freteTotal: q.total,
+        moedaFrete: q.currency || 'USD',
+    }));
 });
 
 // FedEx real
@@ -268,13 +423,12 @@ fedexQuotes.forEach((q) => {
 
     const type = String(q.serviceType || '').trim();
 
-    rates.push({
+    rates.push(montarRate({
         service_name: fedexNameMap[type] || 'FedEx International Shipping',
         service_code: `FEDEX_${type.replace(/\s+/g, '_') || 'STD'}`,
-        description: buildDescription(q.base, q.total, q.itemized),
-        currency: q.currency || 'USD',
-        total_price: String(Math.round(Number(q.total) * 100)),
-    });
+        freteTotal: q.total,
+        moedaFrete: q.currency || 'USD',
+    }));
 });
 
 // fallback geral se tudo falhar
