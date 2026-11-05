@@ -656,12 +656,21 @@ async function simular(entrada = {}) {
             desembaraco_brl: desembaracoBrl,
             imposto_usd: impostoUsd,
             imposto_brl: impostoBrl,
-            total_usd: (freteUsd != null && impostoUsd != null)
-                ? round2(freteUsd + desembaraco + impostoUsd)
+            // Imposto indisponivel NAO zera o total: soma-se o que se tem
+            // (frete + desembaraco) e marca-se que o imposto ficou de fora.
+            // Antes o total virava null e a tela mostrava um traco, enquanto o
+            // aviso logo abaixo dizia "os totais acima sao frete + desembaraco"
+            // — prometia um numero que o calculo nao entregava, e ainda
+            // desligava a etiqueta de menor custo total.
+            total_usd: freteUsd != null
+                ? round2(freteUsd + desembaraco + (impostoUsd ?? 0))
                 : null,
-            total_brl: (freteBrl != null && impostoBrl != null && desembaracoBrl != null)
-                ? round2(freteBrl + desembaracoBrl + impostoBrl)
+            total_brl: (freteBrl != null && desembaracoBrl != null)
+                ? round2(freteBrl + desembaracoBrl + (impostoBrl ?? 0))
                 : null,
+            // Quem le o total precisa saber o que ha dentro dele: sem isto a
+            // tela nao tem como diferenciar um total fechado de um parcial.
+            inclui_imposto: impostoUsd != null,
         };
     });
 
