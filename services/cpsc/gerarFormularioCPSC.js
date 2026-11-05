@@ -259,12 +259,6 @@ async function preencherUmaVia(bytesTemplate, dados) {
         T(CAMPO.labEndereco, dados.labEndereco);
         T(CAMPO.regraOuExclusao, dados.regraOuExclusao);
 
-        T(CAMPO.fabricanteNome, dados.fabricanteNome);
-        T(CAMPO.fabricanteData, dados.fabricanteData);
-        T(CAMPO.fabricanteEndereco, dados.fabricanteEndereco);
-        T(CAMPO.fabricanteTelefone, dados.fabricanteTelefone);
-        T(CAMPO.fabricanteEmail, dados.fabricanteEmail);
-
         T(CAMPO.marca, dados.marca);
         T(CAMPO.modeloDescricao, dados.modeloDescricao);
         T(CAMPO.modeloEstilo, dados.modeloEstilo);
@@ -275,6 +269,32 @@ async function preencherUmaVia(bytesTemplate, dados) {
         T(CAMPO.chaveRelatorio, dados.chaveRelatorio);
         T(CAMPO.smallBatchId, dados.smallBatchId);
     }
+
+    // ---------------- Parte III - Manufacturer ----------------
+
+    /*
+     * Sai SEMPRE, inclusive com disclaim — e nisto a Parte III difere das
+     * Partes II e IV.
+     *
+     * O campo 2 manda "Skip to part V" ao disclamar, e foi por isso que ela
+     * saia em branco. Mas o proprio papel marca a Parte III como "(required)",
+     * sem ressalva para quem disclama, e na pratica ela foi cobrada: o
+     * formulario voltou por falta do fabricante.
+     *
+     * Deixar em branco tambem nao se justificava do lado dos dados: o cliente
+     * que emite e o fabricante da mercadoria, e razao social, endereco,
+     * telefone e e-mail ja estao no cadastro. O default vem dali, e `opcoes`
+     * sobrescreve quando o fabricante for outro (industria terceirizada).
+     *
+     * Fica de fora so o campo 22 (manufacturer date), que e data de fabricacao
+     * e o sistema nao tem de onde tirar — vai em branco, para a caneta, em vez
+     * de inventar a data da cotacao.
+     */
+    T(CAMPO.fabricanteNome, dados.fabricanteNome);
+    T(CAMPO.fabricanteData, dados.fabricanteData);
+    T(CAMPO.fabricanteEndereco, dados.fabricanteEndereco);
+    T(CAMPO.fabricanteTelefone, dados.fabricanteTelefone);
+    T(CAMPO.fabricanteEmail, dados.fabricanteEmail);
 
     // ---------------- Parte V - Submitter ----------------
 
