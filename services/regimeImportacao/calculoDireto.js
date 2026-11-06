@@ -54,9 +54,35 @@ const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 function calcularPeloRegime({ regime, valorUsd, freteUsd = 0, cotacoes = {} }) {
     if (!regime) return null;
 
-    const medidas = Array.isArray(regime.medidas) ? regime.medidas : [];
+    const todas = Array.isArray(regime.medidas) ? regime.medidas : [];
     const valor = Math.max(0, Number(valorUsd) || 0);
     const frete = Math.max(0, Number(freteUsd) || 0);
+
+    /*
+     * Medida com faixa de valor so entra quando a remessa alcanca a faixa.
+     * E o que separa a UE abaixo de EUR 150 — onde o direito e um valor fixo e
+     * a tarifa por NCM nem aparece — da UE acima, onde a tarifa e do item. Sem
+     * isto, a medida TARIC marcada com -1 derrubava para a IA ate remessas de
+     * EUR 20, que nunca veriam aquela tarifa.
+     *
+     * Sem cambio para o limite, nao da para saber de que lado a remessa esta:
+     * a medida fica valendo, que e o lado conservador.
+     */
+    const medidas = todas.filter((m) => {
+        const acima = Number(m.aplica_acima_de);
+        if (Number.isFinite(acima) && acima > 0) {
+            const limiteUsd = paraUsd(acima, m.moeda_limite, cotacoes);
+            if (limiteUsd !== null && valor <= limiteUsd) return false;
+        }
+        // O par de `aplica_acima_de`: o EUR 3 vale ATE EUR 150 e some acima,
+        // onde quem assume e a tarifa da posicao.
+        const ate = Number(m.aplica_ate);
+        if (Number.isFinite(ate) && ate > 0) {
+            const limiteUsd = paraUsd(ate, m.moeda_limite, cotacoes);
+            if (limiteUsd !== null && valor > limiteUsd) return false;
+        }
+        return true;
+    });
 
     // Qualquer medida que dependa do NCM tira o regime do caminho direto.
     if (medidas.some((m) => Number(m.aliquota_pct) === -1)) return null;

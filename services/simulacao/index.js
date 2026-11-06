@@ -14,6 +14,7 @@ const { impostosMargemPorConfianca, impostosColchaoCambioPct } = require('../fea
 const { desembaracoUsd } = require('../taxasTransportadora');
 const { obterRegimeAprovado } = require('../regimeImportacao');
 const { calcularPeloRegime } = require('../regimeImportacao/calculoDireto');
+const { cotacoesParaUsd } = require('../../utils/cotacoes');
 const { obterClassificacao, aplicarClassificacao } = require('../impostosIA/classificacao');
 const db = require('../../models');
 const { resolveDestino, listarDestinos } = require('../../utils/destinosPadrao');
@@ -418,7 +419,25 @@ async function estimarImpostosSimulacao({ destino, valor, moeda, descricao, ncm 
      * A confianca aqui e a do REGIME, nao a da classificacao: e o regime que
      * esta determinando o numero.
      */
-    const direto = calcularPeloRegime({ regime, valorUsd, cotacoes: { BRL: fx ? 1 / fx : undefined } });
+    /*
+     * Os limiares e as taxas fixas do regime vem em moeda do destino (EUR 150,
+     * EUR 3, GBP 135). Sem converter nao da para saber de que lado do limiar a
+     * remessa esta, e o calculo direto fica cego. Busca-se so o que o proprio
+     * regime cita, para nao cotar onze moedas por nada.
+     */
+    const moedasDoRegime = new Set();
+    for (const m of (regime.medidas || [])) {
+        if (m.moeda_fixo) moedasDoRegime.add(m.moeda_fixo);
+        if (m.moeda_limite) moedasDoRegime.add(m.moeda_limite);
+    }
+    if (regime.de_minimis?.moeda) moedasDoRegime.add(regime.de_minimis.moeda);
+
+    const cotacoes = {
+        BRL: fx ? 1 / fx : undefined,
+        ...(moedasDoRegime.size ? await cotacoesParaUsd([...moedasDoRegime]) : {}),
+    };
+
+    const direto = calcularPeloRegime({ regime, valorUsd, cotacoes });
     if (direto) {
         const margemDireta = impostosMargemPorConfianca(regime.confianca);
         const colchaoDireto = impostosColchaoCambioPct();
