@@ -437,7 +437,7 @@ async function estimarImpostosSimulacao({ destino, valor, moeda, descricao, ncm 
         ...(moedasDoRegime.size ? await cotacoesParaUsd([...moedasDoRegime]) : {}),
     };
 
-    const direto = calcularPeloRegime({ regime, valorUsd, cotacoes });
+    const direto = calcularPeloRegime({ regime, valorUsd, cotacoes, ncm });
     if (direto) {
         const margemDireta = impostosMargemPorConfianca(regime.confianca);
         const colchaoDireto = impostosColchaoCambioPct();

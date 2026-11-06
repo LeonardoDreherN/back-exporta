@@ -42,6 +42,7 @@ const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
  *   valorUsd: number,
  *   freteUsd?: number,
  *   cotacoes?: Record<string, number>,  // moeda -> quanto vale 1 unidade em USD
+ *   ncm?: string,                       // usado so pelo escopo por capitulo do HS
  * }} args
  * @returns {{
  *   imposto_importacao_usd:number, imposto_consumo_usd:number,
@@ -51,7 +52,7 @@ const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
  *   determinado_por:'regime',
  * } | null} null quando o regime depende do NCM e exige classificacao.
  */
-function calcularPeloRegime({ regime, valorUsd, freteUsd = 0, cotacoes = {} }) {
+function calcularPeloRegime({ regime, valorUsd, freteUsd = 0, cotacoes = {}, ncm = null }) {
     if (!regime) return null;
 
     const todas = Array.isArray(regime.medidas) ? regime.medidas : [];
@@ -80,6 +81,24 @@ function calcularPeloRegime({ regime, valorUsd, freteUsd = 0, cotacoes = {} }) {
         if (Number.isFinite(ate) && ate > 0) {
             const limiteUsd = paraUsd(ate, m.moeda_limite, cotacoes);
             if (limiteUsd !== null && valor > limiteUsd) return false;
+        }
+
+        /*
+         * Escopo por capitulo do HS. Ha medida que nao depende do VALOR e sim
+         * do QUE e a mercadoria: a Suica aboliu o direito sobre produto
+         * industrial em 2024 e manteve sobre agricola e pesca (capitulos 01 a
+         * 24). Para uma camiseta, a medida agricola simplesmente nao existe —
+         * mas, sem declarar o escopo, o -1 dela mandava para a IA um calculo
+         * cuja resposta e zero.
+         *
+         * Sem NCM nao da para saber o capitulo, e entao a medida fica valendo:
+         * de novo o lado conservador, que no fim leva a classificacao.
+         */
+        const caps = m.aplica_a_capitulos;
+        if (Array.isArray(caps) && caps.length) {
+            const digitos = String(ncm || '').replace(/\D/g, '');
+            if (digitos.length < 2) return true;
+            return caps.includes(digitos.slice(0, 2));
         }
         return true;
     });
