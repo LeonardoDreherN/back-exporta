@@ -13,6 +13,7 @@ const { valorConversao } = require('../../utils/dolar');
 const { impostosMargemPorConfianca, impostosColchaoCambioPct } = require('../featureFlags');
 const { desembaracoUsd } = require('../taxasTransportadora');
 const { obterRegimeAprovado } = require('../regimeImportacao');
+const { calcularPeloRegime } = require('../regimeImportacao/calculoDireto');
 const { obterClassificacao, aplicarClassificacao } = require('../impostosIA/classificacao');
 const db = require('../../models');
 const { resolveDestino, listarDestinos } = require('../../utils/destinosPadrao');
@@ -404,6 +405,61 @@ async function estimarImpostosSimulacao({ destino, valor, moeda, descricao, ncm 
             };
         }
         valorUsd = round2(valorUsd / fx);
+    }
+
+    /*
+     * Caminho direto: regime cujas medidas nao dependem do NCM nao precisa de
+     * classificacao. Em Cingapura o direito e zero e o GST e 9% sobre o CIF
+     * para qualquer mercadoria; em Hong Kong nao ha imposto. Chamar o modelo
+     * nesses destinos nao acrescenta nada e, sem saldo na conta de IA, derruba
+     * a estimativa de um destino que ja esta apurado E aprovado — que foi
+     * exatamente o que aconteceu com Cingapura.
+     *
+     * A confianca aqui e a do REGIME, nao a da classificacao: e o regime que
+     * esta determinando o numero.
+     */
+    const direto = calcularPeloRegime({ regime, valorUsd, cotacoes: { BRL: fx ? 1 / fx : undefined } });
+    if (direto) {
+        const margemDireta = impostosMargemPorConfianca(regime.confianca);
+        const colchaoDireto = impostosColchaoCambioPct();
+        const brutoDireto = round2(direto.total_usd);
+        const comMargemDireto = round2(brutoDireto * (1 + margemDireta / 100));
+
+        return {
+            disponivel: true,
+            provider: 'REGIME',
+            regime_id: regime.id,
+            do_cache: true,
+            moeda: 'USD',
+
+            ncm: ncm || null,
+            aliquota_pct: direto.aliquota_importacao_pct,
+            duties: direto.imposto_importacao_usd,
+            taxes: direto.imposto_consumo_usd,
+            fees: direto.taxas_fixas_usd,
+            breakdown: direto.medidas_aplicadas,
+            de_minimis: direto.isento_por_de_minimis,
+
+            bruto_usd: brutoDireto,
+            bruto_brl: round2(brutoDireto * fx),
+
+            confianca: regime.confianca,
+            // O frete ainda nao entra na base: a estimativa roda em paralelo
+            // com as cotacoes e nao sabe o frete quando calcula. Onde o imposto
+            // sobre consumo incide sobre CIF, isso deixa a conta curta pela
+            // aliquota aplicada ao frete (em Cingapura, 9% dele).
+            observacoes: 'Calculado direto do regime apurado: as aliquotas deste destino nao dependem do NCM do item. '
+                + 'Base sem o frete.',
+
+            margem_pct: margemDireta,
+            colchao_cambio_pct: colchaoDireto,
+            intrex_usd: comMargemDireto,
+            intrex_brl: round2(comMargemDireto * fx * (1 + colchaoDireto / 100)),
+
+            fx,
+            fx_fonte: 'awesomeapi',
+            is_estimate: true,
+        };
     }
 
     const { classificacao, doCache } = await obterClassificacao({

@@ -63,7 +63,7 @@ const DESTINOS = [
     { code: 'JP', nomePt: 'Japao',                  city: 'Tokyo',            state: '13',  postalCode: '1000001' },
     { code: 'IN', nomePt: 'India',                  city: 'New Delhi',        state: 'DL',  postalCode: '110001' },
     { code: 'KR', nomePt: 'Coreia do Sul',          city: 'Seoul',            state: '',    postalCode: '04524' },
-    { code: 'SG', nomePt: 'Cingapura',              city: 'Singapore',        state: '',    postalCode: '018989' },
+    { code: 'SG', nomePt: 'Singapura',              city: 'Singapore',        state: '',    postalCode: '018989' },
     { code: 'HK', nomePt: 'Hong Kong',              city: 'Hong Kong',        state: '',    postalCode: '' },
     { code: 'TW', nomePt: 'Taiwan',                 city: 'Taipei',           state: '',    postalCode: '100' },
     { code: 'TH', nomePt: 'Tailandia',              city: 'Bangkok',          state: '',    postalCode: '10110' },
@@ -87,6 +87,25 @@ const normKey = (s) => String(s || '')
     .trim();
 
 const POR_NOME = new Map(DESTINOS.map((d) => [normKey(d.nomePt), d]));
+
+/*
+ * Grafias alternativas aceitas na busca por nome. O rotulo que aparece na tela
+ * continua sendo o de DESTINOS; isto so evita que um nome antigo, ou a outra
+ * grafia do mesmo pais, deixe de resolver.
+ *
+ * 'Cingapura' estava como rotulo ate 2026-11-06 e foi trocado por 'Singapura':
+ * a lista e ordenada por nome, entao o pais caia na letra C e quem procurava
+ * no S concluia que o destino nao existia. A grafia antiga fica aqui para nao
+ * quebrar cadastro ou integracao que ainda mande o nome de antes.
+ */
+const ALIASES = {
+    cingapura: 'SG',
+};
+
+for (const [alias, code] of Object.entries(ALIASES)) {
+    const destino = POR_CODE.get(code);
+    if (destino && !POR_NOME.has(alias)) POR_NOME.set(alias, destino);
+}
 
 /**
  * Aceita ISO-2 ("US") ou nome em portugues com ou sem acento ("Estados Unidos").
