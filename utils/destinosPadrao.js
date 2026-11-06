@@ -34,7 +34,11 @@ const DESTINOS = [
     { code: 'FR', nomePt: 'Franca',                 city: 'Paris',            state: '',    postalCode: '75001' },
     { code: 'DE', nomePt: 'Alemanha',               city: 'Berlin',           state: '',    postalCode: '10115' },
     { code: 'ES', nomePt: 'Espanha',                city: 'Madrid',           state: '',    postalCode: '28001' },
-    { code: 'IT', nomePt: 'Italia',                 city: 'Roma',             state: '',    postalCode: '00100' },
+    // CAP 00184 (rione Monti) em vez de 00100: o 00100 e um codigo historico de
+    // "Roma generica"/caixa postal, nao um CAP de entrega, e as transportadoras
+    // o recusam contra a base de CAPs. Com ele, nem UPS nem FedEx cotavam a
+    // Italia, em qualquer dimensao, enquanto a Franca cotava normalmente.
+    { code: 'IT', nomePt: 'Italia',                 city: 'Roma',             state: '',    postalCode: '00184' },
     { code: 'NL', nomePt: 'Paises Baixos',          city: 'Amsterdam',        state: '',    postalCode: '1011' },
     { code: 'BE', nomePt: 'Belgica',                city: 'Brussels',         state: '',    postalCode: '1000' },
     { code: 'SE', nomePt: 'Suecia',                 city: 'Stockholm',        state: '',    postalCode: '11120' },
