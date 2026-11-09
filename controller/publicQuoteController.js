@@ -22,13 +22,13 @@ const DEST_MAP = {
     // Americas
     'estados unidos':        { code: 'US', postalCode: '10001',   state: 'NY',  city: 'New York' },
     'canada':                { code: 'CA', postalCode: 'M5H2N2',  state: 'ON',  city: 'Toronto' },
-    'mexico':                { code: 'MX', postalCode: '06600',   state: 'CMX', city: 'Ciudad de Mexico' },
+    'mexico':                { code: 'MX', postalCode: '06600',   state: 'DF',  city: 'Ciudad de Mexico' },
     'argentina':             { code: 'AR', postalCode: 'C1000',   state: 'C',   city: 'Buenos Aires' },
     'chile':                 { code: 'CL', postalCode: '8320000', state: 'RM',  city: 'Santiago' },
     'colombia':              { code: 'CO', postalCode: '110111',  state: 'DC',  city: 'Bogota' },
     'paraguai':              { code: 'PY', postalCode: '1001',    state: '',    city: 'Asuncion' },
     'uruguai':               { code: 'UY', postalCode: '11000',   state: '',    city: 'Montevideo' },
-    'peru':                  { code: 'PE', postalCode: '15001',   state: 'LIM', city: 'Lima' },
+    'peru':                  { code: 'PE', postalCode: '15001',   state: '',    city: 'Lima' },
     'equador':               { code: 'EC', postalCode: '170150',  state: 'P',   city: 'Quito' },
     'bolivia':               { code: 'BO', postalCode: '',        state: '',    city: 'Santa Cruz' },
     'venezuela':             { code: 'VE', postalCode: '1010',    state: 'A',   city: 'Caracas' },
@@ -39,7 +39,7 @@ const DEST_MAP = {
 
     // Europa
     'portugal':              { code: 'PT', postalCode: '1000-001', state: '',    city: 'Lisboa' },
-    'reino unido':           { code: 'GB', postalCode: 'EC1A1BB', state: 'ENG', city: 'London' },
+    'reino unido':           { code: 'GB', postalCode: 'EC1A1BB', state: '',    city: 'London' },
     'franca':                { code: 'FR', postalCode: '75001',   state: '',    city: 'Paris' },
     'alemanha':              { code: 'DE', postalCode: '10115',   state: '',    city: 'Berlin' },
     'espanha':               { code: 'ES', postalCode: '28001',   state: '',    city: 'Madrid' },
@@ -79,7 +79,7 @@ const DEST_MAP = {
     'malasia':               { code: 'MY', postalCode: '50000',   state: '',    city: 'Kuala Lumpur' },
     'indonesia':             { code: 'ID', postalCode: '10110',   state: 'JK',  city: 'Jakarta' },
     'filipinas':             { code: 'PH', postalCode: '1000',    state: '',    city: 'Manila' },
-    'australia':             { code: 'AU', postalCode: '2000',    state: 'NSW', city: 'Sydney' },
+    'australia':             { code: 'AU', postalCode: '6000',    state: 'WA',  city: 'Perth' },
     'nova zelandia':         { code: 'NZ', postalCode: '1010',    state: '',    city: 'Auckland' },
 
     // Leste Europeu

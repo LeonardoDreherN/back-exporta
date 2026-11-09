@@ -119,11 +119,12 @@ function mapToFedexRateAddress(raw = {}) {
             ''
         ),
         city: addr.city || addr.cidade || addr.enderecoCidade || undefined,
-        stateOrProvinceCode:
+        stateOrProvinceCode: estadoFedex(
             addr.stateOrProvinceCode ||
             addr.state ||
             addr.enderecoEstado ||
-            undefined,
+            undefined
+        ),
     };
 }
 
