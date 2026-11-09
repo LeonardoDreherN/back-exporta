@@ -12,6 +12,7 @@ const { quoteRates: fedexRates } = require('../fedex/ratingFedex');
 const { valorConversao } = require('../../utils/dolar');
 const { impostosMargemPorConfianca, impostosColchaoCambioPct } = require('../featureFlags');
 const { desembaracoUsd } = require('../taxasTransportadora');
+const { estadoFedex } = require('../../utils/fedexEstado');
 const { obterRegimeAprovado } = require('../regimeImportacao');
 const { calcularPeloRegime } = require('../regimeImportacao/calculoDireto');
 const { cotacoesParaUsd } = require('../../utils/cotacoes');
@@ -344,7 +345,7 @@ function montarEnderecosFedex({ origem, destino }) {
             address: {
                 streetLines: [origem.address],
                 city: origem.city,
-                stateOrProvinceCode: origem.state,
+                stateOrProvinceCode: estadoFedex(origem.state),
                 postalCode: origem.postalCode,
                 countryCode: origem.code,
             },
@@ -354,7 +355,9 @@ function montarEnderecosFedex({ origem, destino }) {
             address: {
                 streetLines: [destino.city],
                 city: destino.city,
-                ...(destino.state ? { stateOrProvinceCode: destino.state } : {}),
+                // A FedEx só aceita sigla de duas letras: "LIM" fazia o Peru
+                // voltar sem cotação nenhuma, enquanto a UPS cotava normal.
+                ...(estadoFedex(destino.state) ? { stateOrProvinceCode: estadoFedex(destino.state) } : {}),
                 ...(destino.postalCode ? { postalCode: destino.postalCode } : {}),
                 countryCode: destino.code,
                 residential: false,

@@ -2,6 +2,7 @@ const { quote: upsQuote } = require('../services/ups/rating');
 const { quoteRates: fedexRates } = require('../services/fedex/ratingFedex');
 const { estimarImpostoPublico, ImpostoPublicoInputError } = require('../services/impostosPublicos');
 const { desembaracoUsd } = require('../services/taxasTransportadora');
+const { estadoFedex } = require('../utils/fedexEstado');
 
 // Mesma origem usada pela integracao Shopify (routes/shopifyCarrier.js). A UPS
 // recusa cotacao saindo de Florianopolis 88036003 com erro 111217 ("service
@@ -377,7 +378,7 @@ async function publicQuote(req, res) {
         address: {
             streetLines: [destInfo.city],
             city: destInfo.city,
-            ...(destInfo.state      ? { stateOrProvinceCode: destInfo.state      } : {}),
+            ...(estadoFedex(destInfo.state) ? { stateOrProvinceCode: estadoFedex(destInfo.state) } : {}),
             ...(destInfo.postalCode ? { postalCode:          destInfo.postalCode  } : {}),
             countryCode: destInfo.code,
             residential: false,

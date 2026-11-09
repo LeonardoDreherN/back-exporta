@@ -4,6 +4,7 @@ const router = express.Router();
 const upsRating = require('../services/ups/rating');
 const normUps = require('../utils/normalize/upsRate');
 const { quoteRates } = require('../services/fedex/ratingFedex');
+const { estadoFedex } = require('../utils/fedexEstado');
 
 const toKg = (grams) => Number(grams || 0) / 1000;
 
@@ -18,16 +19,6 @@ const DEFAULT_ORIGIN = {
     name: 'Exporta Digital BR',
     phone: '47992104226',
 };
-
-function normalizeFedexState(state) {
-    if (!state) return undefined;
-
-    const raw = String(state).trim().toUpperCase();
-
-    if (raw.length <= 2) return raw;
-
-    return undefined;
-}
 
 function buildPackages(items = []) {
     const validItems = Array.isArray(items) ? items.filter(i => i?.requires_shipping !== false) : [];
@@ -174,7 +165,7 @@ router.post('/carrier', async (req, res) => {
                     postalCode: origin.postal_code,
                     countryCode: origin.country,
                     city: origin.city,
-                    stateOrProvinceCode: normalizeFedexState(origin.province),
+                    stateOrProvinceCode: estadoFedex(origin.province),
                     streetLines: [origin.address1 || 'Address not provided'],
                 }
             },
@@ -189,7 +180,7 @@ router.post('/carrier', async (req, res) => {
                     postalCode: dest.postal_code,
                     countryCode: dest.country,
                     city: dest.city,
-                    stateOrProvinceCode: normalizeFedexState(dest.province),
+                    stateOrProvinceCode: estadoFedex(dest.province),
                     streetLines: [dest.address1 || 'Address not provided'],
                     residential: false,
                 }

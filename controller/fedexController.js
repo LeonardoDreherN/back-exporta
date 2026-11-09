@@ -1,6 +1,7 @@
 ﻿// backend/controller/fedexController.js
 const axios = require('axios');
 const { iso2Country, splitEndereco } = require('../services/cotacoesHelpers');
+const { estadoFedex } = require('../utils/fedexEstado');
 const { createShipment } = require('../services/fedex/shippingFedex');
 const { salvarEtiquetasNaStorage, salvarInvoiceNaStorage } = require('./CotacaoController');
 const { quoteRates, loadPedidoImport } = require('../services/fedex/ratingFedex');
@@ -223,7 +224,9 @@ function mapEnderecoToFedexParty(raw, fallback) {
 
     if (city) address.city = city;
     if (hasStateField) {
-        address.stateOrProvinceCode = state ? String(state).toUpperCase() : undefined;
+        // A FedEx só aceita sigla de duas letras; nome por extenso é convertido,
+        // e o que não resolve sai como undefined em vez de ir inválido.
+        address.stateOrProvinceCode = estadoFedex(state);
     }
     if (postal) {
         const countryCode = iso2Country(country) || address.countryCode;
@@ -396,7 +399,7 @@ function mapClienteToFedexShipper(cliente) {
                 cliente.enderecoComplemento || cliente.complemento || ''
             ),
             city: cliente.enderecoCidade || 'Sao Paulo',
-            stateOrProvinceCode: (cliente.enderecoEstado || 'SP').toUpperCase(),
+            stateOrProvinceCode: estadoFedex(cliente.enderecoEstado) || 'SP',
             countryCode,
             postalCode: cleanPostal(countryCode, cliente.enderecoCEP || ''),
         },
@@ -425,7 +428,7 @@ function mapClienteToFedexShipperIOR(cliente) {
                 cliente.complementoIOR || cliente.enderecoComplementoIOR || ''
             ),
             city: cliente.enderecoCidade || 'Sao Paulo',
-            stateOrProvinceCode: (cliente.enderecoEstado || '').toUpperCase(),
+            stateOrProvinceCode: estadoFedex(cliente.enderecoEstado),
             countryCode,
             postalCode: cleanPostal(countryCode, cliente.enderecoCEP || ''),
         },
@@ -463,7 +466,7 @@ function mapPedidoToFedexRecipient(pedido) {
         address: {
             streetLines: buildFedexStreetLines(line1, line2),
             city: dest.cidade || dest.city || pedido.cidade || 'Miami',
-            stateOrProvinceCode: (dest.estado || dest.province || pedido.estado || '').toUpperCase(),
+            stateOrProvinceCode: estadoFedex(dest.estado || dest.province || pedido.estado),
             countryCode,
             postalCode: cleanPostal(countryCode, dest.cep || dest.zip || pedido.CEP || ''),
             residential: Boolean(dest.residential ?? false),

@@ -13,13 +13,13 @@ const DESTINOS = [
     // Americas
     { code: 'US', nomePt: 'Estados Unidos',         city: 'New York',         state: 'NY',  postalCode: '10001' },
     { code: 'CA', nomePt: 'Canada',                 city: 'Toronto',          state: 'ON',  postalCode: 'M5H2N2' },
-    { code: 'MX', nomePt: 'Mexico',                 city: 'Ciudad de Mexico', state: 'CMX', postalCode: '06600' },
+    { code: 'MX', nomePt: 'Mexico',                 city: 'Ciudad de Mexico', state: 'DF',  postalCode: '06600' },
     { code: 'AR', nomePt: 'Argentina',              city: 'Buenos Aires',     state: 'C',   postalCode: 'C1000' },
     { code: 'CL', nomePt: 'Chile',                  city: 'Santiago',         state: 'RM',  postalCode: '8320000' },
     { code: 'CO', nomePt: 'Colombia',               city: 'Bogota',           state: 'DC',  postalCode: '110111' },
     { code: 'PY', nomePt: 'Paraguai',               city: 'Asuncion',         state: '',    postalCode: '1001' },
     { code: 'UY', nomePt: 'Uruguai',                city: 'Montevideo',       state: '',    postalCode: '11000' },
-    { code: 'PE', nomePt: 'Peru',                   city: 'Lima',             state: 'LIM', postalCode: '15001' },
+    { code: 'PE', nomePt: 'Peru',                   city: 'Lima',             state: '',    postalCode: '15001' },
     { code: 'EC', nomePt: 'Equador',                city: 'Quito',            state: 'P',   postalCode: '170150' },
     { code: 'BO', nomePt: 'Bolivia',                city: 'Santa Cruz',       state: '',    postalCode: '' },
     { code: 'VE', nomePt: 'Venezuela',              city: 'Caracas',          state: 'A',   postalCode: '1010' },
@@ -30,7 +30,7 @@ const DESTINOS = [
 
     // Europa
     { code: 'PT', nomePt: 'Portugal',               city: 'Lisboa',           state: '',    postalCode: '1000-001' },
-    { code: 'GB', nomePt: 'Reino Unido',            city: 'London',           state: 'ENG', postalCode: 'EC1A1BB' },
+    { code: 'GB', nomePt: 'Reino Unido',            city: 'London',           state: '',    postalCode: 'EC1A1BB' },
     { code: 'FR', nomePt: 'Franca',                 city: 'Paris',            state: '',    postalCode: '75001' },
     { code: 'DE', nomePt: 'Alemanha',               city: 'Berlin',           state: '',    postalCode: '10115' },
     { code: 'ES', nomePt: 'Espanha',                city: 'Madrid',           state: '',    postalCode: '28001' },
@@ -52,6 +52,21 @@ const DESTINOS = [
     { code: 'HU', nomePt: 'Hungria',                city: 'Budapest',         state: '',    postalCode: '1051' },
     { code: 'RO', nomePt: 'Romenia',                city: 'Bucharest',        state: '',    postalCode: '010011' },
     { code: 'GR', nomePt: 'Grecia',                 city: 'Athens',           state: '',    postalCode: '10431' },
+    // Os 11 membros da UE que faltavam. O regime tarifario e o mesmo dos
+    // demais (EUR 3 + UHF de EUR 2 ate EUR 150, TARIC acima), so muda o IVA.
+    // CEPs de bairro real, nao codigo generico de cidade — foi um generico
+    // (00100, Roma) que impediu qualquer cotacao para a Italia.
+    { code: 'IE', nomePt: 'Irlanda',                city: 'Dublin',           state: '',    postalCode: 'D02PN40' },
+    { code: 'LU', nomePt: 'Luxemburgo',             city: 'Luxembourg',       state: '',    postalCode: '1724' },
+    { code: 'BG', nomePt: 'Bulgaria',               city: 'Sofia',            state: '',    postalCode: '1113' },
+    { code: 'HR', nomePt: 'Croacia',                city: 'Zagreb',           state: '',    postalCode: '10000' },
+    { code: 'CY', nomePt: 'Chipre',                 city: 'Nicosia',          state: '',    postalCode: '1010' },
+    { code: 'EE', nomePt: 'Estonia',                city: 'Tallinn',          state: '',    postalCode: '10111' },
+    { code: 'LV', nomePt: 'Letonia',                city: 'Riga',             state: '',    postalCode: 'LV-1050' },
+    { code: 'LT', nomePt: 'Lituania',               city: 'Vilnius',          state: '',    postalCode: '01100' },
+    { code: 'MT', nomePt: 'Malta',                  city: 'Valletta',         state: '',    postalCode: 'VLT1117' },
+    { code: 'SK', nomePt: 'Eslovaquia',             city: 'Bratislava',       state: '',    postalCode: '81101' },
+    { code: 'SI', nomePt: 'Eslovenia',              city: 'Ljubljana',        state: '',    postalCode: '1000' },
     { code: 'TR', nomePt: 'Turquia',                city: 'Istanbul',         state: '',    postalCode: '34000' },
 
     // Oriente Medio / Africa
@@ -74,7 +89,7 @@ const DESTINOS = [
     { code: 'MY', nomePt: 'Malasia',                city: 'Kuala Lumpur',     state: '',    postalCode: '50000' },
     { code: 'ID', nomePt: 'Indonesia',              city: 'Jakarta',          state: 'JK',  postalCode: '10110' },
     { code: 'PH', nomePt: 'Filipinas',              city: 'Manila',           state: '',    postalCode: '1000' },
-    { code: 'AU', nomePt: 'Australia',              city: 'Sydney',           state: 'NSW', postalCode: '2000' },
+    { code: 'AU', nomePt: 'Australia',              city: 'Perth',            state: 'WA',  postalCode: '6000' },
     { code: 'NZ', nomePt: 'Nova Zelandia',          city: 'Auckland',         state: '',    postalCode: '1010' },
 
     // Leste Europeu
