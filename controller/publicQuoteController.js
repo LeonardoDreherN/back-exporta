@@ -232,7 +232,7 @@ function extractFedexRates(fedexResp) {
     };
 }
 
-function buildOption(carrier, rates) {
+function buildOption(carrier, rates, paisDestino) {
     const total = rates.negotiated;
     return {
         carrier,
@@ -246,7 +246,7 @@ function buildOption(carrier, rates) {
         surcharges: rates.surcharges,
         // Fora do price de proposito (checkouts ja somam price), mas cobrado
         // na fatura: quem mostra o total precisa somar.
-        desembaraco_usd: desembaracoUsd(carrier),
+        desembaraco_usd: desembaracoUsd(carrier, paisDestino),
         // labels prontos para renderizar no checkout
         label: `${carrier} - ${rates.currency} ${total.toFixed(2)}`,
         sla_label: `${rates.slaDays} dias úteis`,
@@ -407,7 +407,7 @@ async function publicQuote(req, res) {
     const errors  = {};
 
     if (upsResult.status === 'fulfilled') {
-        options.push(buildOption('UPS', upsResult.value));
+        options.push(buildOption('UPS', upsResult.value, destInfo.code));
     } else {
         console.error('[PUBLIC QUOTE][UPS]', upsResult.reason?.message);
         errors.ups = upsResult.reason?.message || 'UPS indisponível';
@@ -415,7 +415,7 @@ async function publicQuote(req, res) {
 
     if (fedexResult.status === 'fulfilled') {
         const rates = extractFedexRates(fedexResult.value);
-        if (rates) options.push(buildOption('FedEx', rates));
+        if (rates) options.push(buildOption('FedEx', rates, destInfo.code));
     } else {
         console.error('[PUBLIC QUOTE][FEDEX]', fedexResult.reason?.message);
         errors.fedex = fedexResult.reason?.message || 'FedEx indisponível';

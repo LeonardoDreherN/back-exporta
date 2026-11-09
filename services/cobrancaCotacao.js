@@ -43,7 +43,7 @@ async function composicaoCotacao(cotacao) {
     const fx = Number(await valorConversao()) || 0;
 
     const freteUsd = num(cotacao.preco_final);
-    const desemUsd = desembaracoUsd(cotacao.carrier);
+    const desemUsd = desembaracoUsd(cotacao.carrier, cotacao.pais_dest);
     const impostoBrl = round2(num(cotacao.impostos_valor_brl));
 
     const freteBrl = round2(freteUsd * fx);

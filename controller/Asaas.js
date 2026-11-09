@@ -329,7 +329,7 @@ const gerarBoletoCotacao = async (req, res) => {
         // Desembaraco: nao vem no rate (conferido nos surcharges reais — a
         // FedEx devolve so FUEL e ANCILLARY_FEE) e nao e tributo do destino,
         // entao a estimativa de imposto tambem nao o inclui.
-        const desembaraco = desembaracoUsd(cot.carrier);
+        const desembaraco = desembaracoUsd(cot.carrier, cot.pais_dest);
         const desembaracoBrl = round2(desembaraco * fx);
 
         const impostoBrl = round2(n(cot.impostos_valor_brl));

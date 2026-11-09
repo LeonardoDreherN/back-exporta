@@ -1393,7 +1393,7 @@ function cotacaoListDTO(c) {
         // Desembaraco da transportadora: nao vem no rate, e somado por fora e
         // entra no boleto. Sem devolver aqui, a tela mostrava um total menor
         // que o cobrado e a diferenca parecia cambio errado.
-        desembaraco_usd: desembaracoUsd(c.carrier),
+        desembaraco_usd: desembaracoUsd(c.carrier, c.pais_dest),
         createdAt: c.createdAt,
     };
 }
@@ -1524,6 +1524,10 @@ async function resumoCotacoes(req, res) {
                 'carrier',
                 [fn('COUNT', col('id')), 'qtd'],
                 [fn('SUM', col('preco_final')), 'frete_usd'],
+                // O desembaraço só existe nos EUA, e este agrupamento não tem o
+                // país. Contar aqui as linhas americanas evita agrupar também
+                // por destino, o que mudaria o formato do relatório.
+                [fn('SUM', literal(`CASE WHEN "pais_dest" = 'US' THEN 1 ELSE 0 END`)), 'qtd_us'],
             ],
             group: ['status_norm', 'carrier'],
             raw: true,
@@ -1540,7 +1544,8 @@ async function resumoCotacoes(req, res) {
             total += qtd;
             porStatus[status] = (porStatus[status] || 0) + qtd;
             freteDesembaracoUsd +=
-                (Number(linha.frete_usd) || 0) + qtd * desembaracoUsd(linha.carrier);
+                (Number(linha.frete_usd) || 0)
+                + (Number(linha.qtd_us) || 0) * desembaracoUsd(linha.carrier, 'US');
         }
 
         return res.json({

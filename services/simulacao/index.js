@@ -716,7 +716,7 @@ async function simular(entrada = {}) {
         const freteUsd = paraUsd(f.total, f.moeda);
         const freteBrl = paraBrl(f.total, f.moeda);
 
-        const desembaraco = round2(desembaracoUsd(f.carrier));
+        const desembaraco = round2(desembaracoUsd(f.carrier, destino.code));
         const desembaracoBrl = fx ? round2(desembaraco * fx) : null;
 
         const impostoUsd = impostos.disponivel ? impostos.intrex_usd : null;
