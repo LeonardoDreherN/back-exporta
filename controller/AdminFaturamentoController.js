@@ -438,9 +438,12 @@ async function simular(req, res) {
  * POST /api/admin/faturamento/:clienteId/ativar
  * body: { ativo: boolean }
  *
- * Ligar sem SKU cadastrado faria o calculo cair no preco de venda e cobrar
- * varias vezes o imposto real, entao a API recusa — e o motivo volta escrito
- * para a tela mostrar.
+ * Ligar sem cadastro e permitido: o imposto sai sobre o preco de venda, com a
+ * mesma % visivel. Antes a API recusava. O que a resposta devolve agora e
+ * `baseNoPrecoDeVenda`, para a tela dizer de que valor o imposto esta saindo —
+ * a diferenca entre os dois casos e grande (custo 40 a 25% = 10; venda 69 a
+ * 25% = 17,25), e sem cadastro nao existe price adjustment cobrindo a metade
+ * embutida: ela deixa de ser cobrada.
  */
 async function ativar(req, res) {
     try {
@@ -450,22 +453,11 @@ async function ativar(req, res) {
 
         const ativo = req.body?.ativo === true;
 
-        if (ativo) {
-            const n = await db.FaturamentoSku.count({
-                where: { cliente_id: clienteId, ativo: true },
-            });
-            const temFator = Number(cliente.faturamentoFatorPadrao) > 0;
-
-            if (!n && !temFator) {
-                return res.status(409).json({
-                    ok: false,
-                    error: 'Esta loja nao tem nenhum SKU com valor faturado, nem fator padrao. '
-                        + 'Sem isso o imposto seria calculado sobre o preco de venda e sairia '
-                        + 'varias vezes maior que o real. Suba a planilha ou defina o fator antes.',
-                    skus_cadastrados: 0,
-                });
-            }
-        }
+        const skusCadastrados = await db.FaturamentoSku.count({
+            where: { cliente_id: clienteId, ativo: true },
+        });
+        const temFator = Number(cliente.faturamentoFatorPadrao) > 0;
+        const baseNoPrecoDeVenda = ativo && !skusCadastrados && !temFator;
 
         await cliente.update({
             impostoCheckoutAtivo: ativo,
@@ -479,10 +471,21 @@ async function ativar(req, res) {
             entityType: 'cliente',
             entityId: clienteId,
             clienteId,
-            metadata: { por: quemEstaLogado(req) },
+            metadata: {
+                por: quemEstaLogado(req),
+                skusCadastrados,
+                fatorPadrao: cliente.faturamentoFatorPadrao,
+                baseNoPrecoDeVenda,
+            },
         });
 
-        return res.json({ ok: true, ativo });
+        return res.json({
+            ok: true,
+            ativo,
+            skusCadastrados,
+            baseNoPrecoDeVenda,
+            pctVisivel: cliente.impostoPctVisivel,
+        });
     } catch (err) {
         console.error('[ADMIN FATURAMENTO] ativar:', err);
         return res.status(500).json({ ok: false, error: 'Falha ao alterar.' });
@@ -521,8 +524,11 @@ async function panorama(_req, res) {
                 pctVisivel: l.pct_visivel,
                 fatorPadrao: l.fator === null ? null : Number(l.fator),
                 skus: l.skus,
-                // Ligar sem cadastro cobraria sobre o preco de venda.
-                podeAtivar: l.skus > 0 || Number(l.fator) > 0,
+                // Toda loja pode ser ligada. O campo continua existindo para
+                // a tela avisar DE QUE valor o imposto vai sair: sem cadastro
+                // e sem fator, sai do preco de venda, nao do custo.
+                podeAtivar: true,
+                baseNoPrecoDeVenda: !(l.skus > 0 || Number(l.fator) > 0),
             })),
         });
     } catch (err) {

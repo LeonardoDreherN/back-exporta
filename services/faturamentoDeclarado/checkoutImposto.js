@@ -85,10 +85,13 @@ async function impostoVisivelDoCheckout({ shopDomain, items, paisDestino, freteU
         if (!cliente) return nada('cliente_nao_encontrado', { clienteId });
 
         /*
-         * O calculo vale loja a loja. Enquanto a loja nao tem o valor
-         * faturado dos SKUs cadastrado, o calculo cairia no preco de venda e
-         * cobraria varias vezes o imposto real — foi o que aconteceu quando
-         * isto subiu valendo para todas as lojas de uma vez.
+         * O calculo vale loja a loja, ligado no admin da Intrex. Nasce
+         * desligado porque a primeira versao subiu valendo para todas as
+         * lojas de uma vez, e isso cobra imposto de quem nao combinou.
+         *
+         * Ligada a loja, falta de cadastro nao impede mais o calculo: o SKU
+         * sem valor faturado declara o proprio preco de venda e entra com a
+         * mesma % visivel (ver mais abaixo).
          */
         if (!cliente.impostoCheckoutAtivo) {
             return nada('imposto_desligado_na_loja', { clienteId });
@@ -165,20 +168,23 @@ async function impostoVisivelDoCheckout({ shopDomain, items, paisDestino, freteU
         const proporcional = Math.max(0, (Number(calculo.total_usd) || 0) - fixas);
 
         /*
-         * SKU sem valor faturado faz a base virar o preco de venda, que e
-         * varias vezes o valor declarado de verdade. Antes isto so entrava
-         * numa lista e o calculo seguia como `ok` — um erro grande demais
-         * para passar como aviso. Agora o checkout nao cobra nada enquanto o
-         * cadastro nao estiver completo.
+         * SKU sem valor faturado cadastrado declara o proprio preco de venda
+         * (ver baseDeclarada), entao a base aqui e a vitrine, nao o custo.
+         *
+         * Antes o checkout se recusava a cobrar nesse caso. Agora cobra: a
+         * mesma % visivel se aplica, e o comprador ve metade do imposto
+         * calculado sobre a venda. Decisao do negocio, nao do codigo — e vale
+         * registrar o que ela significa, porque os dois casos dao numeros
+         * diferentes e a diferenca nao e pequena:
+         *
+         *   com cadastro (custo 40, 25%)  -> imposto 10,00, visivel 5,00
+         *   sem cadastro (venda 69, 25%)  -> imposto 17,25, visivel 8,63
+         *
+         * Com cadastro, a metade embutida esta no price adjustment do mercado
+         * e o lojista recebe o imposto inteiro. Sem cadastro nao existe esse
+         * ajuste, entao a metade que nao aparece simplesmente nao e cobrada:
+         * quem fica com a diferenca e a loja.
          */
-        if (base.semCadastro.length) {
-            return nada('sku_sem_valor_faturado', {
-                pais,
-                skus: base.semCadastro,
-                vendaUsd: base.vendaUsd,
-            });
-        }
-
         const split = repartirImposto(proporcional, cliente.impostoPctVisivel);
 
         // As taxas fixas vao inteiras na parte visivel: nao escalam com o
@@ -196,6 +202,10 @@ async function impostoVisivelDoCheckout({ shopDomain, items, paisDestino, freteU
                 pctVisivel: split.pctVisivel,
                 taxasFixasUsd: fixas,
                 skusSemCadastro: base.semCadastro,
+                // Base = vitrine, por falta de cadastro. Quem ler o log
+                // precisa distinguir isso de imposto sobre o custo: o numero
+                // e maior e nao tem price adjustment do outro lado.
+                baseNoPrecoDeVenda: base.semCadastro.length > 0,
                 // Marca que a aliquota nao veio do NCM do produto. Quem ler
                 // o log precisa saber que este numero e aproximado.
                 aliquotaEstimada: estimativaEntrou,
