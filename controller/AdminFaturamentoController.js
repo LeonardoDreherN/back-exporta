@@ -28,7 +28,10 @@ async function listar(req, res) {
         }
 
         const cliente = await db.Cliente.findByPk(clienteId, {
-            attributes: ['id', 'razaoSocial', 'codigo', 'impostoPctVisivel', 'faturamentoFatorPadrao'],
+            attributes: [
+                'id', 'razaoSocial', 'codigo', 'impostoPctVisivel',
+                'faturamentoFatorPadrao', 'impostoCheckoutAtivo', 'impostoCheckoutAtivadoEm',
+            ],
         });
         if (!cliente) return res.status(404).json({ ok: false, error: 'Cliente nao encontrado.' });
 
@@ -45,6 +48,8 @@ async function listar(req, res) {
                 codigo: cliente.codigo,
                 impostoPctVisivel: cliente.impostoPctVisivel,
                 faturamentoFatorPadrao: cliente.faturamentoFatorPadrao,
+                impostoCheckoutAtivo: cliente.impostoCheckoutAtivo,
+                impostoCheckoutAtivadoEm: cliente.impostoCheckoutAtivadoEm,
             },
             skus: skus.map((s) => ({
                 id: s.id,
@@ -429,4 +434,103 @@ async function simular(req, res) {
     }
 }
 
-module.exports = { listar, salvarConfig, importar, remover, ajusteMercado, simular };
+/**
+ * POST /api/admin/faturamento/:clienteId/ativar
+ * body: { ativo: boolean }
+ *
+ * Ligar sem SKU cadastrado faria o calculo cair no preco de venda e cobrar
+ * varias vezes o imposto real, entao a API recusa — e o motivo volta escrito
+ * para a tela mostrar.
+ */
+async function ativar(req, res) {
+    try {
+        const clienteId = Number(req.params.clienteId);
+        const cliente = await db.Cliente.findByPk(clienteId);
+        if (!cliente) return res.status(404).json({ ok: false, error: 'Cliente nao encontrado.' });
+
+        const ativo = req.body?.ativo === true;
+
+        if (ativo) {
+            const n = await db.FaturamentoSku.count({
+                where: { cliente_id: clienteId, ativo: true },
+            });
+            const temFator = Number(cliente.faturamentoFatorPadrao) > 0;
+
+            if (!n && !temFator) {
+                return res.status(409).json({
+                    ok: false,
+                    error: 'Esta loja nao tem nenhum SKU com valor faturado, nem fator padrao. '
+                        + 'Sem isso o imposto seria calculado sobre o preco de venda e sairia '
+                        + 'varias vezes maior que o real. Suba a planilha ou defina o fator antes.',
+                    skus_cadastrados: 0,
+                });
+            }
+        }
+
+        await cliente.update({
+            impostoCheckoutAtivo: ativo,
+            impostoCheckoutAtivadoEm: ativo ? new Date() : null,
+        });
+
+        await logAdminAction({
+            adminUserId: req.adminUser?.id,
+            req,
+            action: ativo ? 'IMPOSTO_CHECKOUT_ATIVADO' : 'IMPOSTO_CHECKOUT_DESATIVADO',
+            entityType: 'cliente',
+            entityId: clienteId,
+            clienteId,
+            metadata: { por: quemEstaLogado(req) },
+        });
+
+        return res.json({ ok: true, ativo });
+    } catch (err) {
+        console.error('[ADMIN FATURAMENTO] ativar:', err);
+        return res.status(500).json({ ok: false, error: 'Falha ao alterar.' });
+    }
+}
+
+/** GET /api/admin/faturamento — panorama das lojas Shopify. */
+async function panorama(_req, res) {
+    try {
+        const linhas = await db.sequelize.query(
+            `
+            SELECT cl.id, cl."razaoSocial" AS nome, cl.codigo,
+                   cl."impostoCheckoutAtivo" AS ativo,
+                   cl."impostoPctVisivel"    AS pct_visivel,
+                   cl."faturamentoFatorPadrao" AS fator,
+                   COUNT(f.id)::int AS skus,
+                   COUNT(s."shopDomain")::int AS lojas
+            FROM "Clientes" cl
+            LEFT JOIN faturamento_skus f ON f.cliente_id = cl.id AND f.ativo = true
+            LEFT JOIN "InfoShopifies" s ON s.id_cliente = cl.id
+            GROUP BY cl.id, cl."razaoSocial", cl.codigo, cl."impostoCheckoutAtivo",
+                     cl."impostoPctVisivel", cl."faturamentoFatorPadrao"
+            HAVING COUNT(s."shopDomain") > 0
+            ORDER BY cl."razaoSocial"
+            `,
+            { type: require('sequelize').QueryTypes.SELECT },
+        );
+
+        return res.json({
+            ok: true,
+            lojas: linhas.map((l) => ({
+                id: l.id,
+                nome: l.nome,
+                codigo: l.codigo,
+                ativo: l.ativo,
+                pctVisivel: l.pct_visivel,
+                fatorPadrao: l.fator === null ? null : Number(l.fator),
+                skus: l.skus,
+                // Ligar sem cadastro cobraria sobre o preco de venda.
+                podeAtivar: l.skus > 0 || Number(l.fator) > 0,
+            })),
+        });
+    } catch (err) {
+        console.error('[ADMIN FATURAMENTO] panorama:', err);
+        return res.status(500).json({ ok: false, error: 'Falha ao carregar.' });
+    }
+}
+
+module.exports = {
+    listar, salvarConfig, importar, remover, ajusteMercado, simular, ativar, panorama,
+};

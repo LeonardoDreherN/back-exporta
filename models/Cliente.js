@@ -114,6 +114,15 @@ module.exports = (sequelize) => {
     limiteAbertoUsdOverride: { type: DataTypes.DECIMAL(12, 2), allowNull: true, defaultValue: null },
 
     // ===== IMPOSTO NO CHECKOUT =====
+    // Liga o calculo de imposto NESTA loja. Padrão desligado: sem o valor
+    // faturado de cada SKU cadastrado, o calculo cai no preço de venda e
+    // cobra varias vezes o imposto real. Foi o que aconteceu em 11/11/2026,
+    // quando a funcionalidade subiu valendo para as 14 lojas de uma vez.
+    // Liga-se loja a loja, depois do cadastro conferido — mesma régua do
+    // limite de envios.
+    impostoCheckoutAtivo: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    impostoCheckoutAtivadoEm: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+
     // Quanto do imposto calculado APARECE para o comprador. O resto vai
     // embutido no preço do produto. As duas partes sempre somam o imposto
     // cheio: isto escolhe onde o comprador enxerga o valor, não quanto ele

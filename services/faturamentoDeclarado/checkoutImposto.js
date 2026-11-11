@@ -67,7 +67,10 @@ async function impostoVisivelDoCheckout({ shopDomain, items, paisDestino, freteU
         // somar latencia dentro do limite da Shopify.
         const [cliente, registros, regime] = await Promise.all([
             db.Cliente.findByPk(clienteId, {
-                attributes: ['id', 'impostoPctVisivel', 'faturamentoFatorPadrao'],
+                attributes: [
+                    'id', 'impostoPctVisivel', 'faturamentoFatorPadrao',
+                    'impostoCheckoutAtivo',
+                ],
             }),
             db.FaturamentoSku.findAll({
                 where: { cliente_id: clienteId, ativo: true },
@@ -80,6 +83,17 @@ async function impostoVisivelDoCheckout({ shopDomain, items, paisDestino, freteU
         ]);
 
         if (!cliente) return nada('cliente_nao_encontrado', { clienteId });
+
+        /*
+         * O calculo vale loja a loja. Enquanto a loja nao tem o valor
+         * faturado dos SKUs cadastrado, o calculo cairia no preco de venda e
+         * cobraria varias vezes o imposto real — foi o que aconteceu quando
+         * isto subiu valendo para todas as lojas de uma vez.
+         */
+        if (!cliente.impostoCheckoutAtivo) {
+            return nada('imposto_desligado_na_loja', { clienteId });
+        }
+
         if (!regime) return nada('sem_regime_aprovado', { pais });
 
         const itens = itensDoCallback(items);
@@ -149,6 +163,21 @@ async function impostoVisivelDoCheckout({ shopDomain, items, paisDestino, freteU
 
         const fixas = Number(calculo.taxas_fixas_usd) || 0;
         const proporcional = Math.max(0, (Number(calculo.total_usd) || 0) - fixas);
+
+        /*
+         * SKU sem valor faturado faz a base virar o preco de venda, que e
+         * varias vezes o valor declarado de verdade. Antes isto so entrava
+         * numa lista e o calculo seguia como `ok` — um erro grande demais
+         * para passar como aviso. Agora o checkout nao cobra nada enquanto o
+         * cadastro nao estiver completo.
+         */
+        if (base.semCadastro.length) {
+            return nada('sku_sem_valor_faturado', {
+                pais,
+                skus: base.semCadastro,
+                vendaUsd: base.vendaUsd,
+            });
+        }
 
         const split = repartirImposto(proporcional, cliente.impostoPctVisivel);
 
