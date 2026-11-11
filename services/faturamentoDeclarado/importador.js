@@ -10,8 +10,9 @@
 //
 // Colunas que importam aqui:
 //   Variant SKU          (chave; a Shopify escreve exatamente assim)
-//   Valor faturado USD   (nossa)
-//   Product title        (opcional, so para o admin reconhecer a linha)
+//   Valor faturado USD   (nossa) OU "Cost per item", que e o custo por item
+//                        nativo da Shopify e vem na exportacao de produtos
+//   Product title / Title (opcional, so para o admin reconhecer a linha)
 //
 // O parser e proposital e deliberadamente chato: uma planilha de precos que
 // entra errada vira imposto errado em todo pedido daquele SKU, e ninguem
@@ -27,8 +28,18 @@ const COLUNAS = {
     valor: [
         'valor faturado usd', 'valor faturado', 'valor_faturado_usd',
         'valor declarado usd', 'valor declarado', 'declared value',
+        /*
+         * "Cost per item" e o custo por item NATIVO da Shopify, que vem na
+         * exportacao de produtos. E exatamente o numero que a invoice declara
+         * em quem opera por triangulacao, entao aceitar essa coluna evita
+         * pedir ao lojista que mantenha o mesmo valor em dois lugares.
+         */
+        'cost per item', 'custo por item', 'custo',
     ],
     descricao: ['product title', 'titulo', 'descricao', 'title', 'nome'],
+    // Preco de venda: nao entra no calculo, mas deixa o admin ver de que
+    // valor aquele custo esta sendo descontado.
+    precoVenda: ['variant price', 'preco', 'price'],
 };
 
 const normCabecalho = (s) => String(s || '')
@@ -64,6 +75,49 @@ function separarLinha(linha, sep) {
     campos.push(atual);
 
     return campos.map((c) => c.trim());
+}
+
+/**
+ * Separa o texto em REGISTROS, respeitando aspas.
+ *
+ * Nao da para usar split('\n'): a exportacao de produtos da Shopify traz a
+ * descricao em HTML dentro de um campo entre aspas, com quebras de linha de
+ * verdade no meio. Quebrar por \n estilhacava o registro do produto em uma
+ * duzia de pedacos, e o resultado era pior do que um erro — a planilha
+ * inteira sumia, com zero linha aceita e zero erro reportado.
+ */
+function separarRegistros(texto) {
+    const registros = [];
+    let atual = '';
+    let dentroDeAspas = false;
+
+    for (let i = 0; i < texto.length; i++) {
+        const c = texto[i];
+
+        if (c === '"') {
+            // "" escapado dentro do campo continua no mesmo campo.
+            if (dentroDeAspas && texto[i + 1] === '"') {
+                atual += '""';
+                i++;
+                continue;
+            }
+            dentroDeAspas = !dentroDeAspas;
+            atual += c;
+            continue;
+        }
+
+        if (c === '\n' && !dentroDeAspas) {
+            registros.push(atual);
+            atual = '';
+            continue;
+        }
+
+        atual += c;
+    }
+
+    if (atual.trim() !== '') registros.push(atual);
+
+    return registros;
 }
 
 /** Excel brasileiro salva com ';' e usa virgula decimal. Detecta pelo cabecalho. */
@@ -108,7 +162,7 @@ function lerValor(bruto) {
  */
 function lerPlanilha(conteudo) {
     const texto = String(conteudo || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    const linhas = texto.split('\n').filter((l) => l.trim() !== '');
+    const linhas = separarRegistros(texto).filter((l) => l.trim() !== '');
 
     if (!linhas.length) {
         return { linhas: [], erros: [{ linha: 0, erro: 'Planilha vazia.' }], colunasEncontradas: {} };
@@ -121,6 +175,7 @@ function lerPlanilha(conteudo) {
     const iSku = achar(COLUNAS.sku);
     const iValor = achar(COLUNAS.valor);
     const iDesc = achar(COLUNAS.descricao);
+    const iPreco = achar(COLUNAS.precoVenda);
 
     const colunasEncontradas = {
         sku: iSku >= 0 ? cabecalho[iSku] : null,
@@ -192,6 +247,7 @@ function lerPlanilha(conteudo) {
             sku,
             valor_faturado_usd: Number(valor.toFixed(2)),
             descricao: iDesc >= 0 ? String(campos[iDesc] || '').slice(0, 200) || null : null,
+            precoVendaUsd: iPreco >= 0 ? lerValor(campos[iPreco]) : null,
             linha: nLinha,
         });
     }
@@ -199,4 +255,4 @@ function lerPlanilha(conteudo) {
     return { linhas: out, erros, colunasEncontradas };
 }
 
-module.exports = { lerPlanilha, lerValor, separarLinha };
+module.exports = { lerPlanilha, lerValor, separarLinha, separarRegistros };
