@@ -37,6 +37,16 @@ const NUMERICOS = ['preco', 'qty', 'pesoUnit'];
 
 const texto = (v) => String(v ?? '').trim();
 
+/* Soma dos itens do pedido, so para limitar o desconto ao que existe. */
+function somaItens(pedido) {
+    const itens = Array.isArray(pedido?.itens) ? pedido.itens : [];
+    return itens.reduce((acc, it) => {
+        const preco = Number(it?.preco ?? it?.unitPrice ?? it?.price) || 0;
+        const qty = Number(it?.qty ?? it?.quantidade) || 1;
+        return acc + preco * qty;
+    }, 0);
+}
+
 /*
  * Le o valor que o item tem hoje, aceitando os apelidos que as lojas mandam
  * — os mesmos que gerarInvoiceComercial consulta.
@@ -103,7 +113,43 @@ function normalizarAjustes(pedido, ajustes) {
         if (Object.keys(limpo).length > 1) itens.push(limpo);
     });
 
-    return { itens, erros };
+    return { itens, remessa: normalizarRemessa(pedido, ajustes, erros), erros };
+}
+
+/*
+ * Ajuste que vale para a REMESSA inteira, nao para um item.
+ *
+ * Hoje so o desconto. Ele nao cabe no bloco de itens: um cupom e abatimento do
+ * pedido, e ratear por item inventaria precos unitarios que a loja nunca
+ * praticou. Entra aqui porque e raro — quando o comprador usou cupom e o
+ * despachante quer ver o abatimento no papel — e porque so o admin preenche.
+ */
+function normalizarRemessa(pedido, ajustes, erros) {
+    const bruto = ajustes?.remessa;
+    if (!bruto || typeof bruto !== 'object') return null;
+
+    const cru = bruto.desconto_valor;
+    if (cru === null || cru === undefined || texto(cru) === '') return null;
+
+    const valor = Number(cru);
+    if (!Number.isFinite(valor) || valor < 0) {
+        erros.push(`Desconto inválido (${cru}).`);
+        return null;
+    }
+    if (valor === 0) return null;
+
+    // Desconto maior que a mercadoria deixaria a invoice com valor negativo,
+    // que nenhuma alfandega aceita — e normalmente e digito a mais.
+    const total = somaItens(pedido);
+    if (total > 0 && valor > total) {
+        erros.push(`Desconto (${valor}) maior que o valor dos itens (${total.toFixed(2)}).`);
+        return null;
+    }
+
+    return {
+        desconto_valor: Math.round(valor * 100) / 100,
+        desconto_rotulo: texto(bruto.desconto_rotulo).slice(0, 80) || null,
+    };
 }
 
 /*
@@ -182,6 +228,18 @@ function diferencas(pedido, ajustes) {
             });
         });
     });
+
+    const desconto = Number(ajustes?.remessa?.desconto_valor) || 0;
+    if (desconto > 0) {
+        saida.push({
+            indice: null,
+            campo: 'desconto',
+            de: null,
+            para: ajustes.remessa.desconto_rotulo
+                ? `${desconto} (${ajustes.remessa.desconto_rotulo})`
+                : desconto,
+        });
+    }
 
     return saida;
 }

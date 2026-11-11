@@ -239,13 +239,16 @@ const reemitirInvoice = async (req, res) => {
       });
     }
 
-    const { itens, erros } = normalizarAjustes(pedido, req.body);
+    const { itens, remessa, erros } = normalizarAjustes(pedido, req.body);
     if (erros.length) {
       return res.status(422).json({ ok: false, error: erros.join(' '), erros });
     }
 
     const ajustes = {
       itens,
+      // Desconto da remessa (cupom). Fica fora de `itens` de propósito: ratear
+      // por item inventaria preço unitário que a loja nunca praticou.
+      ...(remessa ? { remessa } : {}),
       motivo,
       editado_por: { id: req.adminUser?.id ?? null, nome: req.adminUser?.name ?? null },
       editado_em: new Date().toISOString(),
@@ -266,6 +269,7 @@ const reemitirInvoice = async (req, res) => {
     const base64 = await gerarInvoiceComercial({
       cotacao: { ...cotacao.toJSON(), pedido: aplicarAjustes(pedido, ajustes) },
       cliente: cliente ? cliente.toJSON() : {},
+      desconto: remessa,
     });
 
     await salvarInvoiceNaStorage(cotacao.id, base64, 'application/pdf', 'INTREX');

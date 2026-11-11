@@ -60,6 +60,35 @@ function calcularPeloRegime({ regime, valorUsd, freteUsd = 0, cotacoes = {}, ncm
     const frete = Math.max(0, Number(freteUsd) || 0);
 
     /*
+     * De minimis vem ANTES de tudo. Se a remessa esta abaixo de um limiar que
+     * isenta de verdade, nao importa qual seria a tarifa do item: nao se paga.
+     * Checar isto depois do -1 descartava Coreia, Japao e Taiwan por causa de
+     * uma tarifa que a remessa nunca alcancaria — eles sumiam do calculo
+     * justamente nas faixas em que o imposto e zero.
+     */
+    // De minimis: so isenta quando o regime diz, com todas as letras, que a
+    // isencao e real. O limite precisa estar na mesma moeda que da para
+    // converter; sem conversao, nao se arrisca a zerar.
+    const dm = regime.de_minimis;
+    if (dm?.existe && dm.isencao_real === true) {
+        const limiteUsd = paraUsd(dm.limite, dm.moeda, cotacoes);
+        if (limiteUsd !== null && valor <= limiteUsd) {
+            return {
+                imposto_importacao_usd: 0,
+                imposto_consumo_usd: 0,
+                taxas_fixas_usd: 0,
+                total_usd: 0,
+                aliquota_importacao_pct: 0,
+                aliquota_consumo_pct: 0,
+                medidas_aplicadas: [{ medida: `De minimis do destino (${dm.limite} ${dm.moeda})`, aliquota_pct: 0 }],
+                determinado_por: 'regime',
+                isento_por_de_minimis: true,
+            };
+        }
+    }
+
+
+    /*
      * Medida com faixa de valor so entra quando a remessa alcanca a faixa.
      * E o que separa a UE abaixo de EUR 150 — onde o direito e um valor fixo e
      * a tarifa por NCM nem aparece — da UE acima, onde a tarifa e do item. Sem
@@ -105,27 +134,6 @@ function calcularPeloRegime({ regime, valorUsd, freteUsd = 0, cotacoes = {}, ncm
 
     // Qualquer medida que dependa do NCM tira o regime do caminho direto.
     if (medidas.some((m) => Number(m.aliquota_pct) === -1)) return null;
-
-    // De minimis: so isenta quando o regime diz, com todas as letras, que a
-    // isencao e real. O limite precisa estar na mesma moeda que da para
-    // converter; sem conversao, nao se arrisca a zerar.
-    const dm = regime.de_minimis;
-    if (dm?.existe && dm.isencao_real === true) {
-        const limiteUsd = paraUsd(dm.limite, dm.moeda, cotacoes);
-        if (limiteUsd !== null && valor <= limiteUsd) {
-            return {
-                imposto_importacao_usd: 0,
-                imposto_consumo_usd: 0,
-                taxas_fixas_usd: 0,
-                total_usd: 0,
-                aliquota_importacao_pct: 0,
-                aliquota_consumo_pct: 0,
-                medidas_aplicadas: [{ medida: `De minimis do destino (${dm.limite} ${dm.moeda})`, aliquota_pct: 0 }],
-                determinado_por: 'regime',
-                isento_por_de_minimis: true,
-            };
-        }
-    }
 
     const aplicadas = [];
     let aliquotaImportacao = 0;

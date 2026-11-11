@@ -211,14 +211,22 @@ async function obterClassificacao({ regime, ncm, descricao, valorUsd, db }) {
  * Aplica uma classificação a um valor concreto. Aritmética pura: é o que
  * permite reaproveitar a mesma classificação para valores diferentes.
  */
-function aplicarClassificacao({ classificacao, valorUsd }) {
+function aplicarClassificacao({ classificacao, valorUsd, freteUsd = 0 }) {
     const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
     const v = Number(valorUsd) || 0;
+    /*
+     * Frete entra SO na base do imposto sobre consumo, e so quando quem chama
+     * manda — porque depende do destino. O Reino Unido cobra o VAT sobre
+     * "the price paid for the goods" mais "postage, packaging and insurance";
+     * os EUA calculam o direito sobre o valor FOB, sem frete nem seguro.
+     * Default 0 preserva quem ja chamava sem o parametro.
+     */
+    const f = Math.max(0, Number(freteUsd) || 0);
 
     const impImportacao = r2(v * (Number(classificacao.aliquota_importacao_pct) / 100));
-    // O imposto sobre consumo costuma incidir sobre valor + imposto de
+    // O imposto sobre consumo costuma incidir sobre valor + frete + imposto de
     // importação, não só sobre a mercadoria.
-    const impConsumo = r2((v + impImportacao) * (Number(classificacao.aliquota_consumo_pct) / 100));
+    const impConsumo = r2((v + f + impImportacao) * (Number(classificacao.aliquota_consumo_pct) / 100));
     const taxasFixas = r2(classificacao.taxas_fixas_usd);
 
     return {

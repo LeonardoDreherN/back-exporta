@@ -105,7 +105,12 @@ function pesoLiquidoItem(item) {
     return p * q;
 }
 
-async function gerarInvoiceComercial({ cotacao, cliente }) {
+/**
+ * @param {{ cotacao:object, cliente:object,
+ *           desconto?:{ desconto_valor:number, desconto_rotulo?:string }|null }} args
+ *        `desconto` vem do editor de invoice do admin (invoice_ajustes.remessa).
+ */
+async function gerarInvoiceComercial({ cotacao, cliente, desconto = null }) {
     const pedido = cotacao?.pedido || {};
     const itens = Array.isArray(pedido.itens) ? pedido.itens : [];
     const caixas = Array.isArray(cotacao?.caixa) ? cotacao.caixa : [];
@@ -586,14 +591,23 @@ async function gerarInvoiceComercial({ cotacao, cliente }) {
     linhaV(XR, yRodapeBase, yTotBase);
 
     const frete = Number(cotacao?.preco_final) || 0;
+
+    /*
+     * Desconto entra em "Other", com sinal negativo, e nao numa celula nova: a
+     * coluna da direita do formulario da FedEx tem oito celulas de altura fixa,
+     * e acrescentar uma nona desalinharia a faixa de assinatura. O cupom e
+     * identificado em Special Instructions, que e onde a alfandega procura o
+     * motivo de um valor abatido.
+     */
+    const abatimento = Math.max(0, Number(desconto?.desconto_valor) || 0);
     const valores = [
         ['Subtotal:', numero(somaValor)],
         ['Insurance:', numero(0)],
         ['Freight:', numero(frete)],
         ['Packing:', numero(0)],
         ['Handling:', numero(0)],
-        ['Other:', numero(0)],
-        ['Invoice Total:', numero(somaValor + frete)],
+        ['Other:', abatimento > 0 ? `-${numero(abatimento)}` : numero(0)],
+        ['Invoice Total:', numero(somaValor + frete - abatimento)],
         ['Currency Code:', moeda],
     ];
     valores.forEach(([rot, val], i) => {
@@ -614,6 +628,17 @@ async function gerarInvoiceComercial({ cotacao, cliente }) {
     [yEspecialBase, yDeclaracaoBase, yDeclaroBase].forEach((yy) => linhaH(X0, XR, yy));
 
     txt('Special Instructions:', L, yTotBase - 10, { size: 6, fonte: forte });
+    if (abatimento > 0) {
+        // Em ingles e dizendo o que o numero significa: sem isto, "Other"
+        // negativo e um valor sem explicacao no meio do documento.
+        const rotulo = texto(desconto?.desconto_rotulo);
+        const nota = `Discount of ${moeda} ${numero(abatimento)} granted on the merchandise`
+            + `${rotulo ? ` (${rotulo})` : ''}, shown under "Other". `
+            + 'The invoice total is the price actually paid by the buyer for the goods.';
+        quebrar(nota, normal, 6, XR - L - 10).slice(0, 3).forEach((linha, i) => {
+            txt(linha, L, yTotBase - 20 - i * 8, { size: 6 });
+        });
+    }
     txt('Declaration Statement(s):', L, yEspecialBase - 10, { size: 6, fonte: forte });
     txt('I declare that all the information contained in this invoice to be true and correct.',
         L, yDeclaracaoBase - 13, { size: 6, fonte: forte });
