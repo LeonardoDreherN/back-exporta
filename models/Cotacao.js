@@ -68,6 +68,17 @@ module.exports = (sequelize) => {
             defaultValue: null,
         },
 
+        // ===== Baixa manual de pagamento =====
+        // `status_pagamento` acima diz se o BOLETO foi gerado, não se foi
+        // pago. Pagamento por carteira e por boleto Asaas o sistema reconhece
+        // sozinho (ver services/cobrancaCotacao.situacaoPagamento); o que
+        // falta é o caso de hoje, em que o frete é acertado fora do sistema.
+        // Sem esta baixa, esses envios ficariam eternamente em aberto e a
+        // conta nunca sairia do limite inicial.
+        pago_manual_em: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+        pago_manual_por: { type: DataTypes.STRING(120), allowNull: true, defaultValue: null },
+        pago_manual_obs: { type: DataTypes.STRING(200), allowNull: true, defaultValue: null },
+
         // ===== Cobrança antecipada de impostos (feature beta) =====
         impostos_valor_brl: { type: DataTypes.DECIMAL(12, 2), allowNull: true, defaultValue: null },
         impostos_moeda: { type: DataTypes.STRING(3), allowNull: true, defaultValue: null },

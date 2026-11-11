@@ -5,6 +5,7 @@ const upsRating = require('../services/ups/rating');
 const normUps = require('../utils/normalize/upsRate');
 const { quoteRates } = require('../services/fedex/ratingFedex');
 const { estadoFedex } = require('../utils/fedexEstado');
+const { impostoVisivelDoCheckout } = require('../services/faturamentoDeclarado/checkoutImposto');
 
 const toKg = (grams) => Number(grams || 0) / 1000;
 
@@ -190,11 +191,38 @@ router.post('/carrier', async (req, res) => {
             currency,
         };
 
-        // UPS e FedEx em paralelo — evita estourar o timeout de ~10s da Shopify
-        const [upsResult, fedexResult] = await Promise.allSettled([
+        // UPS, FedEx e imposto em paralelo — evita estourar o timeout de ~10s
+        // da Shopify. O imposto só lê o banco, mas somar a latência dele em
+        // série com duas transportadoras era o que faltava para estourar.
+        //
+        // O frete ainda não é conhecido aqui, e ele entra na base do imposto
+        // sobre consumo de alguns países. Usamos 0: o erro é para baixo e
+        // pequeno, e esperar o rate para só então calcular colocaria tudo em
+        // série de novo.
+        const [upsResult, fedexResult, impostoResult] = await Promise.allSettled([
             upsRating.quote(upsPayload),
             quoteRates(fedexPayload),
+            impostoVisivelDoCheckout({
+                shopDomain: req.get('x-shopify-shop-domain') || rate?.destination?.shop_domain || '',
+                items,
+                paisDestino: dest.country,
+                freteUsd: 0,
+            }),
         ]);
+
+        // Nunca derruba o checkout: sem imposto calculado, o frete passa sozinho.
+        const imposto = impostoResult.status === 'fulfilled'
+            ? impostoResult.value
+            : { visivelUsd: 0, motivo: 'promise_rejeitada' };
+
+        const impostoUsd = Number(imposto?.visivelUsd) || 0;
+
+        if (imposto?.motivo !== 'ok') {
+            console.warn('[SHOPIFY CARRIER][IMPOSTO] nao aplicado:', imposto?.motivo, imposto?.detalhe || '');
+        } else if (imposto.detalhe?.skusSemCadastro?.length) {
+            console.warn('[SHOPIFY CARRIER][IMPOSTO] SKUs sem valor de faturamento cadastrado:',
+                imposto.detalhe.skusSemCadastro.join(', '));
+        }
 
         let upsQuotes = [];
         if (upsResult.status === 'fulfilled') {
@@ -230,11 +258,16 @@ const fedexNameMap = {
     INTERNATIONAL_ECONOMY: 'FedEx Economy (4-7 business days)',
 };
 
-function buildDescription(base, total) {
+function buildDescription(base, total, _itemized, impostoUsd = 0) {
     const cur = 'USD';
     const taxes = Number((total - base).toFixed(2));
     const parts = [`Base: ${cur} ${Number(base).toFixed(2)}`];
     if (taxes > 0) parts.push(`Taxas: ${cur} ${taxes.toFixed(2)}`);
+    // O imposto vai somado ao total da linha de frete, porque o
+    // CarrierService nao tem campo proprio para ele. A descricao e o unico
+    // lugar onde da para dizer ao comprador que parte daquele valor e
+    // imposto de importacao, e nao frete.
+    if (impostoUsd > 0) parts.push(`Import duties: ${cur} ${Number(impostoUsd).toFixed(2)}`);
     return `- ${parts.join(' | ')} ⓘ`;
 }
 
@@ -247,9 +280,9 @@ upsQuotes.forEach((q) => {
     rates.push({
         service_name: upsNameMap[code] || `UPS ${q.serviceLabel || 'International'}`,
         service_code: `UPS_${code || 'STD'}`,
-        description: buildDescription(q.base, q.total, q.itemized),
+        description: buildDescription(q.base, q.total, q.itemized, impostoUsd),
         currency: q.currency || 'USD',
-        total_price: String(Math.round(Number(q.total) * 100)),
+        total_price: String(Math.round((Number(q.total) + impostoUsd) * 100)),
     });
 });
 
@@ -262,9 +295,9 @@ fedexQuotes.forEach((q) => {
     rates.push({
         service_name: fedexNameMap[type] || 'FedEx International Shipping',
         service_code: `FEDEX_${type.replace(/\s+/g, '_') || 'STD'}`,
-        description: buildDescription(q.base, q.total, q.itemized),
+        description: buildDescription(q.base, q.total, q.itemized, impostoUsd),
         currency: q.currency || 'USD',
-        total_price: String(Math.round(Number(q.total) * 100)),
+        total_price: String(Math.round((Number(q.total) + impostoUsd) * 100)),
     });
 });
 

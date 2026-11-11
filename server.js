@@ -184,6 +184,7 @@ app.use('/api/carteira', autenticarUsuario, vincularCliente, require('./routes/c
 app.use('/api/relatorio', autenticarUsuario, vincularCliente, require('./routes/relatorioPagamentos.js'));
 app.use('/api/rate', require('./routes/rateMulti.js'));
 app.use('/api/simulacao', autenticarUsuario, vincularCliente, require('./routes/simulacaoRoutes.js'));
+app.use('/api/limite', autenticarUsuario, vincularCliente, require('./routes/limiteClienteRoutes.js'));
 app.use('/__fedex', autenticarUsuario, require('./routes/debugFedex.js'));
 
 // Admin (staff interno da Intrex) — autenticação e API própria
@@ -202,6 +203,8 @@ app.use('/api/admin/relatorios', autenticarAdmin, require('./routes/adminRelator
 app.use('/api/admin/regimes', autenticarAdmin, require('./routes/adminRegimeRoutes.js'));
 app.use('/api/admin/chamados', autenticarAdmin, require('./routes/adminChamadosRoutes.js'));
 app.use('/api/admin/carteira', autenticarAdmin, require('./routes/adminCarteiraRoutes.js'));
+app.use('/api/admin/faturamento', autenticarAdmin, require('./routes/adminFaturamentoRoutes.js'));
+app.use('/api/admin/limite', autenticarAdmin, require('./routes/adminLimiteRoutes.js'));
 
 // Público — página de status e banner interno da plataforma
 app.use('/api/status', require('./routes/publicStatusRoutes.js'));

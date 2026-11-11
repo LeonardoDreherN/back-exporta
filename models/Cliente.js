@@ -95,5 +95,35 @@ module.exports = (sequelize) => {
     // parceiro em PHP) para autenticar nas rotas públicas de cotação e
     // criação de pedido (/api/public-quote e /api/public-orders).
     publicApiKey: { type: DataTypes.STRING, allowNull: true, unique: true },
+
+    // ===== LIMITE DE EXPOSICAO =====
+    // Liga o limite NESTA conta. Padrão desligado de propósito: a regra entra
+    // conta a conta, quando o operador decide, e não vira uma virada de chave
+    // que barra todo mundo de uma vez. Conta com o limite desligado nem chega
+    // a consultar a exposição.
+    limiteCreditoAtivo: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    limiteCreditoAtivadoEm: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+
+    // Nível da conta. Define quanto o cliente pode ter despachado e ainda não
+    // pago ao mesmo tempo (ver services/limiteCredito). Conta nova começa no 1
+    // e sobe conforme paga; nunca cai sozinho.
+    nivelConta: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+
+    // Limite em USD que sobrepõe o do nível, para o caso pontual que a regra
+    // não cobre — sem precisar promover a conta inteira. Nulo usa o nível.
+    limiteAbertoUsdOverride: { type: DataTypes.DECIMAL(12, 2), allowNull: true, defaultValue: null },
+
+    // ===== IMPOSTO NO CHECKOUT =====
+    // Quanto do imposto calculado APARECE para o comprador. O resto vai
+    // embutido no preço do produto. As duas partes sempre somam o imposto
+    // cheio: isto escolhe onde o comprador enxerga o valor, não quanto ele
+    // paga. 50 = metade na linha de imposto, metade no preço.
+    impostoPctVisivel: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 50 },
+
+    // Fração do preço de venda usada como valor de faturamento quando o SKU
+    // não está na tabela faturamento_skus (0,28 = fatura a 28% da vitrine).
+    // Nulo faz o sistema declarar o próprio preço de venda — declarar a menos
+    // por falta de cadastro seria subdeclarar por acidente.
+    faturamentoFatorPadrao: { type: DataTypes.DECIMAL(5, 4), allowNull: true, defaultValue: null },
   });
 }

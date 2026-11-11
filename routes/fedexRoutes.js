@@ -5,6 +5,7 @@ const { autenticarUsuario } = require('../middleware/auth');
 const ctrl = require('../controller/fedexController');
 const fedexCfg = require('../config/fedex')
 const { bloquearEnvios } = require('../middleware/enviosBloqueados');
+const { limitarPorCredito } = require('../middleware/limiteCredito');
 
 const router = express.Router();
 
@@ -33,7 +34,7 @@ router.options('/pickup', corsOpts, (_req, res) => res.sendStatus(204));
 
 // Rotas
 router.post('/rating', corsOpts, autenticarUsuario, bloquearEnvios, ctrl.rate);
-router.post('/shipping', corsOpts, autenticarUsuario, bloquearEnvios, ctrl.ship);
+router.post('/shipping', corsOpts, autenticarUsuario, bloquearEnvios, limitarPorCredito, ctrl.ship);
 router.post('/tracking/:tracking', corsOpts, autenticarUsuario, ctrl.track);
 router.post('/pickup', corsOpts, autenticarUsuario, bloquearEnvios, ctrl.pickUp);
 

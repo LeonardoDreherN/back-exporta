@@ -9,6 +9,7 @@ const { Cliente, PlanoLogs } = db;
 const ctrl = require('../controller/CotacaoController'); // ← caminho atual
 const { agendarPickupCotacao } = require('../services/ups/cotacaoUps');
 const { bloquearEnvios } = require('../middleware/enviosBloqueados');
+const { limitarPorCredito } = require('../middleware/limiteCredito');
 
 function requireAuth(req, res, next) {
     const cid = req.clienteId ?? req.usuario?.clienteId ?? req.user?.clienteId;
@@ -38,7 +39,7 @@ router.get('/resumo', requireAuth, ctrl.resumoCotacoes);
 
 // CRUD principal
 router.get('/', requireAuth, ctrl.listCotacoes);
-router.post('/', requireAuth, bloquearEnvios, ctrl.createCotacaoReal);
+router.post('/', requireAuth, bloquearEnvios, limitarPorCredito, ctrl.createCotacaoReal);
 router.get('/:id/details', requireAuth, ctrl.getCotacaoDetails);
 router.get('/status-por-pedido/:pedido_ref', requireAuth, ctrl.getCotacaoStatusByPedidoRef);
 router.get('/:id', requireAuth, ctrl.getCotacao);
