@@ -16,6 +16,9 @@ module.exports = (sequelize) => {
         CEP: { type: DataTypes.STRING },
         pais: { type: DataTypes.STRING },
         shopify_order_id: { type: DataTypes.BIGINT, allowNull: true, defaultValue: null },
+        // De qual loja Shopify o pedido veio. O auto-fulfill precisa disso
+        // para nao mandar o rastreio para a outra loja do mesmo cliente.
+        shop_domain: { type: DataTypes.STRING, allowNull: true, defaultValue: null },
         nuvemshop_order_id: { type: DataTypes.BIGINT, allowNull: true, defaultValue: null },
         nuvemshop_fulfillment_order_id: { type: DataTypes.STRING, allowNull: true, defaultValue: null },
         status: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: "false" },

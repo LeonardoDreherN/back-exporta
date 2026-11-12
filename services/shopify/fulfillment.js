@@ -85,7 +85,7 @@ async function autoFulfillShopifyOrder({ clienteId, pedidoRef, trackingNumber, c
     try {
         const pedido = await db.PedidoImport.findOne({
             where: { cliente_id: clienteId, pedido_ref: String(pedidoRef) },
-            attributes: ['shopify_order_id'],
+            attributes: ['shopify_order_id', 'shop_domain'],
             raw: true,
         });
 
@@ -94,28 +94,63 @@ async function autoFulfillShopifyOrder({ clienteId, pedidoRef, trackingNumber, c
             return;
         }
 
-        const infoShopify = await db.InfoShopify.findOne({
-            where: { id_cliente: clienteId },
-            attributes: ['shopDomain'],
-            raw: true,
-        });
+        // A loja certa e a que originou o pedido. Buscar "uma loja qualquer"
+        // do cliente (findOne por id_cliente) mandava o rastreio de um pedido
+        // da loja 2 para a loja 1, que nao conhece aquele order_id — e o
+        // cliente final nunca recebia o codigo.
+        let shopDomain = pedido.shop_domain || null;
 
-        if (!infoShopify?.shopDomain) {
-            console.log(`[AUTO-FULFILL] Cliente ${clienteId} sem loja Shopify vinculada, pulando.`);
-            return;
+        if (shopDomain) {
+            // confere que a loja gravada ainda pertence a este cliente
+            const vinculo = await db.InfoShopify.findOne({
+                where: { id_cliente: clienteId, shopDomain },
+                attributes: ['shopDomain'],
+                raw: true,
+            });
+            if (!vinculo) {
+                console.warn(`[AUTO-FULFILL] Loja ${shopDomain} do pedido ${pedidoRef} nao esta vinculada ao cliente ${clienteId}, pulando.`);
+                return;
+            }
+        } else {
+            // Pedidos gravados antes da coluna shop_domain existir.
+            const lojas = await db.InfoShopify.findAll({
+                where: { id_cliente: clienteId },
+                attributes: ['shopDomain'],
+                raw: true,
+            });
+
+            if (!lojas.length) {
+                console.log(`[AUTO-FULFILL] Cliente ${clienteId} sem loja Shopify vinculada, pulando.`);
+                return;
+            }
+
+            if (lojas.length > 1) {
+                // Adivinhar aqui significa mandar rastreio para a loja errada.
+                console.warn(`[AUTO-FULFILL] Pedido ${pedidoRef} sem shop_domain e cliente ${clienteId} tem ${lojas.length} lojas; nao da para saber a loja de origem. Pulando.`);
+                await logSync({
+                    integration: 'shopify',
+                    clienteId,
+                    status: 'error',
+                    message: `Auto-fulfill do pedido ${pedidoRef} nao executado: pedido sem shop_domain e a conta tem ${lojas.length} lojas. Informe o rastreio na loja manualmente.`,
+                    durationMs: Date.now() - start,
+                });
+                return;
+            }
+
+            shopDomain = lojas[0].shopDomain;
         }
 
-        const accessToken = await getValidAccessToken(infoShopify.shopDomain);
+        const accessToken = await getValidAccessToken(shopDomain);
 
         if (!accessToken) {
-            console.warn(`[AUTO-FULFILL] Loja ${infoShopify.shopDomain} sem accessToken.`);
+            console.warn(`[AUTO-FULFILL] Loja ${shopDomain} sem accessToken.`);
             return;
         }
 
-        console.log(`[AUTO-FULFILL] usando shop=${infoShopify.shopDomain} token=${accessToken.slice(0,8)}...`);
+        console.log(`[AUTO-FULFILL] usando shop=${shopDomain} token=${accessToken.slice(0,8)}...`);
 
         const fulfillmentOrderIds = await getFulfillmentOrderIds(
-            infoShopify.shopDomain,
+            shopDomain,
             accessToken,
             pedido.shopify_order_id
         );
@@ -126,7 +161,7 @@ async function autoFulfillShopifyOrder({ clienteId, pedidoRef, trackingNumber, c
         }
 
         const fulfillment = await createFulfillment(
-            infoShopify.shopDomain,
+            shopDomain,
             accessToken,
             fulfillmentOrderIds,
             trackingNumber,

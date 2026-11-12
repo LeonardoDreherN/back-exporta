@@ -4,6 +4,7 @@ const router = express.Router();
 const { importPedidosInternal } = require('../controller/PedidoImportController');
 const db = require('../models');
 const { logSync } = require('../services/syncLog');
+const { aplicarPrefixo } = require('../services/shopify/pedidoRef');
 
 router.post('/orders-create', async (req, res) => {
     const start = Date.now();
@@ -33,7 +34,7 @@ router.post('/orders-create', async (req, res) => {
 
         const info = await db.InfoShopify.findOne({
             where: { shopDomain },
-            attributes: ['id_cliente', 'shopDomain'],
+            attributes: ['id_cliente', 'shopDomain', 'prefixoPedido'],
             raw: true,
         });
 
@@ -89,9 +90,13 @@ router.post('/orders-create', async (req, res) => {
             billing.zip ||
             '';
 
-        const numeroPedido = String(order.name || order.order_number || order.id || '')
+        const numeroPedidoLoja = String(order.name || order.order_number || order.id || '')
             .replace(/^#/, '')
             .trim();
+
+        // A Shopify numera por loja: duas lojas do mesmo cliente chegam as duas
+        // ao 1007. Com prefixo cadastrado, a ref nasce unica dentro do cliente.
+        const numeroPedido = aplicarPrefixo(info.prefixoPedido, numeroPedidoLoja);
 
         // IMPORTANTE:
         // o importPedidosInternal espera linhas "flat", uma por item, no estilo CSV
@@ -99,6 +104,7 @@ router.post('/orders-create', async (req, res) => {
             id: numeroPedido,
             pedido_ref: numeroPedido,
             shopify_order_id: order.id || null,
+            shop_domain: shopDomain,
 
             nome_completo: nomeCliente,
             email: customer.email || order.email || '',
@@ -132,14 +138,32 @@ router.post('/orders-create', async (req, res) => {
             pedido_ref: numeroPedido,
         });
 
+        // Nada criado e algo descartado: o pedido NAO entrou. Antes isso era
+        // registrado como "importado via webhook" e o pedido desaparecia sem
+        // ninguem perceber.
+        const descartado = imported?.created === 0 && imported?.skipped > 0;
+
+        if (descartado) {
+            console.warn('[SHOPIFY ORDER SKIPPED]', {
+                shopDomain,
+                clienteId: info.id_cliente,
+                pedido_ref: numeroPedido,
+                motivo: 'ref ja existe para este cliente',
+            });
+        }
+
         await logSync({
             integration: 'shopify',
             clienteId: info.id_cliente,
-            status: 'ok',
-            message: `Pedido ${numeroPedido} importado via webhook`,
+            status: descartado ? 'error' : 'ok',
+            message: descartado
+                ? `Pedido ${numeroPedido} (loja ${shopDomain}) NAO importado: ja existe pedido com a ref ${numeroPedido} nesta conta. Se o cliente tem mais de uma loja, cadastre o prefixo de pedido da loja.`
+                : `Pedido ${numeroPedido} importado via webhook`,
             durationMs: Date.now() - start,
         });
 
+        // 200 mesmo no descarte: a Shopify reenviaria o mesmo pedido e o
+        // resultado seria igual. O que faltava era o registro honesto acima.
         return res.status(200).send('ok');
     } catch (e) {
         console.error('[SHOPIFY WEBHOOK ERROR]', e);

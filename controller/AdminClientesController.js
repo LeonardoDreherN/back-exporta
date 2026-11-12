@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const crypto = require('crypto');
 const db = require('../models');
+const { normalizarPrefixo, prefixoValido, sugerirPrefixo } = require('../services/shopify/pedidoRef');
 
 const CLIENTE_LIST_ATTRS = [
   'id', 'razaoSocial', 'emailPrincipal', 'telefoneCelular', 'plano', 'status',
@@ -105,6 +106,28 @@ const getClienteDetail = async (req, res) => {
 
     const etiquetasEmitidas = await db.Cotacao.count({ where: { cliente_id: id, etiqueta_path: { [Op.ne]: null } } });
 
+    // Uma conta pode ter mais de uma loja Shopify (InfoShopifies tem UNIQUE em
+    // shopDomain, nao em id_cliente). O `integracoes.shopify` abaixo mostra so
+    // a primeira; `lojasShopify` lista todas com o prefixo de pedido, que e o
+    // que evita a colisao de numero entre as lojas.
+    const lojasShopifyRows = await db.InfoShopify.findAll({
+      where: { id_cliente: id },
+      attributes: ['id', 'shopDomain', 'prefixoPedido', 'apiVersion', 'createdAt'],
+      order: [['createdAt', 'ASC']],
+      raw: true,
+    });
+
+    const lojasShopify = lojasShopifyRows.map((l) => ({
+      id: l.id,
+      shopDomain: l.shopDomain,
+      prefixoPedido: l.prefixoPedido || null,
+      apiVersion: l.apiVersion,
+      // Com duas lojas e nenhum prefixo, o pedido da segunda loja e descartado
+      // em silencio quando o numero coincide.
+      precisaPrefixo: lojasShopifyRows.length > 1 && !l.prefixoPedido,
+      prefixoSugerido: l.prefixoPedido ? null : sugerirPrefixo(l.shopDomain),
+    }));
+
     const historico = [
       ...auditLogs.map((l) => ({ tipo: 'auditoria', ...l.toJSON() })),
       ...syncLogs.map((l) => ({ tipo: 'sincronizacao', ...l.toJSON() })),
@@ -120,6 +143,7 @@ const getClienteDetail = async (req, res) => {
             loja: infoShopify.shopDomain,
             tokenValido: !!shopifyToken,
             tokenExpiraEm: shopifyToken?.tokenExpiresAt || null,
+            totalLojas: lojasShopify.length,
           } : { conectado: false },
           nuvemshop: infoNuvemshop ? {
             conectado: true,
@@ -134,6 +158,7 @@ const getClienteDetail = async (req, res) => {
           ultimoPedido: ultimaCotacao,
           ultimoAcesso: cliente.lastLoginAt,
         },
+        lojasShopify,
         historico,
       },
     });
@@ -258,5 +283,82 @@ const regeneratePublicApiKey = async (req, res) => {
   }
 };
 
+/**
+ * Prefixo de pedido de uma loja Shopify do cliente.
+ *
+ * A Shopify numera pedido por loja: duas lojas da mesma conta chegam as duas
+ * ao 1007 e o UNIQUE (cliente_id, pedido_ref) descarta o segundo. O prefixo
+ * torna a ref unica na entrada (MOMI-1007).
+ *
+ * Prefixo vazio/null volta a gravar a ref crua — e o que as contas de uma
+ * loja so usam, para nao mudar o formato no meio do historico.
+ */
+const updateShopifyPrefixo = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { shopDomain, prefixoPedido } = req.body || {};
+
+    const dominio = String(shopDomain || '').trim().toLowerCase();
+    if (!dominio) {
+      return res.status(400).json({ ok: false, error: 'Informe shopDomain' });
+    }
+
+    const loja = await db.InfoShopify.findOne({ where: { id_cliente: id, shopDomain: dominio } });
+    if (!loja) {
+      return res.status(404).json({ ok: false, error: 'Loja nao encontrada para este cliente' });
+    }
+
+    // string vazia => remove o prefixo (volta a ref crua)
+    const novo = prefixoPedido === null || String(prefixoPedido ?? '').trim() === ''
+      ? null
+      : normalizarPrefixo(prefixoPedido);
+
+    if (!prefixoValido(novo)) {
+      return res.status(400).json({ ok: false, error: 'Prefixo invalido: use de 1 a 8 letras ou numeros (ex.: MOMI)' });
+    }
+
+    // Dois prefixos iguais na mesma conta nao resolvem nada: a colisao volta.
+    if (novo) {
+      const conflito = await db.InfoShopify.findOne({
+        where: { id_cliente: id, prefixoPedido: novo, shopDomain: { [Op.ne]: dominio } },
+        attributes: ['shopDomain'],
+        raw: true,
+      });
+      if (conflito) {
+        return res.status(409).json({
+          ok: false,
+          error: `O prefixo ${novo} ja esta em uso na loja ${conflito.shopDomain} desta conta`,
+        });
+      }
+    }
+
+    const anterior = loja.prefixoPedido || null;
+    await loja.update({ prefixoPedido: novo });
+
+    const { logAdminAction } = require('../services/audit');
+    await logAdminAction({
+      adminUserId: req.adminUser?.id,
+      action: 'client.shopify_prefixo_pedido',
+      entityType: 'InfoShopify',
+      entityId: loja.id,
+      clienteId: Number(id),
+      metadata: { shopDomain: dominio, anterior, novo },
+      req,
+    });
+
+    return res.json({
+      ok: true,
+      data: { shopDomain: loja.shopDomain, prefixoPedido: loja.prefixoPedido },
+      // Refs ja gravadas nao sao reescritas: o prefixo vale para o que entrar
+      // a partir de agora.
+      aviso: 'O prefixo vale para os pedidos importados a partir de agora; as refs ja gravadas continuam como estao.',
+    });
+  } catch (err) {
+    console.error('[AdminClientes] updateShopifyPrefixo erro:', err);
+    return res.status(500).json({ ok: false, error: 'Erro ao atualizar o prefixo de pedido da loja' });
+  }
+};
+
 module.exports = {
-  updateEnviosBloqueados, listClientes, getClienteDetail, updateClienteStatus, regeneratePublicApiKey };
+  updateEnviosBloqueados, listClientes, getClienteDetail, updateClienteStatus, regeneratePublicApiKey,
+  updateShopifyPrefixo };

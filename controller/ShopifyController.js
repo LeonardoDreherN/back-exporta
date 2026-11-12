@@ -3,6 +3,7 @@ const https = require('https');
 const db = require("../models/index.js");
 const { norm } = require('../utils/norm.js');
 const { getAccessTokenForShop } = require('../middleware/shopifyAuth.js');
+const { normalizarPrefixo, prefixoValido, sugerirPrefixo } = require('../services/shopify/pedidoRef.js');
 const { Op } = require('sequelize');
 const APP_URL = (process.env.SHOPIFY_APP_URL || '').replace(/\/$/, '');
 const API_VERSION = process.env.SHOPIFY_VERSION || "2025-07";
@@ -314,10 +315,48 @@ const registrarLojaShopify = async (req, res) => {
             });
         }
 
+        // Segunda loja da mesma conta: a Shopify numera pedido por loja, as
+        // duas chegam ao #1007 e o UNIQUE (cliente_id, pedido_ref) de
+        // pedidos_importados descartava o segundo em silencio. A loja nova
+        // nasce com prefixo (MOMI-1007); a antiga segue com a ref crua, para
+        // nao mudar o formato do historico dela.
+        const lojasExistentes = await db.InfoShopify.findAll({
+            where: { id_cliente: clienteId },
+            attributes: ['shopDomain', 'prefixoPedido'],
+            raw: true,
+        });
+
+        let prefixoPedido = null;
+        if (req.body?.prefixoPedido !== undefined && String(req.body.prefixoPedido ?? '').trim() !== '') {
+            prefixoPedido = normalizarPrefixo(req.body.prefixoPedido);
+            if (!prefixoValido(prefixoPedido)) {
+                return res.status(400).json({ erro: 'Prefixo de pedido invalido: use de 1 a 8 letras ou numeros (ex.: MOMI)' });
+            }
+        } else if (lojasExistentes.length) {
+            prefixoPedido = sugerirPrefixo(shopDomain);
+        }
+
+        // Prefixo repetido na mesma conta nao resolve a colisao.
+        const emUso = new Set(
+            lojasExistentes.map((l) => normalizarPrefixo(l.prefixoPedido)).filter(Boolean)
+        );
+        if (prefixoPedido && emUso.has(prefixoPedido)) {
+            let candidato = null;
+            for (let i = 2; i <= 9; i += 1) {
+                const tentativa = normalizarPrefixo(`${prefixoPedido}`.slice(0, 7) + String(i));
+                if (!emUso.has(tentativa)) { candidato = tentativa; break; }
+            }
+            if (!candidato) {
+                return res.status(409).json({ erro: `O prefixo ${prefixoPedido} ja esta em uso em outra loja desta conta; informe prefixoPedido.` });
+            }
+            prefixoPedido = candidato;
+        }
+
         const criado = await db.InfoShopify.create({
             id_cliente: clienteId,
             shopDomain,
             apiVersion: API_VERSION,
+            prefixoPedido,
         });
 
         return res.status(201).json({
@@ -327,7 +366,13 @@ const registrarLojaShopify = async (req, res) => {
                 id: criado.id,
                 shopDomain: criado.shopDomain,
                 id_cliente: criado.id_cliente,
+                prefixoPedido: criado.prefixoPedido,
             },
+            // A conta passa a ter mais de uma loja: avisar que os pedidos desta
+            // loja entram com prefixo, senao o cliente estranha a ref.
+            aviso: prefixoPedido
+                ? `Esta conta tem mais de uma loja Shopify. Os pedidos desta loja entram com o prefixo ${prefixoPedido} (ex.: ${prefixoPedido}-1007) para nao colidir com os numeros da outra loja.`
+                : undefined,
             nextAuthUrl,
         });
     } catch (err) {

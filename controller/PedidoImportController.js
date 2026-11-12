@@ -3,6 +3,7 @@ const { PedidoImport } = require("../models");
 const { Op, where, fn, col, literal } = require("sequelize");
 const db = require("../models");
 const { resolveLojaEToken } = require("./ShopifyController");
+const { aplicarPrefixo, getPrefixoDaLoja } = require("../services/shopify/pedidoRef");
 
 
 const s = (v) => (v ?? "").toString().trim();
@@ -149,7 +150,7 @@ async function fetchProductsAndVariantsMeta({ shop, token, apiVersion, productId
     return { productMap, variantMap };
 }
 
-function mapOrderToGroupedShape(order, { productMap, variantMap }) {
+function mapOrderToGroupedShape(order, { productMap, variantMap, prefixoPedido = null, shopDomain = null }) {
     // monta no mesmo formato do seu groupRowsByOrder()
     const ship = order.shipping_address || {};
     const address1 = (ship.address1 || '').trim();
@@ -160,7 +161,9 @@ function mapOrderToGroupedShape(order, { productMap, variantMap }) {
     const province = (ship.province_code || ship.province || '').toString().trim();
 
     const out = {
-        pedido_ref: String(order.name || order.id).replace(/^#/, ''),
+        // Prefixo da loja: sem ele, duas lojas da mesma conta colidem no 1007.
+        pedido_ref: aplicarPrefixo(prefixoPedido, String(order.name || order.id)),
+        shop_domain: shopDomain,
         moeda: order.currency || '',
         total: Number(order.current_total_price || 0),
 
@@ -238,6 +241,7 @@ function groupRowsByOrder(rows) {
             byId.set(pedido_ref, {
                 pedido_ref,
                 shopify_order_id: r.shopify_order_id || null,
+                shop_domain: r.shop_domain || null,
                 nuvemshop_order_id: r.nuvemshop_order_id || null,
                 nuvemshop_fulfillment_order_id: r.nuvemshop_fulfillment_order_id || null,
                 moeda: "",
@@ -256,6 +260,7 @@ function groupRowsByOrder(rows) {
 
         const acc = byId.get(pedido_ref);
         if (!acc.shopify_order_id && r.shopify_order_id) acc.shopify_order_id = r.shopify_order_id;
+        if (!acc.shop_domain && r.shop_domain) acc.shop_domain = r.shop_domain;
         if (!acc.nuvemshop_order_id && r.nuvemshop_order_id) acc.nuvemshop_order_id = r.nuvemshop_order_id;
         if (!acc.nuvemshop_fulfillment_order_id && r.nuvemshop_fulfillment_order_id) {
             acc.nuvemshop_fulfillment_order_id = r.nuvemshop_fulfillment_order_id;
@@ -393,6 +398,7 @@ async function importPedidosInternal(cliente_id, linhas) {
             cliente_id,
             pedido_ref: p.pedido_ref,
             shopify_order_id: p.shopify_order_id || null,
+            shop_domain: p.shop_domain || null,
             nuvemshop_order_id: p.nuvemshop_order_id || null,
             nuvemshop_fulfillment_order_id: p.nuvemshop_fulfillment_order_id || null,
             // origem: p.origem,
@@ -437,7 +443,36 @@ async function importPedidos(req, res) {
         if (!linhas || !linhas.length) {
             return res.status(400).json({ ok: false, error: 'Envie "linhas" como array' });
         }
-        const r = await importPedidosInternal(cliente_id, linhas);
+
+        // Import manual a partir de uma loja (?shop= ou body.shop): garante o
+        // prefixo e o shop_domain mesmo quando as linhas chegam "cruas", sem
+        // os campos que listPedidosShopify ja devolve. Sem shop informado,
+        // nada muda (caso do CSV).
+        let linhasFinais = linhas;
+        const shopInformado = s(req.query?.shop || body?.shop);
+        if (shopInformado) {
+            const shopDomain = shopInformado
+                .toLowerCase()
+                .replace(/^https?:\/\//, '')
+                .replace(/\/+$/, '');
+
+            const loja = await db.InfoShopify.findOne({
+                where: { id_cliente: cliente_id, shopDomain },
+                attributes: ['shopDomain', 'prefixoPedido'],
+                raw: true,
+            });
+            if (!loja) {
+                return res.status(403).json({ ok: false, error: 'Esta loja não pertence à sua conta (ou não está cadastrada).' });
+            }
+
+            linhasFinais = linhas.map((l) => {
+                const refOriginal = l?.pedido_ref ?? l?.id ?? l?.orderId ?? l?.order_name ?? l?.orderName ?? '';
+                const ref = aplicarPrefixo(loja.prefixoPedido, refOriginal);
+                return { ...l, id: ref, pedido_ref: ref, shop_domain: l?.shop_domain || loja.shopDomain };
+            });
+        }
+
+        const r = await importPedidosInternal(cliente_id, linhasFinais);
         return res.json({ ok: true, cliente_id, ...r });
     } catch (e) {
         return res.status(500).json({ ok: false, error: e.message });
@@ -592,7 +627,8 @@ async function listPedidosShopify(req, res) {
         const meta = await fetchProductsAndVariantsMeta({ shop, token, apiVersion, productIds, variantIds });
 
         // 4) Mapear para o shape que você já usa (grouped)
-        const itens = orders.map(o => mapOrderToGroupedShape(o, meta));
+        const prefixoPedido = await getPrefixoDaLoja(shop);
+        const itens = orders.map(o => mapOrderToGroupedShape(o, { ...meta, prefixoPedido, shopDomain: shop }));
 
         return res.json({ ok: true, itens, nextPage, shop });
     } catch (e) {
