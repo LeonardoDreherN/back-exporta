@@ -16,7 +16,7 @@ const dec = (v) => (v === null || v === undefined ? null : Number(v));
 /**
  * Lista os contatos, mais recentes primeiro. GET /api/admin/leads
  *
- * Query: ?busca=  (e-mail ou telefone, parcial)
+ * Query: ?busca=  (nome, e-mail ou telefone, parcial)
  *        ?destino=US
  *        ?limit= / ?offset=
  */
@@ -30,12 +30,11 @@ async function listar(req, res) {
 
         if (destino) where.destino = String(destino).trim().toUpperCase();
 
-        // Uma busca só para os dois campos: quem procura "47999" quer o
-        // telefone, quem procura "@gmail" quer o e-mail.
         const termo = String(busca || '').trim();
         if (termo) {
             const digitos = termo.replace(/\D/g, '');
             where[Op.or] = [
+                { nome: { [Op.iLike]: `%${termo}%` } },
                 { email: { [Op.iLike]: `%${termo}%` } },
                 ...(digitos ? [{ telefone: { [Op.like]: `%${digitos}%` } }] : []),
             ];
@@ -54,8 +53,6 @@ async function listar(req, res) {
             db.LeadSimulador.count({ where: { created_at: { [Op.gte]: desde } } }),
         ]);
 
-        // Quantas vezes cada e-mail da página atual já simulou. Três
-        // simulações do mesmo contato é interesse real, não um curioso.
         const emails = [...new Set(rows.map((r) => r.email).filter(Boolean))];
         const vezesPorEmail = {};
         if (emails.length) {
@@ -78,6 +75,7 @@ async function listar(req, res) {
             offset,
             leads: rows.map((l) => ({
                 id: l.id,
+                nome: l.nome, // <--- ADICIONADO AQUI
                 email: l.email,
                 telefone: l.telefone,
                 origem: l.origem,
@@ -90,7 +88,7 @@ async function listar(req, res) {
                 melhor_carrier: l.melhor_carrier,
                 melhor_preco_usd: dec(l.melhor_preco_usd),
                 simulacoes_do_email: l.email ? (vezesPorEmail[l.email] || 1) : null,
-                created_at: l.created_at,
+                created_at: l.created_at, // <--- GARANTINDO O ENVIO DA DATA
             })),
         });
     } catch (err) {
