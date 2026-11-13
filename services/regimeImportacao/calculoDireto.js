@@ -184,10 +184,23 @@ function calcularPeloRegime({ regime, valorUsd, freteUsd = 0, cotacoes = {}, ncm
 
     const impImportacao = r2(valor * (aliquotaImportacao / 100));
 
-    // Base do imposto sobre consumo: a maioria dos destinos tributa CIF mais o
-    // direito. O frete entra aqui e nao na base do direito — mesma regra que o
-    // resto do sistema usa.
-    const baseConsumo = valor + frete + impImportacao + taxasFixas;
+    /*
+     * Base do imposto sobre consumo: a maioria dos destinos tributa CIF mais o
+     * direito, e esse segue sendo o padrao. O frete entra aqui e nao na base do
+     * direito — mesma regra que o resto do sistema usa.
+     *
+     * Mas ha destino que exclui o transporte internacional POR LEI. O Canada
+     * deduz o trecho "from the place within the country of export from which
+     * the goods are shipped directly to Canada" (Customs Act, 48(5)(b)(i)): a
+     * base e o valor da mercadoria, sem o frete. Somar o frete ali cobraria GST
+     * sobre uma base que a alfandega nao usa — numa remessa de US$ 95 com US$
+     * 56 de frete isso inflaria o imposto em mais de 50%.
+     *
+     * O padrao continua somando: so sai da base o regime que declarar, com
+     * todas as letras, `imposto_consumo.base_inclui_frete: false`.
+     */
+    const freteNaBase = ic.base_inclui_frete === false ? 0 : frete;
+    const baseConsumo = valor + freteNaBase + impImportacao + taxasFixas;
     const impConsumo = r2(baseConsumo * (aliquotaConsumo / 100));
 
     if (aliquotaConsumo > 0) {
