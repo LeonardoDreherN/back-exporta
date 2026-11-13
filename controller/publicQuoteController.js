@@ -319,7 +319,7 @@ async function registrarLead(req, { cotou, melhor }) {
     const telLimpo = String(telefone || '').replace(/\D/g, '').slice(0, 20);
 
     // Se não tiver pelo menos o nome ou o telefone, não grava
-    if (!nomeLimpo && !telLimpo) return;
+    if (!nomeLimpo && !telLimpo) return false;
 
     const inteiro = (v) => {
         const n = Math.round(Number(v));
@@ -341,8 +341,36 @@ async function registrarLead(req, { cotou, melhor }) {
             melhor_carrier: melhor?.carrier || null,
             melhor_preco_usd: Number(melhor?.price) || null,
         });
+        return true;
     } catch (err) {
         console.error('[PUBLIC QUOTE][LEAD]', err?.message);
+        return false;
+    }
+}
+
+/*
+ * Grava o cadastro do simulador sem refazer a cotacao.
+ *
+ * O modal que pede nome e WhatsApp abre DEPOIS que o frete ja voltou, entao
+ * nesse momento o cadastro ainda nao existe no banco: a chamada da cotacao
+ * saiu sem contato nenhum. Refazer o /api/public-quote so para gravar custaria
+ * duas chamadas de transportadora e alguns segundos de espera com o visitante
+ * olhando para o modal.
+ *
+ * Responde `salvo`, e nao so `ok`, porque o front so conta a conversao no Meta
+ * depois que o sistema confirma que o cadastro entrou.
+ */
+async function publicLead(req, res) {
+    const { cotou, melhor } = req.body || {};
+    try {
+        const salvo = await registrarLead(req, {
+            cotou: cotou === true,
+            melhor: melhor || null,
+        });
+        return res.json({ ok: true, salvo });
+    } catch (err) {
+        console.error('[PUBLIC QUOTE][LEAD][ROTA]', err?.message);
+        return res.status(500).json({ ok: false, salvo: false, error: 'Não foi possível salvar o cadastro.' });
     }
 }
 
@@ -476,20 +504,28 @@ async function publicQuote(req, res) {
     if (options.length === 0) {
         // Deixou o contato e nao viu preco: e o lead que o comercial mais
         // precisa ver, entao grava antes de devolver o erro.
-        await registrarLead(req, { cotou: false, melhor: null });
+        const leadSalvo = await registrarLead(req, { cotou: false, melhor: null });
         return res.status(502).json({
             ok: false,
             error: 'Não foi possível obter cotação no momento. Tente novamente em instantes.',
             errors,
+            lead_salvo: leadSalvo,
         });
     }
 
     // ordena do mais barato ao mais caro
     options.sort((a, b) => a.price - b.price);
 
-    await registrarLead(req, { cotou: true, melhor: options[0] });
+    // `lead_salvo` diz ao front se o cadastro ja entrou nesta chamada: e o que
+    // autoriza contar a conversao no Meta sem inventar cadastro que nao existe.
+    const leadSalvo = await registrarLead(req, { cotou: true, melhor: options[0] });
 
-    return res.json({ ok: true, options, ...(Object.keys(errors).length ? { errors } : {}) });
+    return res.json({
+        ok: true,
+        options,
+        lead_salvo: leadSalvo,
+        ...(Object.keys(errors).length ? { errors } : {}),
+    });
 }
 
 // Imposto estimado do destino para o simulador da pagina Sobre. Separado da
@@ -509,4 +545,4 @@ async function publicImpostos(req, res) {
     }
 }
 
-module.exports = { publicQuote, publicImpostos };
+module.exports = { publicQuote, publicImpostos, publicLead };
