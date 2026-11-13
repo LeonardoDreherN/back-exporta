@@ -3,6 +3,7 @@ const { quoteRates: fedexRates } = require('../services/fedex/ratingFedex');
 const { estimarImpostoPublico, ImpostoPublicoInputError } = require('../services/impostosPublicos');
 const { desembaracoUsd } = require('../services/taxasTransportadora');
 const { estadoFedex } = require('../utils/fedexEstado');
+const db = require('../models');
 
 // Mesma origem usada pela integracao Shopify (routes/shopifyCarrier.js). A UPS
 // recusa cotacao saindo de Florianopolis 88036003 com erro 111217 ("service
@@ -295,6 +296,49 @@ async function cotarUps(basePayload) {
     return rates[0];
 }
 
+/*
+ * Guarda o contato que a pessoa deixou no simulador da pagina Sobre.
+ *
+ * Esta rota tem dois publicos: o simulador da landing, que pede e-mail e
+ * WhatsApp para liberar o preco, e o checkout das plataformas dos clientes,
+ * que so manda medidas. O que separa os dois e justamente o contato — sem
+ * email nem telefone no corpo, nao ha lead e nada e gravado. Por isso o
+ * checkout de ninguem vira linha nesta tabela.
+ *
+ * Nunca derruba a cotacao: falha de escrita so vai para o log. A pessoa esta
+ * esperando um preco, e perder o lead e menos grave do que perder a venda.
+ */
+async function registrarLead(req, { cotou, melhor }) {
+    const { email, telefone, origem, destino, peso, comprimento, largura, altura } = req.body || {};
+
+    const emailLimpo = String(email || '').trim().slice(0, 160);
+    const telLimpo = String(telefone || '').replace(/\D/g, '').slice(0, 20);
+    if (!emailLimpo && !telLimpo) return;
+
+    const inteiro = (v) => {
+        const n = Math.round(Number(v));
+        return Number.isFinite(n) && n > 0 ? n : null;
+    };
+
+    try {
+        await db.LeadSimulador.create({
+            email: emailLimpo || null,
+            telefone: telLimpo || null,
+            origem: String(origem || '').trim().slice(0, 60) || null,
+            destino: destino ? String(destino).trim().toUpperCase().slice(0, 2) : null,
+            peso_kg: Number(String(peso).replace(',', '.')) || null,
+            comprimento_cm: inteiro(comprimento),
+            largura_cm: inteiro(largura),
+            altura_cm: inteiro(altura),
+            cotou,
+            melhor_carrier: melhor?.carrier || null,
+            melhor_preco_usd: Number(melhor?.price) || null,
+        });
+    } catch (err) {
+        console.error('[PUBLIC QUOTE][LEAD]', err?.message);
+    }
+}
+
 async function publicQuote(req, res) {
     const { comprimento, largura, altura, peso, destino } = req.body || {};
 
@@ -423,6 +467,9 @@ async function publicQuote(req, res) {
     }
 
     if (options.length === 0) {
+        // Deixou o contato e nao viu preco: e o lead que o comercial mais
+        // precisa ver, entao grava antes de devolver o erro.
+        await registrarLead(req, { cotou: false, melhor: null });
         return res.status(502).json({
             ok: false,
             error: 'Não foi possível obter cotação no momento. Tente novamente em instantes.',
@@ -432,6 +479,8 @@ async function publicQuote(req, res) {
 
     // ordena do mais barato ao mais caro
     options.sort((a, b) => a.price - b.price);
+
+    await registrarLead(req, { cotou: true, melhor: options[0] });
 
     return res.json({ ok: true, options, ...(Object.keys(errors).length ? { errors } : {}) });
 }

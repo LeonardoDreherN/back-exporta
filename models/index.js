@@ -29,6 +29,7 @@ const ClassificacaoImpostoModel = require('./ClassificacaoImposto.js');
 const ChamadoModel = require('./Chamado.js');
 const ChamadoMensagemModel = require('./ChamadoMensagem.js');
 const FaturamentoSkuModel = require('./FaturamentoSku.js');
+const LeadSimuladorModel = require('./LeadSimulador.js');
 
 require('dotenv/config');
 
@@ -87,6 +88,7 @@ const db = {
   Chamado: ChamadoModel(sequelize),
   ChamadoMensagem: ChamadoMensagemModel(sequelize),
   FaturamentoSku: FaturamentoSkuModel(sequelize),
+  LeadSimulador: LeadSimuladorModel(sequelize),
 };
 
 // Ativa apenas as associações necessárias para o admin (Cotacao já definia a sua,
