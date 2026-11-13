@@ -11,6 +11,8 @@
 const crypto = require('crypto');
 const { estimarImpostosIA } = require('../impostosIA');
 const { obterRegimeAprovado } = require('../regimeImportacao');
+const { calcularPeloRegime } = require('../regimeImportacao/calculoDireto');
+const { cotacoesParaUsd } = require('../../utils/cotacoes');
 const { valorConversao } = require('../../utils/dolar');
 const {
     impostosMargemPorConfianca,
@@ -104,9 +106,159 @@ function conferirSanidade({ impostoUsdBase, valorDeclarado }) {
     return { ok: true, motivo: null };
 }
 
+/*
+ * Atalho sem IA, quando o regime ja responde sozinho.
+ *
+ * Havia um buraco entre os fluxos: a simulacao fechava a conta direto do
+ * regime quando nenhuma medida dependia do NCM, mas a cotacao — que e onde o
+ * dinheiro e cobrado — chamava a IA SEMPRE. Entao um destino ja apurado e
+ * aprovado, de regra aritmetica, ficava refem de saldo na conta de IA: sem
+ * credito, nenhum imposto aparecia para o cliente e nada entrava na cobranca
+ * antecipada.
+ *
+ * Devolve null quando nao da para fechar sozinho, e ai quem chama segue para
+ * a IA como antes. Os casos de null:
+ *   - sem regime aprovado;
+ *   - alguma medida aplicavel depende do NCM (`aliquota_pct: -1`);
+ *   - a remessa tem itens de capitulos diferentes do HS, porque ai o escopo
+ *     por capitulo pode valer para um item e nao para o outro, e uma conta so
+ *     mentiria para algum deles;
+ *   - cotacao em BRL sem cambio, que impediria posicionar as faixas de valor.
+ */
+async function tentarPeloRegime({ destCountry, incoterm, moeda, commodities, valorDeclarado, regime, frete }) {
+    if (!regime) return null;
+
+    const ncms = (Array.isArray(commodities) ? commodities : [])
+        .map((c) => String(c?.harmonizedCode || '').replace(/\D/g, ''))
+        .filter(Boolean);
+    const capitulos = [...new Set(ncms.map((n) => n.slice(0, 2)))];
+    if (capitulos.length > 1) return null;
+    const ncm = ncms[0] || null;
+
+    let fx = Number(await valorConversao());
+    if (!Number.isFinite(fx) || fx <= 0) fx = 0;
+
+    // O calculo direto raciocina em USD: as faixas e as taxas fixas do regime
+    // sao definidas na moeda do destino e comparadas em dolar.
+    let valorUsd = num(valorDeclarado);
+    if (moeda === 'BRL') {
+        if (!fx) return null;
+        valorUsd = round2(valorUsd / fx);
+    }
+    // `frete` chega sempre em USD (preco_final da cotacao).
+    const freteUsd = num(frete);
+
+    const moedasDoRegime = new Set();
+    for (const m of (regime.medidas || [])) {
+        if (m.moeda_fixo) moedasDoRegime.add(m.moeda_fixo);
+        if (m.moeda_limite) moedasDoRegime.add(m.moeda_limite);
+    }
+    if (regime.de_minimis?.moeda) moedasDoRegime.add(regime.de_minimis.moeda);
+
+    const cotacoes = {
+        BRL: fx ? 1 / fx : undefined,
+        ...(moedasDoRegime.size ? await cotacoesParaUsd([...moedasDoRegime]) : {}),
+    };
+
+    const direto = calcularPeloRegime({ regime, valorUsd, freteUsd, cotacoes, ncm });
+    if (!direto) return null;
+
+    // A confianca aqui e a do REGIME, nao a de uma classificacao: e o regime
+    // que esta determinando o numero.
+    const margemPct = impostosMargemPorConfianca(regime.confianca);
+    const colchaoPct = impostosColchaoCambioPct();
+
+    const impostoUsdBase = round2(direto.total_usd);
+    const impostoUsdComMargem = round2(impostoUsdBase * (1 + margemPct / 100));
+    const impostoValorBrl = round2(impostoUsdComMargem * fx * (1 + colchaoPct / 100));
+
+    // O breakdown vai na moeda da cotacao, como o da IA.
+    const naMoeda = (usd) => (moeda === 'BRL' ? round2(num(usd) * fx) : round2(usd));
+    const breakdown = [];
+    if (direto.imposto_importacao_usd > 0 || direto.aliquota_importacao_pct > 0) {
+        breakdown.push({
+            nome: 'Imposto de importação',
+            aliquota_pct: direto.aliquota_importacao_pct,
+            valor: naMoeda(direto.imposto_importacao_usd),
+            moeda,
+            base: 'Valor declarado',
+        });
+    }
+    if (direto.imposto_consumo_usd > 0) {
+        breakdown.push({
+            nome: regime.imposto_consumo?.nome || 'Imposto sobre consumo',
+            aliquota_pct: direto.aliquota_consumo_pct,
+            valor: naMoeda(direto.imposto_consumo_usd),
+            moeda,
+        });
+    }
+    if (direto.taxas_fixas_usd > 0) {
+        breakdown.push({
+            nome: 'Taxas fixas do destino',
+            valor: naMoeda(direto.taxas_fixas_usd),
+            moeda,
+        });
+    }
+
+    console.info('[IMPOSTO][REGIME] calculado sem IA', {
+        pais: destCountry,
+        regime_id: regime.id,
+        ncm,
+        imposto_usd: impostoUsdBase,
+    });
+
+    return {
+        provider: 'REGIME',
+        pais_destino: destCountry || null,
+        incoterm: incoterm || null,
+        currency: moeda,
+        imposto_usd_base: impostoUsdBase,
+        margem_pct: margemPct,
+        imposto_usd_com_margem: impostoUsdComMargem,
+        fx,
+        fx_fonte: 'awesomeapi',
+        colchao_cambio_pct: colchaoPct,
+        imposto_valor_brl: impostoValorBrl,
+        breakdown,
+        de_minimis: direto.isento_por_de_minimis === true,
+        is_estimate: true,
+        confianca: regime.confianca || null,
+        // Nao houve classificacao: as aliquotas nao dependem do item.
+        classificacao: [],
+        divergencias: [],
+        sanidade: conferirSanidade({ impostoUsdBase, valorDeclarado }),
+        regime_apurado: true,
+        regime_id: regime.id,
+        regime_vigente: Array.isArray(regime.medidas) ? regime.medidas : [],
+        fontes: Array.isArray(regime.fontes) ? regime.fontes : [],
+        observacoes: 'Calculado direto do regime apurado e aprovado: nenhuma medida deste destino '
+            + 'depende do NCM do item, entao a conta e aritmetica e nao passou por IA.',
+        valor_declarado: valorDeclarado,
+        raw_request: {
+            pais_destino: destCountry || null,
+            pais_origem: 'BR',
+            incoterm: incoterm || null,
+            moeda,
+            valor_declarado: valorDeclarado,
+            commodities,
+            regime_id: regime.id,
+            via: 'calculoDireto',
+        },
+        raw_response: direto,
+    };
+}
+
 async function estimarImpostos({ destCountry, incoterm, currency = 'USD', commodities, regime = null, frete = null }) {
     const moeda = String(currency || 'USD').toUpperCase();
     const valorDeclarado = somarValorDeclarado(commodities);
+
+    // Primeiro tenta fechar pelo regime. So chama a IA se ela for mesmo
+    // necessaria — ela custa dinheiro e, sem saldo, derruba a estimativa de
+    // destino cujas regras ja estao apuradas.
+    const direto = await tentarPeloRegime({
+        destCountry, incoterm, moeda, commodities, valorDeclarado, regime, frete,
+    });
+    if (direto) return direto;
 
     const ia = await estimarImpostosIA({
         paisDestino: destCountry,

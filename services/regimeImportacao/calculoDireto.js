@@ -123,6 +123,24 @@ function calcularPeloRegime({ regime, valorUsd, freteUsd = 0, cotacoes = {}, ncm
          * Sem NCM nao da para saber o capitulo, e entao a medida fica valendo:
          * de novo o lado conservador, que no fim leva a classificacao.
          */
+        /*
+         * O par do `aplica_a_capitulos`: declara onde a medida NAO alcanca.
+         *
+         * No Canada o direito varia por posicao — por isso o -1 —, mas ha
+         * capitulo em que a tarifa e Free para qualquer linha. Cafe (capitulo
+         * 09) e o caso verificado na tarifa oficial da CBSA. Sem poder dizer
+         * isso, o -1 do direito mandava para a classificacao por IA ate uma
+         * remessa cuja tarifa e zero com todas as letras.
+         *
+         * A exclusao vem ANTES da inclusao: se a medida nao alcanca aquele
+         * capitulo, nao importa o que a lista de inclusao diga.
+         */
+        const fora = m.nao_aplica_a_capitulos;
+        if (Array.isArray(fora) && fora.length) {
+            const cap = String(ncm || '').replace(/\D/g, '').slice(0, 2);
+            if (cap.length === 2 && fora.includes(cap)) return false;
+        }
+
         const caps = m.aplica_a_capitulos;
         if (Array.isArray(caps) && caps.length) {
             const digitos = String(ncm || '').replace(/\D/g, '');
