@@ -612,6 +612,12 @@ async function prepararSchema() {
   await db.sequelize.query(
     'ALTER TABLE "Clientes" ADD COLUMN IF NOT EXISTS "publicApiKey" VARCHAR(255) UNIQUE'
   );
+  // leads_simulador foi criada antes do modal pedir o nome, e o sync() não
+  // altera tabela existente: sem esta coluna o INSERT do lead e a listagem do
+  // admin quebram as duas.
+  await db.sequelize.query(
+    'ALTER TABLE leads_simulador ADD COLUMN IF NOT EXISTS nome VARCHAR(120)'
+  );
 
   console.log('Banco sincronizado.');
 }
