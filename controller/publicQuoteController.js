@@ -308,12 +308,18 @@ async function cotarUps(basePayload) {
  * Nunca derruba a cotacao: falha de escrita so vai para o log. A pessoa esta
  * esperando um preco, e perder o lead e menos grave do que perder a venda.
  */
+/*
+ * Guarda o contato que a pessoa deixou no simulador da página Sobre.
+ */
 async function registrarLead(req, { cotou, melhor }) {
-    const { email, telefone, origem, destino, peso, comprimento, largura, altura } = req.body || {};
+    const { nome, telefone, email, origem, destino, peso, comprimento, largura, altura } = req.body || {};
 
+    const nomeLimpo = String(nome || '').trim().slice(0, 120);
     const emailLimpo = String(email || '').trim().slice(0, 160);
     const telLimpo = String(telefone || '').replace(/\D/g, '').slice(0, 20);
-    if (!emailLimpo && !telLimpo) return;
+
+    // Se não tiver pelo menos o nome ou o telefone, não grava
+    if (!nomeLimpo && !telLimpo) return;
 
     const inteiro = (v) => {
         const n = Math.round(Number(v));
@@ -322,6 +328,7 @@ async function registrarLead(req, { cotou, melhor }) {
 
     try {
         await db.LeadSimulador.create({
+            nome: nomeLimpo || null,
             email: emailLimpo || null,
             telefone: telLimpo || null,
             origem: String(origem || '').trim().slice(0, 60) || null,
