@@ -88,7 +88,9 @@ async function listar(req, res) {
                 melhor_carrier: l.melhor_carrier,
                 melhor_preco_usd: dec(l.melhor_preco_usd),
                 simulacoes_do_email: l.email ? (vezesPorEmail[l.email] || 1) : null,
-                created_at: l.created_at, // <--- GARANTINDO O ENVIO DA DATA
+                // Com `underscored: true`, a coluna no banco e `created_at`,
+                // mas o atributo exposto pelo Sequelize continua `createdAt`.
+                created_at: l.created_at ?? l.createdAt,
             })),
         });
     } catch (err) {
