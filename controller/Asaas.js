@@ -367,11 +367,30 @@ const gerarBoletoCotacao = async (req, res) => {
         const impostoDaEstimativa = est ? Number(est.imposto_valor_brl) || 0 : 0;
         if (!composicao.imposto_cobravel && impostoDaEstimativa > 0 && !est?.de_minimis) {
             await t.rollback();
+            const PORQUE = {
+                modo_shadow: "a conta está em modo de conferência (IMPOSTOS_MODO=shadow no ambiente, "
+                    + "ou carteira desligada). Troque para enforce e gere de novo.",
+                sanidade_reprovada: "a estimativa foi reprovada na conferência de sanidade — o imposto "
+                    + "calculado passou de 1,5x o valor declarado da mercadoria. Confira a estimativa "
+                    + "antes de cobrar.",
+                snapshot_sem_valor: "a estimativa gravada está sem valor em BRL.",
+            };
+
+            const porque = PORQUE[composicao.imposto_motivo]
+                || "a estimativa não entrou no total da cobrança.";
+
+            console.warn('[BOLETO/COTACAO][SEM_IMPOSTO]', {
+                cotacao_id: cot.id,
+                motivo: composicao.imposto_motivo,
+                imposto_estimado_brl: round2(impostoDaEstimativa),
+            });
+
             return res.status(409).json({
                 ok: false,
-                error: "A estimativa de imposto desta cotação não está liberada para cobrança "
-                    + "(conta em modo de conferência ou estimativa reprovada na sanidade). "
-                    + "O boleto sairia só com frete e desembaraço.",
+                error: `O imposto estimado (R$ ${round2(impostoDaEstimativa).toFixed(2)}) não entrou `
+                    + `no boleto: ${porque} O boleto sairia só com frete e desembaraço, e a cotação `
+                    + `ficaria marcada como cobrada.`,
+                motivo: composicao.imposto_motivo,
                 imposto_estimado_brl: round2(impostoDaEstimativa),
             });
         }

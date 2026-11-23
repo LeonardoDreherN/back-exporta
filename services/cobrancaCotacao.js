@@ -49,6 +49,10 @@ async function composicaoCotacao(cotacao) {
 
     let impostoBrl = round2(num(cotacao.impostos_valor_brl));
     let impostoCobravel = cotacao.impostos_valor_brl != null;
+    // Por que o imposto não entrou no total. Sem isto, "não está liberado para
+    // cobrança" não dizia se o problema era a conta (modo) ou o número
+    // (sanidade) — e as duas se resolvem em lugares diferentes.
+    let impostoMotivo = null;
 
     // Cotação estimada enquanto a conta rodava em shadow guardou o imposto só
     // no snapshot — `impostos_valor_brl` ficou null de propósito. Como a
@@ -63,7 +67,9 @@ async function composicaoCotacao(cotacao) {
             attributes: ['id', 'emailPrincipal', 'carteiraHabilitada'],
         });
 
-        if (impostosModo(cliente) === 'enforce') {
+        if (impostosModo(cliente) !== 'enforce') {
+            impostoMotivo = 'modo_shadow';
+        } else {
             const snap = await db.ImpostoEstimativa.findByPk(cotacao.imposto_estimativa_id, {
                 attributes: ['id', 'imposto_valor_brl', 'imposto_usd_base', 'commodities_snapshot'],
             });
@@ -72,6 +78,10 @@ async function composicaoCotacao(cotacao) {
             if (resgatado != null) {
                 impostoBrl = resgatado;
                 impostoCobravel = true;
+            } else {
+                impostoMotivo = Number(snap?.imposto_valor_brl) > 0
+                    ? 'sanidade_reprovada'
+                    : 'snapshot_sem_valor';
             }
         }
     }
@@ -87,6 +97,7 @@ async function composicaoCotacao(cotacao) {
         desembaraco_brl: desemBrl,
         imposto_brl: impostoBrl,
         imposto_cobravel: impostoCobravel,
+        imposto_motivo: impostoMotivo,
         total_brl: round2(freteBrl + desemBrl + impostoBrl),
         total_centavos: Math.round((freteBrl + desemBrl + impostoBrl) * 100),
     };
