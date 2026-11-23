@@ -493,4 +493,46 @@ async function registrarEstimativaDaCotacao({ cotacao, db }) {
     }
 }
 
-module.exports = { estimarImpostos, registrarEstimativaDaCotacao, commoditiesDoPedido };
+/**
+ * Quanto dá para cobrar de uma estimativa JÁ gravada, em BRL — ou null.
+ *
+ * Existe por causa das cotações estimadas enquanto a conta rodava em shadow:
+ * elas têm o snapshot completo, mas `cotacoes.impostos_valor_brl` ficou null
+ * de propósito, e a estimativa é idempotente — nunca roda de novo. Sem isto, o
+ * boleto dessas cotações sairia sem imposto para sempre, mesmo depois do
+ * enforce.
+ *
+ * A mesma conferência de sanidade da estimativa original é refeita a partir do
+ * snapshot: um número absurdo que não virou boleto em shadow também não vira
+ * agora.
+ *
+ * @param {{ imposto_valor_brl?: any, imposto_usd_base?: any, commodities_snapshot?: any } | null} snap
+ * @returns {number | null}
+ */
+function impostoCobravelDoSnapshot(snap) {
+    if (!snap) return null;
+
+    const valorBrl = round2(num(snap.imposto_valor_brl));
+    if (!(valorBrl > 0)) return null;
+
+    const sanidade = conferirSanidade({
+        impostoUsdBase: num(snap.imposto_usd_base),
+        valorDeclarado: somarValorDeclarado(snap.commodities_snapshot),
+    });
+    if (sanidade.ok === false) {
+        console.warn('[IMPOSTO][SNAPSHOT][NAO_COBRAVEL]', {
+            motivo: sanidade.motivo,
+            brl: valorBrl,
+        });
+        return null;
+    }
+
+    return valorBrl;
+}
+
+module.exports = {
+    estimarImpostos,
+    registrarEstimativaDaCotacao,
+    commoditiesDoPedido,
+    impostoCobravelDoSnapshot,
+};

@@ -1,9 +1,7 @@
 const { Op } = require("sequelize");
 const db = require("../models/index.js");
 const Cotacao = db.Cotacao;
-const { valorConversao } = require("../utils/dolar.js");
 const { impostosBetaHabilitado } = require("../services/featureFlags.js");
-const { desembaracoUsd } = require("../services/taxasTransportadora.js");
 const { composicaoCotacao } = require("../services/cobrancaCotacao.js");
 const axios = require("axios");
 
@@ -312,28 +310,32 @@ const gerarBoletoCotacao = async (req, res) => {
             });
         }
 
-        let fx = Number(await valorConversao());
-        if (!Number.isFinite(fx) || fx <= 0) fx = 0;
-
         // Boleto único, cobrindo a remessa inteira: frete + desembaraço +
         // imposto. Isso pressupõe que a Intrex seja a pagadora junto à
         // transportadora nesta conta — se o cliente também receber a fatura da
         // FedEx/UPS, ele paga o frete duas vezes.
         //
-        // preco_final é tratado como USD aqui; os itens vão separados na
-        // resposta para qualquer divergência de unidade ficar visível na
-        // conferência.
-        const freteUsd = n(cot.preco_final);
-        const freteBrl = round2(freteUsd * fx);
-
+        // A conta sai de composicaoCotacao, a mesma que a carteira, o boleto em
+        // lote e a tela usam. Antes era refeita aqui na mão, e era por isso que
+        // o resgate do imposto do snapshot (cotação estimada em shadow) não
+        // chegava neste boleto: ele lia `impostos_valor_brl` cru, que nesses
+        // casos é null.
+        //
+        // preco_final é tratado como USD; os itens vão separados na resposta
+        // para qualquer divergência de unidade ficar visível na conferência.
+        //
         // Desembaraco: nao vem no rate (conferido nos surcharges reais — a
         // FedEx devolve so FUEL e ANCILLARY_FEE) e nao e tributo do destino,
         // entao a estimativa de imposto tambem nao o inclui.
-        const desembaraco = desembaracoUsd(cot.carrier, cot.pais_dest);
-        const desembaracoBrl = round2(desembaraco * fx);
+        const composicao = await composicaoCotacao(cot);
 
-        const impostoBrl = round2(n(cot.impostos_valor_brl));
-        const totalBrl = round2(freteBrl + desembaracoBrl + impostoBrl);
+        const fx = composicao.fx;
+        const freteUsd = composicao.frete_usd;
+        const freteBrl = composicao.frete_brl;
+        const desembaraco = composicao.desembaraco_usd;
+        const desembaracoBrl = composicao.desembaraco_brl;
+        const impostoBrl = composicao.imposto_brl;
+        const totalBrl = composicao.total_brl;
 
         if (freteBrl <= 0) {
             await t.rollback();
@@ -353,6 +355,25 @@ const gerarBoletoCotacao = async (req, res) => {
         let est = null;
         if (cot.imposto_estimativa_id) {
             est = await db.ImpostoEstimativa.findByPk(cot.imposto_estimativa_id, { transaction: t });
+        }
+
+        // Há estimativa com valor, mas ela não entrou no total: o boleto sairia
+        // só com frete e desembaraço, com uma descrição dizendo "impostos
+        // estimados" — e, pior, marcaria a cotação como GERADO, que é um
+        // caminho sem volta pela tela (não dá para emitir outro boleto dela).
+        // Melhor falhar e deixar a cotação livre.
+        //
+        // de_minimis fica de fora: ali o imposto é zero de verdade.
+        const impostoDaEstimativa = est ? Number(est.imposto_valor_brl) || 0 : 0;
+        if (!composicao.imposto_cobravel && impostoDaEstimativa > 0 && !est?.de_minimis) {
+            await t.rollback();
+            return res.status(409).json({
+                ok: false,
+                error: "A estimativa de imposto desta cotação não está liberada para cobrança "
+                    + "(conta em modo de conferência ou estimativa reprovada na sanidade). "
+                    + "O boleto sairia só com frete e desembaraço.",
+                imposto_estimado_brl: round2(impostoDaEstimativa),
+            });
         }
 
         const customer = await verificaCustomer(cliente);

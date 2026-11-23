@@ -8,6 +8,8 @@
 const db = require('../models');
 const { desembaracoUsd } = require('./taxasTransportadora');
 const { valorConversao } = require('../utils/dolar');
+const { impostosModo } = require('./featureFlags');
+const { impostoCobravelDoSnapshot } = require('./landedCost');
 
 const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 
@@ -44,7 +46,35 @@ async function composicaoCotacao(cotacao) {
 
     const freteUsd = num(cotacao.preco_final);
     const desemUsd = desembaracoUsd(cotacao.carrier, cotacao.pais_dest);
-    const impostoBrl = round2(num(cotacao.impostos_valor_brl));
+
+    let impostoBrl = round2(num(cotacao.impostos_valor_brl));
+    let impostoCobravel = cotacao.impostos_valor_brl != null;
+
+    // Cotação estimada enquanto a conta rodava em shadow guardou o imposto só
+    // no snapshot — `impostos_valor_brl` ficou null de propósito. Como a
+    // estimativa é idempotente, ela nunca roda de novo: sem este resgate, o
+    // boleto dessas cotações sairia sem imposto para sempre.
+    //
+    // Quem decide é o modo de AGORA, lido do cliente, não o que estava valendo
+    // quando a estimativa rodou. Conta que voltar para shadow volta a não
+    // cobrar, e o resgate respeita a mesma conferência de sanidade.
+    if (!impostoCobravel && cotacao.imposto_estimativa_id) {
+        const cliente = await db.Cliente.findByPk(cotacao.cliente_id, {
+            attributes: ['id', 'emailPrincipal', 'carteiraHabilitada'],
+        });
+
+        if (impostosModo(cliente) === 'enforce') {
+            const snap = await db.ImpostoEstimativa.findByPk(cotacao.imposto_estimativa_id, {
+                attributes: ['id', 'imposto_valor_brl', 'imposto_usd_base', 'commodities_snapshot'],
+            });
+            const resgatado = impostoCobravelDoSnapshot(snap);
+
+            if (resgatado != null) {
+                impostoBrl = resgatado;
+                impostoCobravel = true;
+            }
+        }
+    }
 
     const freteBrl = round2(freteUsd * fx);
     const desemBrl = round2(desemUsd * fx);
@@ -56,7 +86,7 @@ async function composicaoCotacao(cotacao) {
         desembaraco_usd: desemUsd,
         desembaraco_brl: desemBrl,
         imposto_brl: impostoBrl,
-        imposto_cobravel: cotacao.impostos_valor_brl != null,
+        imposto_cobravel: impostoCobravel,
         total_brl: round2(freteBrl + desemBrl + impostoBrl),
         total_centavos: Math.round((freteBrl + desemBrl + impostoBrl) * 100),
     };

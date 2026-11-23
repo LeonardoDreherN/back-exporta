@@ -31,17 +31,22 @@ function impostosBetaHabilitado(cliente) {
  * Modo de operação da feature: 'shadow' (só calcula e registra) ou 'enforce'
  * (o imposto entra no valor cobrado).
  *
- * Conta com a carteira ligada pelo admin é sempre 'enforce': o admin liberou a
- * cobrança antecipada dela, e em shadow o imposto ficaria fora do total. As
- * demais seguem IMPOSTOS_MODO.
+ * O padrão passou a ser 'enforce' em 2026-11-23: todo boleto sai com o imposto
+ * estimado dentro do valor. O 'shadow' foi o modo de conferência enquanto a
+ * estimativa por IA era nova (desde 2026-10-19) — a estimativa aparecia na
+ * tela mas ficava fora do campo que a cobrança usa, então o boleto saía só com
+ * frete + desembaraço.
+ *
+ * Conta com a carteira ligada pelo admin continua sempre 'enforce'. Para
+ * voltar a conferir sem cobrar, sem novo deploy: IMPOSTOS_MODO=shadow.
  * @param {{ carteiraHabilitada?: boolean } | null | undefined} [cliente]
  * @returns {'shadow' | 'enforce'}
  */
 function impostosModo(cliente) {
     if (cliente?.carteiraHabilitada === true) return 'enforce';
 
-    const m = String(process.env.IMPOSTOS_MODO || 'shadow').trim().toLowerCase();
-    return m === 'enforce' ? 'enforce' : 'shadow';
+    const m = String(process.env.IMPOSTOS_MODO || 'enforce').trim().toLowerCase();
+    return m === 'shadow' ? 'shadow' : 'enforce';
 }
 
 /**
