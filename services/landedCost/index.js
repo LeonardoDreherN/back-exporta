@@ -92,6 +92,22 @@ function montarBreakdown(ia, moeda) {
 // o número passa a ser registrado para conferência em vez de virar boleto.
 const LIMITE_IMPOSTO_SOBRE_DECLARADO = Number(process.env.IMPOSTO_LIMITE_MULTIPLO) || 1.5;
 
+/*
+ * Piso em USD para o limite acima valer.
+ *
+ * O múltiplo sozinho dava falso positivo justamente onde ele não protege nada:
+ * amostra sem valor comercial, declarada em US$ 10, paga taxa mínima e fee do
+ * destino e passa fácil de 1,5x o declarado — sem que haja erro nenhum na
+ * conta. Era o caso da cotação #791, barrada com R$ 94,88 de imposto correto.
+ *
+ * O que o limite existe para pegar é ordem de grandeza (casa decimal trocada,
+ * valor da mercadoria somado dentro do imposto), e isso só é dinheiro de
+ * verdade acima de um piso. Abaixo dele o pior caso é cobrar algumas dezenas
+ * de dólares a mais, que a conferência humana pega depois — enquanto barrar
+ * trava a emissão do cliente, que é pior.
+ */
+const PISO_SANIDADE_USD = Number(process.env.IMPOSTO_SANIDADE_PISO_USD) || 50;
+
 function conferirSanidade({ impostoUsdBase, valorDeclarado }) {
     if (!Number.isFinite(impostoUsdBase) || impostoUsdBase < 0) {
         return { ok: false, motivo: 'valor_invalido' };
@@ -101,6 +117,9 @@ function conferirSanidade({ impostoUsdBase, valorDeclarado }) {
         return { ok: true, motivo: 'sem_valor_declarado' };
     }
     if (impostoUsdBase > valorDeclarado * LIMITE_IMPOSTO_SOBRE_DECLARADO) {
+        if (impostoUsdBase <= PISO_SANIDADE_USD) {
+            return { ok: true, motivo: 'acima_do_limite_mas_abaixo_do_piso' };
+        }
         return { ok: false, motivo: 'acima_do_limite' };
     }
     return { ok: true, motivo: null };
