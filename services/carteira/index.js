@@ -239,6 +239,83 @@ async function criarRecarga(cliente, { valorCentavos, metodo }) {
         total_centavos: total,
     });
 
+    return cobrarNoAsaas(cliente, pagamento, {
+        description: `Recarga carteira Intrex - R$ ${reais(valorCentavos).toFixed(2)}`,
+        externalReference: `recarga:${pagamento.id}`,
+    });
+}
+
+/**
+ * Cobra uma remessa direto, por PIX ou cartão, sem passar pela carteira. É o
+ * pagamento do envio avulso (pessoa física): um envio só, e recarregar saldo
+ * para gastar tudo em seguida seria um passo a mais sem motivo.
+ *
+ * Reaproveita a cobrança PENDING da mesma cotação quando o método e o valor
+ * são os mesmos e o PIX ainda vale: clicar em "Pagar" de novo, ou recarregar a
+ * página, não pode abrir uma segunda cobrança da mesma remessa.
+ */
+async function criarPagamentoCotacao(cliente, cotacao, { valorCentavos, metodo }) {
+    if (!['PIX', 'CREDIT_CARD'].includes(metodo)) {
+        const e = new Error('Forma de pagamento inválida'); e.status = 400; throw e;
+    }
+    if (!Number.isInteger(valorCentavos) || valorCentavos <= 0) {
+        const e = new Error('Remessa sem valor a cobrar'); e.status = 400; throw e;
+    }
+
+    const { taxa, total } = metodo === 'CREDIT_CARD'
+        ? taxaCartao(valorCentavos)
+        : { taxa: 0, total: valorCentavos };
+
+    const aberto = await db.Pagamento.findOne({
+        where: {
+            cliente_id: cliente.id,
+            finalidade: 'cotacao',
+            cotacao_id: cotacao.id,
+            metodo,
+            status: 'PENDING',
+            total_centavos: total,
+        },
+        order: [['id', 'DESC']],
+    });
+    const pixAindaVale = !aberto?.pix_expira_em || new Date(aberto.pix_expira_em) > new Date();
+    if (aberto?.asaas_payment_id && pixAindaVale) {
+        let pixImagem = null;
+        if (metodo === 'PIX') {
+            try {
+                const { data: qr } = await asaas().get(`/payments/${aberto.asaas_payment_id}/pixQrCode`);
+                pixImagem = qr.encodedImage || null;
+            } catch (e) {
+                console.warn('[CARTEIRA][COTACAO] QR do PIX aberto indisponível', { id: aberto.id, msg: e.message });
+            }
+        }
+        return { pagamento: aberto, pixImagem };
+    }
+
+    const pagamento = await db.Pagamento.create({
+        cliente_id: cliente.id,
+        finalidade: 'cotacao',
+        cotacao_id: cotacao.id,
+        metodo,
+        valor_centavos: valorCentavos,
+        taxa_centavos: taxa,
+        total_centavos: total,
+    });
+
+    return cobrarNoAsaas(cliente, pagamento, {
+        description: `Envio Intrex - cotação #${cotacao.id} (${cotacao.carrier})`,
+        externalReference: `cotacao:${cotacao.id}:pagamento:${pagamento.id}`,
+    });
+}
+
+/**
+ * Cria a cobrança no Asaas para um Pagamento já gravado. PIX volta com o QR;
+ * cartão volta com o link da página de pagamento do Asaas (o cartão é
+ * digitado lá, nunca passa pelo nosso servidor).
+ */
+async function cobrarNoAsaas(cliente, pagamento, { description, externalReference }) {
+    const metodo = pagamento.metodo;
+    const total = pagamento.total_centavos;
+
     // Sem chave nao adianta chamar o Asaas: ele devolve "chave de API invalida"
     // e o erro chega no cliente como se a cobranca tivesse sido recusada.
     if (!tokenAsaas()) {
@@ -259,8 +336,8 @@ async function criarRecarga(cliente, { valorCentavos, metodo }) {
             billingType: metodo,
             value: reais(total),
             dueDate: hojeBrasil(metodo === 'PIX' ? 1 : 0),
-            description: `Recarga carteira Intrex - R$ ${reais(valorCentavos).toFixed(2)}`,
-            externalReference: `recarga:${pagamento.id}`,
+            description,
+            externalReference,
         });
 
         const patch = {
@@ -282,8 +359,9 @@ async function criarRecarga(cliente, { valorCentavos, metodo }) {
     } catch (err) {
         await pagamento.update({ status: 'FALHOU' });
         const msg = err?.response?.data?.errors?.[0]?.description || err.message;
-        console.error('[CARTEIRA][RECARGA] falha no Asaas', {
+        console.error('[CARTEIRA][COBRANCA] falha no Asaas', {
             pagamentoId: pagamento.id,
+            finalidade: pagamento.finalidade,
             ambiente: AMBIENTE_ASAAS,
             varToken: VAR_TOKEN,
             url: URL_ASAAS,
@@ -327,6 +405,14 @@ async function sincronizarPagamento(pagamento) {
             status_asaas: st,
             pago_em: pagamento.pago_em || new Date(),
         });
+        // Mesma regra do pagar-com-saldo: remessa paga direto nao pode ser
+        // varrida de novo pela cobranca em lote.
+        if (pagamento.finalidade === 'cotacao' && pagamento.cotacao_id) {
+            await db.Cotacao.update(
+                { status_pagamento: 'GERADO' },
+                { where: { id: pagamento.cotacao_id } },
+            );
+        }
     } else if (STATUS_ESTORNO.includes(st)) {
         // Só desfaz o que foi creditado. Pode deixar o saldo negativo se o
         // cliente já gastou: aí fica devendo, e isso aparece no extrato.
@@ -406,6 +492,7 @@ module.exports = {
     lancar,
     debitar,
     criarRecarga,
+    criarPagamentoCotacao,
     sincronizarPagamento,
     sincronizarBoleto,
     pagamentoPublico,

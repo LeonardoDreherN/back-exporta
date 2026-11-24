@@ -162,6 +162,20 @@ const registrarCliente = async (req, res) => {
         };
 
 
+        // Cadastro vindo da página /envio (pessoa física, um envio só): nasce
+        // pagando antes da etiqueta. Só com CPF — empresa entra pelo cadastro
+        // normal e é faturada.
+        if (b.envioAvulso === true) {
+            if (tipoDocumento !== "cpf") {
+                await t.rollback();
+                return res.status(400).json({ erro: "O envio avulso é só para pessoa física (CPF)." });
+            }
+            dadosCliente.envioAvulso = true;
+            dadosCliente.carteiraHabilitada = true;
+            dadosCliente.carteiraHabilitadaEm = new Date();
+            dadosCliente.plano = "basico";
+        }
+
         // 6) Cria dentro da transação
         const novoCliente = await db.Cliente.create(dadosCliente, { transaction: t });
 
@@ -376,6 +390,7 @@ const verClienteAtual = async (req, res) => {
                 "telefoneIOR",
                 "state_tax_idIOR",
                 "remetenteFixoAtivo",
+                "envioAvulso",
                 "destinoFixoNome",
                 "destinoFixoPais",
                 "destinoFixoEstado",

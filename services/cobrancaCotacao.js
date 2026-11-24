@@ -122,6 +122,22 @@ async function situacaoPagamento(cotacao) {
         };
     }
 
+    // Pagamento direto por PIX ou cartão (envio avulso). Só conta depois que
+    // o Asaas confirmou: o webhook (ou a consulta do front) marca PAGO.
+    const direto = await db.Pagamento.findOne({
+        where: { cotacao_id: cotacao.id, finalidade: 'cotacao', status: 'PAGO' },
+        order: [['id', 'DESC']],
+    });
+
+    if (direto) {
+        return {
+            pago: true,
+            forma: direto.metodo === 'PIX' ? 'pix' : 'cartao',
+            valor_centavos: direto.valor_centavos,
+            em: direto.pago_em,
+        };
+    }
+
     const boleto = await db.AsaasBoletos.findOne({
         where: { cotacaoId: cotacao.id },
         order: [['id', 'DESC']],

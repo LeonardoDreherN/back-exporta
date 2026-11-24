@@ -52,6 +52,9 @@ router.post('/:id/cpsc/gerar', requireAuth, ctrl.gerarCPSC);
 router.post('/:id/imposto-real', requireAuth, ctrl.registrarImpostoReal);
 router.get('/:id/cobranca', requireAuth, ctrl.getCobranca);
 router.post('/:id/pagar-com-saldo', requireAuth, ctrl.pagarComSaldo);
+// Pagamento direto da remessa por PIX ou cartão (envio avulso).
+router.post('/:id/pagamento', requireAuth, ctrl.criarPagamento);
+router.get('/:id/pagamento/:pagamentoId', requireAuth, ctrl.verPagamento);
 
 router.get('/:id/etiqueta', requireAuth, ctrl.downloadEtiqueta);
 router.get('/:id/invoice', requireAuth, ctrl.downloadInvoice);

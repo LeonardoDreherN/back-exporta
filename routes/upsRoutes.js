@@ -6,6 +6,7 @@ const { Cotacao } = require('../models');
 const { normalize } = require('../services/ups/tracking');
 const { bloquearEnvios } = require('../middleware/enviosBloqueados');
 const { limitarPorCredito } = require('../middleware/limiteCredito');
+const { exigirPagamentoAntesDaEtiqueta } = require('../middleware/pagamentoAntesDaEtiqueta');
 
 const router = express.Router();
 
@@ -39,7 +40,7 @@ router.options('/pickup', corsOpts, (_req, res) => res.sendStatus(204));
 
 // Rotas
 router.post('/rating', corsOpts, bloquearEnvios, ctrl.rate);
-router.post('/shipping', corsOpts, bloquearEnvios, limitarPorCredito, ctrl.ship);
+router.post('/shipping', corsOpts, bloquearEnvios, limitarPorCredito, exigirPagamentoAntesDaEtiqueta('UPS'), ctrl.ship);
 router.get('/tracking/:tracking', corsOpts, ctrl.track);
 router.post('/pickup', corsOpts, bloquearEnvios, ctrl.createPickup);
 

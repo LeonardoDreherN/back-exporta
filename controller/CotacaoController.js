@@ -2159,9 +2159,94 @@ async function pagarComSaldo(req, res) {
     }
 }
 
+/**
+ * POST /cotacoes/:id/pagamento  { metodo: 'PIX' | 'CREDIT_CARD' }
+ * Cobra a remessa direto, sem passar pelo saldo da carteira. PIX volta com o
+ * QR; cartão volta com o link do Asaas. Mesmas travas do pagar-com-saldo.
+ */
+async function criarPagamento(req, res) {
+    try {
+        const cot = await cotacaoDoCliente(req, res);
+        if (!cot) return;
+
+        const dono = await Cliente.findByPk(cot.cliente_id);
+        if (!carteira.carteiraHabilitada(dono)) {
+            return res.status(403).json({ ok: false, error: 'Pagamento antecipado não liberado para esta conta.' });
+        }
+
+        const jaPago = await situacaoPagamento(cot);
+        if (jaPago.pago) {
+            return res.json({ ok: true, ja_pago: true, situacao: jaPago });
+        }
+
+        if (impostosBetaHabilitado(dono) && !cot.imposto_estimativa_id && cot.impostos_valor_brl == null) {
+            return res.status(409).json({
+                ok: false,
+                aguardando_imposto: true,
+                error: 'O imposto do destino ainda está sendo calculado. Tente de novo em instantes.',
+            });
+        }
+
+        const composicao = await composicaoCotacao(cot);
+        const metodo = String(req.body?.metodo || '').toUpperCase();
+
+        const { pagamento, pixImagem } = await carteira.criarPagamentoCotacao(dono, cot, {
+            valorCentavos: composicao.total_centavos,
+            metodo,
+        });
+
+        return res.status(201).json({
+            ok: true,
+            pagamento: carteira.pagamentoPublico(pagamento, { pix_imagem: pixImagem }),
+            composicao,
+        });
+    } catch (err) {
+        const status = err.status || 500;
+        if (status >= 500) console.error('[COBRANCA][PAGAMENTO]', err.message);
+        return res.status(status).json({ ok: false, error: err.message || 'Erro ao criar o pagamento' });
+    }
+}
+
+/**
+ * GET /cotacoes/:id/pagamento/:pagamentoId
+ * Consulta usada pelo front enquanto espera o PIX ou o cartão. Também confere
+ * no Asaas: se o webhook atrasar, a remessa é liberada mesmo assim.
+ */
+async function verPagamento(req, res) {
+    try {
+        const cot = await cotacaoDoCliente(req, res);
+        if (!cot) return;
+
+        const pagamento = await db.Pagamento.findOne({
+            where: {
+                id: Number(req.params.pagamentoId) || 0,
+                cotacao_id: cot.id,
+                cliente_id: cot.cliente_id,
+                finalidade: 'cotacao',
+            },
+        });
+        if (!pagamento) return res.status(404).json({ ok: false, error: 'Pagamento não encontrado' });
+
+        if (pagamento.status === 'PENDING') {
+            try {
+                await carteira.sincronizarPagamento(pagamento);
+            } catch (e) {
+                console.warn('[COBRANCA][PAGAMENTO][SYNC] falha ao consultar Asaas', { id: pagamento.id, msg: e.message });
+            }
+        }
+
+        return res.json({ ok: true, pagamento: carteira.pagamentoPublico(pagamento) });
+    } catch (err) {
+        console.error('[COBRANCA][PAGAMENTO][GET]', err);
+        return res.status(500).json({ ok: false, error: 'Erro ao consultar o pagamento' });
+    }
+}
+
 module.exports = {
     getCobranca,
     pagarComSaldo,
+    criarPagamento,
+    verPagamento,
     createCotacaoReal,
     attachDocs,
     gerarInvoice,

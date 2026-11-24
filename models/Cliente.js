@@ -74,6 +74,11 @@ module.exports = (sequelize) => {
     carteiraHabilitada: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     carteiraHabilitadaEm: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
 
+    // Pessoa física que veio pela página /envio: paga a remessa antes de a
+    // etiqueta ser emitida (middleware/pagamentoAntesDaEtiqueta.js). Nasce com
+    // a carteira ligada, que é o que liga a cobrança antecipada.
+    envioAvulso: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+
     // Se true (padrão), o endereço da empresa (enderecoPais/Rua/etc.) é usado
     // para pré-preencher o remetente nas cotações e coletas. Clientes que
     // coletam em endereços variados podem desativar para digitar manualmente
