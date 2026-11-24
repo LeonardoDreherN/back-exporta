@@ -974,6 +974,17 @@ console.log('[UPS SHIP] conta resolvida:', creds.shipperNumber);
                 }
             }
 
+            // O front não manda o documento do remetente, então a UPS saía com
+            // o TaxIdentificationNumber e o TaxInformation da invoice vazios. A
+            // FedEx já completava com o do cadastro (mapClienteToFedexShipper);
+            // aqui passa a fazer o mesmo. Em `cnpj` fica CNPJ ou CPF, conforme
+            // tipoDocumento.
+            const temDocRemetente = cli?.shipper &&
+                (cli.shipper.cnpjOuTaxId || cli.shipper.taxId || cli.shipper.tax_id || cli.shipper.ein || cli.shipper.vat);
+            if (cli?.shipper && !temDocRemetente && cliente?.cnpj) {
+                cli.shipper.cnpjOuTaxId = cliente.cnpj;
+            }
+
             if (UPS_STUB) {
                 return res.json({
                     ok: true,
