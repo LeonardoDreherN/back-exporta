@@ -830,9 +830,12 @@ function guessCpscFilename(pedido_ref, nomeCliente) {
 }
 
 /*
- * Sim/nao/nao-respondido. O campo 3 ("Certification exists?") sem resposta
- * sai sem marcacao nenhuma, que e diferente de sair marcado "No".
- * Converter ausencia em `false` marcaria uma declaracao que ninguem fez.
+ * Sim/nao/nao-respondido, para as duas perguntas booleanas do papel: o campo
+ * 3 ("Certification exists?") e o campo 11 ("children's product?").
+ *
+ * Ausencia continua distinta de `false` aqui, para o servico poder aplicar o
+ * default dele. No papel, ambas saem respondidas "No" quando ninguem
+ * respondeu: campo em branco e o que fez mercadoria voltar.
  */
 function triEstado(v) {
     if (v === true || v === 'true') return true;
@@ -916,6 +919,9 @@ async function gerarCPSC(req, res) {
         }
 
         opcoes.certificacaoExiste = triEstado(opcoes.certificacaoExiste);
+        // Campo 11 do papel. Vem como booleano da tela, mas pode chegar
+        // "true"/"false" de quem chama a rota direto.
+        opcoes.produtoInfantil = triEstado(opcoes.produtoInfantil);
 
         const cliente = await db.Cliente.findByPk(cot.cliente_id);
 
