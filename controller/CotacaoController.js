@@ -2033,6 +2033,61 @@ async function cotacaoDoCliente(req, res) {
 }
 
 /**
+ * POST /cotacoes/:id/imposto/reestimar
+ *
+ * Tira a cotacao do beco sem saida. A estimativa e disparada uma vez so, sem
+ * await, na confirmacao da cotacao: se aquela chamada da IA falhar, nada mais
+ * a dispara. O outro gatilho (attachDocs) so roda depois da etiqueta, a
+ * etiqueta exige pagamento e o pagamento exige a estimativa — o cliente fica
+ * presto no 409 'aguardando_imposto' para sempre.
+ *
+ * Idempotente de graca: registrarEstimativaDaCotacao devolve 'ja_estimado' sem
+ * gastar chamada quando a cotacao ja tem snapshot. Roda com await, ao
+ * contrario dos gatilhos automaticos, porque aqui quem chamou esta esperando a
+ * resposta para saber se pode pagar.
+ */
+async function reestimarImposto(req, res) {
+    try {
+        const cot = await cotacaoDoCliente(req, res);
+        if (!cot) return;
+
+        // Etiqueta emitida = remessa paga. Reestimar aqui so mudaria um numero
+        // que ninguem mais vai cobrar.
+        if (cot.tracking_number) {
+            return res.status(409).json({
+                ok: false,
+                error: 'Esta remessa já foi emitida; o imposto dela não muda mais.',
+            });
+        }
+
+        const r = await registrarEstimativaDaCotacao({ cotacao: cot, db });
+
+        if (r?.ok === false && r.motivo === 'fora_da_allowlist') {
+            return res.status(403).json({ ok: false, error: 'Imposto não habilitado nesta conta.' });
+        }
+        if (r?.ok === false && ['pedido_sem_itens', 'sem_pais_destino'].includes(r.motivo)) {
+            return res.status(422).json({
+                ok: false,
+                motivo: r.motivo,
+                error: 'A cotação não tem os dados que a estimativa precisa (itens e país de destino).',
+            });
+        }
+
+        await cot.reload();
+
+        return res.json({
+            ok: true,
+            motivo: r?.motivo || null,
+            imposto_estimativa_id: cot.imposto_estimativa_id || null,
+            impostos_valor_brl: cot.impostos_valor_brl != null ? Number(cot.impostos_valor_brl) : null,
+        });
+    } catch (err) {
+        console.error('[IMPOSTO][IA][REESTIMAR]', err?.message);
+        return res.status(500).json({ ok: false, error: 'Não foi possível recalcular o imposto.' });
+    }
+}
+
+/**
  * GET /cotacoes/:id/cobranca
  * Quanto custa a remessa, como se compoe e se ja foi paga. E o que a tela do
  * valor consome antes de oferecer carteira ou boleto.
@@ -2247,6 +2302,7 @@ module.exports = {
     pagarComSaldo,
     criarPagamento,
     verPagamento,
+    reestimarImposto,
     createCotacaoReal,
     attachDocs,
     gerarInvoice,

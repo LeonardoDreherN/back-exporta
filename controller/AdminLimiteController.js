@@ -21,6 +21,7 @@ const {
     totalPagoUsd,
 } = require('../services/limiteCredito');
 const { logAdminAction } = require('../services/audit');
+const { sqlCotacaoPaga } = require('../services/cobrancaCotacao');
 
 function quemEstaLogado(req) {
     return req.admin?.email || req.admin?.nome || req.adminUser?.email || 'admin';
@@ -54,14 +55,7 @@ async function panorama(_req, res) {
                    ON c.cliente_id = cl.id
                   AND (c.status_norm IS NULL OR c.status_norm::text <> 'CANCELADO')
             LEFT JOIN LATERAL (
-                SELECT (
-                    c.pago_manual_em IS NOT NULL
-                    OR EXISTS (SELECT 1 FROM carteira_lancamentos w
-                               WHERE w.chave = 'envio:cotacao:' || c.id)
-                    OR EXISTS (SELECT 1 FROM "AsaasBoletos" b
-                               WHERE b."cotacaoId" = c.id
-                                 AND b.status IN ('RECEIVED','CONFIRMED','RECEIVED_IN_CASH'))
-                ) AS pago
+                SELECT ${sqlCotacaoPaga('c')} AS pago
             ) aberto ON TRUE
             GROUP BY cl.id, cl."razaoSocial", cl.codigo, cl."limiteCreditoAtivo",
                      cl."nivelConta", cl."limiteAbertoUsdOverride"
@@ -339,12 +333,7 @@ async function enviosAbertos(req, res) {
             FROM cotacoes c
             WHERE c.cliente_id = :clienteId
               AND (c.status_norm IS NULL OR c.status_norm::text <> 'CANCELADO')
-              AND c.pago_manual_em IS NULL
-              AND NOT EXISTS (SELECT 1 FROM carteira_lancamentos w
-                              WHERE w.chave = 'envio:cotacao:' || c.id)
-              AND NOT EXISTS (SELECT 1 FROM "AsaasBoletos" b
-                              WHERE b."cotacaoId" = c.id
-                                AND b.status IN ('RECEIVED','CONFIRMED','RECEIVED_IN_CASH'))
+              AND NOT ${sqlCotacaoPaga('c')}
             ORDER BY c.created_at DESC
             LIMIT 500
             `,

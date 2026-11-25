@@ -21,6 +21,7 @@
 
 const db = require('../../models');
 const { QueryTypes } = require('sequelize');
+const { sqlCotacaoPaga } = require('../cobrancaCotacao');
 
 /*
  * Niveis. O limite e em USD porque `cotacoes.preco_final` e em USD (ver
@@ -68,8 +69,8 @@ function limiteDoCliente(cliente) {
 /**
  * Soma dos envios despachados e nao pagos, em USD.
  *
- * Uma consulta so. As duas subconsultas NOT EXISTS replicam, em SQL, a mesma
- * regra que situacaoPagamento aplica em JavaScript.
+ * Uma consulta so. A regra de "pago" vem de sqlCotacaoPaga, a mesma que
+ * situacaoPagamento aplica em JavaScript — ver services/cobrancaCotacao.js.
  */
 async function emAbertoUsd(clienteId) {
     const [linha] = await db.sequelize.query(
@@ -79,16 +80,7 @@ async function emAbertoUsd(clienteId) {
         FROM cotacoes c
         WHERE c.cliente_id = :clienteId
           AND (c.status_norm IS NULL OR c.status_norm::text <> ALL(ARRAY[:naoConta]::text[]))
-          AND c.pago_manual_em IS NULL
-          AND NOT EXISTS (
-                SELECT 1 FROM carteira_lancamentos cl
-                WHERE cl.chave = 'envio:cotacao:' || c.id
-          )
-          AND NOT EXISTS (
-                SELECT 1 FROM "AsaasBoletos" b
-                WHERE b."cotacaoId" = c.id
-                  AND b.status IN ('RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH')
-          )
+          AND NOT ${sqlCotacaoPaga('c')}
         `,
         {
             replacements: { clienteId, naoConta: NAO_CONTA },
@@ -208,18 +200,7 @@ async function totalPagoUsd(clienteId) {
         FROM cotacoes c
         WHERE c.cliente_id = :clienteId
           AND (c.status_norm IS NULL OR c.status_norm::text <> ALL(ARRAY[:naoConta]::text[]))
-          AND (
-                c.pago_manual_em IS NOT NULL
-             OR EXISTS (
-                   SELECT 1 FROM carteira_lancamentos cl
-                   WHERE cl.chave = 'envio:cotacao:' || c.id
-                )
-             OR EXISTS (
-                   SELECT 1 FROM "AsaasBoletos" b
-                   WHERE b."cotacaoId" = c.id
-                     AND b.status IN ('RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH')
-                )
-          )
+          AND ${sqlCotacaoPaga('c')}
         `,
         {
             replacements: { clienteId, naoConta: NAO_CONTA },

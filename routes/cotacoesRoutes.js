@@ -50,6 +50,11 @@ router.post('/:id/invoice/gerar', requireAuth, ctrl.gerarInvoice);
 // anterior: as respostas do formulario vem no corpo e podem ser corrigidas.
 router.post('/:id/cpsc/gerar', requireAuth, ctrl.gerarCPSC);
 router.post('/:id/imposto-real', requireAuth, ctrl.registrarImpostoReal);
+// Reprocessa a estimativa de imposto. Existe porque o gatilho automatico roda
+// uma vez so e sem await: se a IA falhar ali, sem esta rota a cotacao fica
+// presa (nao paga por falta de imposto, e o imposto so voltaria depois de
+// paga).
+router.post('/:id/imposto/reestimar', requireAuth, ctrl.reestimarImposto);
 router.get('/:id/cobranca', requireAuth, ctrl.getCobranca);
 router.post('/:id/pagar-com-saldo', requireAuth, ctrl.pagarComSaldo);
 // Pagamento direto da remessa por PIX ou cartão (envio avulso).

@@ -34,6 +34,44 @@ function chaveEstorno(cotacaoId) {
 }
 
 /**
+ * A MESMA regra de `situacaoPagamento`, em SQL, para quem soma muitas cotações
+ * de uma vez (exposição do cliente, painel do admin) e não pode fazer uma
+ * consulta por linha.
+ *
+ * Mora aqui de propósito, coladinha na versão em JavaScript: as duas já
+ * dessincronizaram uma vez. O pagamento direto por PIX/cartão entrou em
+ * `situacaoPagamento` e não entrou nas quatro cópias do SQL espalhadas pelo
+ * código, então a remessa saía com a etiqueta liberada e continuava contando
+ * como "em aberto" no painel. Forma de pagamento nova = mexer nas duas, lado a
+ * lado, de uma vez.
+ *
+ * Diferença deliberada: `pago_manual_em` (a baixa manual do admin) conta aqui e
+ * NÃO conta na versão em JavaScript. A baixa manual tira o envio da exposição,
+ * mas não é dinheiro confirmado — e `situacaoPagamento` é quem libera etiqueta.
+ *
+ * Os aliases internos (cart_pg, dir_pg, bol_pg) sao feios de proposito: o
+ * painel do admin ja usa `cl` para Clientes e `c` para cotacoes, e um alias
+ * curto aqui sombrearia o de fora sem erro nenhum do Postgres.
+ *
+ * @param {string} alias alias da tabela `cotacoes` na consulta de quem chama
+ * @returns {string} expressão booleana entre parênteses, pronta para WHERE/FILTER
+ */
+function sqlCotacaoPaga(alias = 'c') {
+    return `(
+        ${alias}.pago_manual_em IS NOT NULL
+     OR EXISTS (SELECT 1 FROM carteira_lancamentos cart_pg
+                 WHERE cart_pg.chave = 'envio:cotacao:' || ${alias}.id)
+     OR EXISTS (SELECT 1 FROM pagamentos dir_pg
+                 WHERE dir_pg.cotacao_id = ${alias}.id
+                   AND dir_pg.finalidade = 'cotacao'
+                   AND dir_pg.status = 'PAGO')
+     OR EXISTS (SELECT 1 FROM "AsaasBoletos" bol_pg
+                 WHERE bol_pg."cotacaoId" = ${alias}.id
+                   AND bol_pg.status IN ('RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'))
+    )`;
+}
+
+/**
  * Composição do valor da remessa, em USD e em BRL.
  *
  * O imposto entra pelo campo que a cotação carrega (`impostos_valor_brl`), que
@@ -162,4 +200,4 @@ async function situacaoPagamento(cotacao) {
     };
 }
 
-module.exports = { composicaoCotacao, situacaoPagamento, chaveDebito, chaveEstorno };
+module.exports = { composicaoCotacao, situacaoPagamento, sqlCotacaoPaga, chaveDebito, chaveEstorno };
